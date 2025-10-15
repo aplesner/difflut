@@ -6,6 +6,20 @@ from typing import Optional, Callable
 from .base_node import BaseNode
 from ..registry import register_node
 
+
+class GradientScalingFunction(torch.autograd.Function):
+    """Custom autograd function that scales gradients during backward pass only."""
+    
+    @staticmethod
+    def forward(ctx, input, grad_factor):
+        ctx.grad_factor = grad_factor
+        return input
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        return grad_output * ctx.grad_factor, None
+
+
 @register_node("neurallut")
 class NeuralLUTNode(BaseNode):
     """
@@ -21,7 +35,12 @@ class NeuralLUTNode(BaseNode):
                  skip_interval: int = 2,
                  init_fn: Optional[Callable] = None,
                  activation: str = 'relu',
-                 regularizers: dict = None):
+                 regularizers: dict = None,
+                 tau_start: float = 1.0,
+                 tau_min: float = 0.0001,
+                 tau_decay_iters: float = 1000.0,
+                 ste: bool = False,
+                 grad_factor: float = 1.0):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
@@ -32,15 +51,30 @@ class NeuralLUTNode(BaseNode):
             init_fn: Optional initialization function
             activation: Activation function ('relu' or 'sigmoid')
             regularizers: Dict of custom regularization functions
+            tau: Initial output scaling factor (division) for backward pass (default: 1.0)
+            tau_start: Starting value for tau exponential decay (default: 1.0)
+            tau_min: Minimum value tau can decay to (default: 0.0001)
+            tau_decay_iters: Number of iterations for tau to decay by factor of 10 (default: 1000.0)
+            ste: Whether to use Straight-Through Estimator (default: False)
+            grad_factor: Gradient scaling factor for backward pass (default: 1.0)
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        self.output_dim = output_dim
         self.hidden_width = hidden_width
         self.depth = depth
         self.skip_interval = skip_interval
         self.activation_type = activation
-        
+        self.grad_factor = grad_factor
+        self.ste = ste
+        # Tau decay parameters
+        self.tau_start = tau_start
+        self.tau_min = tau_min
+        self.tau_decay_iters = tau_decay_iters
+        self.tau = tau_start  # Start with tau_start instead of tau
         # Build the MLP with skip connections
         self._build_network(init_fn)
+
+        self.ste_if = self.ste_forward if self.ste else lambda y_soft, u: y_soft
         
         # LUT storage for evaluation mode
         self.register_buffer('lut_table', None)
@@ -93,6 +127,8 @@ class NeuralLUTNode(BaseNode):
         """Apply activation function."""
         if self.activation_type == 'sigmoid':
             return torch.sigmoid(x)
+        elif self.activation_type == 'leakyrelu':
+            return F.leaky_relu(x)
         else:
             return F.relu(x)
 
@@ -115,16 +151,29 @@ class NeuralLUTNode(BaseNode):
         
         return h
 
+    def ste_forward(self, y_soft: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
+        y_hard = (y_soft > 0.5).float()
+        output = y_hard.detach() - y_soft.detach() + y_soft
+        return output
+
+
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during training."""
+        """Forward pass during training with binary rounding and STE."""
         if x.dim() == 3:
             x = x.squeeze(1)
         
         # MLP forward + sigmoid
-        output = self._mlp_forward(x)
-        output = torch.sigmoid(output)
+        logits = self._mlp_forward(x)
         
-        if self.num_outputs == 1:
+        u = torch.rand_like(logits)
+        y_soft = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.tau)
+        output = self.ste_if(y_soft, u)
+        
+        # Apply gradient scaling using custom autograd function
+        # This only affects gradients, not forward pass values
+        output = GradientScalingFunction.apply(output, torch.tensor(self.grad_factor, device=output.device))
+        
+        if self.output_dim == 1:
             output = output.squeeze(-1)
         
         return output
@@ -169,7 +218,22 @@ class NeuralLUTNode(BaseNode):
         """No built-in regularization by default."""
         return torch.tensor(0.0, device=next(self.parameters()).device)
 
+    def update_tau(self, iteration: int):
+        """
+        Update tau using exponential decay.
+        
+        Args:
+            iteration: Current training iteration
+        """
+        # Calculate decay factor: tau = tau_start * 10^(-iteration / tau_decay_iters)
+        # This means tau decays by a factor of 10 every tau_decay_iters iterations
+        decay_factor = 10.0 ** (-iteration / self.tau_decay_iters)
+        self.tau = max(self.tau_start * decay_factor, self.tau_min)
+
     def extra_repr(self) -> str:
         return f"input_dim={self.input_dim}, output_dim={self.output_dim}, " \
                f"hidden_width={self.hidden_width}, depth={self.depth}, " \
-               f"skip_interval={self.skip_interval}, activation={self.activation_type}"
+               f"skip_interval={self.skip_interval}, activation={self.activation_type}, " \
+               f"grad_factor={self.grad_factor}", \
+               f"tau={self.tau:.4f}, tau_start={self.tau_start}, " \
+               f"tau_min={self.tau_min}, tau_decay_iters={self.tau_decay_iters}"
