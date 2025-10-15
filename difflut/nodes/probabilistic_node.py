@@ -13,36 +13,35 @@ class ProbabilisticNode(BaseNode):
     """
     
     def __init__(self, 
-                 num_inputs: int,
-                 output_dim: int = 1,
+                 input_dim: list = None,
+                 output_dim: list = None,
                  init_fn: Optional[Callable] = None,
                  regularizers: dict = None,
                  temperature: float = 1.0,
                  eval_mode: str = "expectation"):
         """
         Args:
-            num_inputs: Number of LUT inputs
-            output_dim: Number of output bits
+            input_dim: Input dimensions as list (e.g., [6])
+            output_dim: Output dimensions as list (e.g., [1])
             init_fn: Optional initialization function
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(num_inputs=num_inputs, regularizers=regularizers)
-        self.output_dim = output_dim
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.register_buffer('temperature', torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
         
         # Store raw weights (logits) that will be passed through sigmoid
         if init_fn:
-            self.raw_weights = nn.Parameter(init_fn((2**num_inputs, output_dim)))
+            self.raw_weights = nn.Parameter(init_fn((2**self.num_inputs, self.num_outputs)))
         else:
-            self.raw_weights = nn.Parameter(torch.randn(2**num_inputs, output_dim))
+            self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
         
         # Precompute all binary combinations
         binary_combinations = []
-        for i in range(2**num_inputs):
+        for i in range(2**self.num_inputs):
             bits = []
-            for j in range(num_inputs):
+            for j in range(self.num_inputs):
                 bits.append((i >> j) & 1)
             binary_combinations.append(bits)
         
@@ -100,13 +99,46 @@ class ProbabilisticNode(BaseNode):
         # Product over input dimensions: (batch_size, 2^num_inputs)
         probs = torch.prod(prob_terms, dim=2)
         
-        # Use sigmoid weights: (2^num_inputs, output_dim)
+        # Use sigmoid weights: (2^num_inputs, num_outputs)
         weights = self.weights
         
-        # Matrix multiply: (batch_size, 2^num_inputs) @ (2^num_inputs, output_dim) -> (batch_size, output_dim)
+        # Matrix multiply: (batch_size, 2^num_inputs) @ (2^num_inputs, num_outputs) -> (batch_size, num_outputs)
         output = torch.matmul(probs, weights)
         
-        if self.output_dim == 1:
+        if self.num_outputs == 1:
+            output = output.squeeze(-1)
+        
+        return output
+
+    def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
+        This makes it behave like a real LUT with binary outputs.
+        """
+        if x.dim() == 3:
+            x = x.squeeze(1)
+        
+        # Compute same as forward_train (probabilistic expectation)
+        batch_size = x.shape[0]
+        
+        # Vectorized probability computation
+        x_expanded = x.unsqueeze(1)  # (batch_size, 1, num_inputs)
+        a_expanded = self.binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
+        
+        # Compute Pr(a|x) for all combinations at once
+        prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
+        probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^num_inputs)
+        
+        # Use sigmoid weights
+        weights = self.weights
+        
+        # Matrix multiply to get output
+        output = torch.matmul(probs, weights)
+        
+        # Discretize: Heaviside at 0.5 since forward_train output is in [0,1]
+        output = (output >= 0.5).float()
+        
+        if self.num_outputs == 1:
             output = output.squeeze(-1)
         
         return output
@@ -116,4 +148,4 @@ class ProbabilisticNode(BaseNode):
         return torch.tensor(0.0, device=self.raw_weights.device)
 
     def extra_repr(self) -> str:
-        return f"num_inputs={self.num_inputs}, output_dim={self.output_dim}"
+        return f"input_dim={self.input_dim}, output_dim={self.output_dim}"

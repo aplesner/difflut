@@ -7,6 +7,7 @@ from .base_layer import BaseLUTLayer
 from .random_layer import RandomLayer
 from .learnable_layer import LearnableLayer
 from .grouped_layer import GroupedLayer
+from .residual_layer import ResidualLayer
 
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     'RandomLayer', 
     'LearnableLayer',
     'GroupedLayer',
+    'ResidualLayer',
 ]

@@ -9,9 +9,9 @@ from .linear_lut_node import LinearLUTNode
 from .probabilistic_node import ProbabilisticNode
 from .polylut_node import PolyLUTNode
 from .neurallut_node import NeuralLUTNode
-from .unbound_probabilistic_node import UnboundProbabilisticNode
 from .hybrid_node import HybridNode
-from .fourier_node import FourierNode, FourierHermitianNode
+from .fourier_node import FourierNode
+from .gradient_stabilized_node import GradientStabilizedNode
 
 __all__ = [
     'BaseNode',
@@ -20,8 +20,7 @@ __all__ = [
     'ProbabilisticNode',
     'PolyLUTNode',
     'NeuralLUTNode',
-    'UnboundProbabilisticNode',
     'HybridNode',
     'FourierNode',
-    'FourierHermitianNode'
+    'GradientStabilizedNode',
 ]

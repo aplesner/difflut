@@ -14,8 +14,8 @@ class NeuralLUTNode(BaseNode):
     """
     
     def __init__(self, 
-                 num_inputs: int,
-                 output_dim: int = 1,
+                 input_dim: list = None,
+                 output_dim: list = None,
                  hidden_width: int = 16,
                  depth: int = 4,
                  skip_interval: int = 2,
@@ -24,8 +24,8 @@ class NeuralLUTNode(BaseNode):
                  regularizers: dict = None):
         """
         Args:
-            num_inputs: Number of input bits
-            output_dim: Number of output dimensions
+            input_dim: Input dimensions as list (e.g., [6])
+            output_dim: Output dimensions as list (e.g., [1])
             hidden_width: Width of hidden layers
             depth: Number of layers in the MLP
             skip_interval: Interval for skip connections (0 = no skips)
@@ -33,8 +33,7 @@ class NeuralLUTNode(BaseNode):
             activation: Activation function ('relu' or 'sigmoid')
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(num_inputs=num_inputs, regularizers=regularizers)
-        self.output_dim = output_dim
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.hidden_width = hidden_width
         self.depth = depth
         self.skip_interval = skip_interval
@@ -53,7 +52,7 @@ class NeuralLUTNode(BaseNode):
         
         # Input layer
         in_features = self.num_inputs
-        out_features = self.hidden_width if self.depth > 1 else self.output_dim
+        out_features = self.hidden_width if self.depth > 1 else self.num_outputs
         self.layers.append(self._create_linear(in_features, out_features, init_fn))
         
         # Hidden layers
@@ -63,14 +62,14 @@ class NeuralLUTNode(BaseNode):
         
         # Output layer
         if self.depth > 1:
-            self.layers.append(self._create_linear(self.hidden_width, self.output_dim, init_fn))
+            self.layers.append(self._create_linear(self.hidden_width, self.num_outputs, init_fn))
         
         # Skip connections
         self.skip_layers = nn.ModuleList()
         if self.skip_interval > 0:
             for i in range(self.depth):
                 if i > 0 and i % self.skip_interval == 0:
-                    target_dim = self.hidden_width if i < self.depth - 1 else self.output_dim
+                    target_dim = self.hidden_width if i < self.depth - 1 else self.num_outputs
                     skip = self._create_linear(self.num_inputs, target_dim, init_fn)
                     self.skip_layers.append(skip)
                 else:
@@ -125,22 +124,25 @@ class NeuralLUTNode(BaseNode):
         output = self._mlp_forward(x)
         output = torch.sigmoid(output)
         
-        if self.output_dim == 1:
+        if self.num_outputs == 1:
             output = output.squeeze(-1)
         
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during evaluation - just use the MLP directly, no LUT."""
+        """
+        Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
+        This makes it behave like a real LUT with binary outputs.
+        """
         if x.dim() == 3:
             x = x.squeeze(1)
         
-        # For neurallut, just use the MLP directly during eval
-        # The LUT precomputation is only for FPGA export
+        # Compute same as forward_train (MLP + sigmoid)
         output = self._mlp_forward(x)
-        output = torch.sigmoid(output)
+        output = (output >= 0.0).float()
         
-        if self.output_dim == 1:
+           
+        if self.num_outputs == 1:
             output = output.squeeze(-1)
         
         return output
@@ -150,7 +152,7 @@ class NeuralLUTNode(BaseNode):
         device = next(self.parameters()).device
         num_entries = 2 ** self.num_inputs
         
-        lut = torch.zeros((num_entries, self.output_dim), device=device)
+        lut = torch.zeros((num_entries, self.num_outputs), device=device)
         
         with torch.no_grad():
             for i, bits in enumerate(itertools.product([0, 1], repeat=self.num_inputs)):
@@ -168,6 +170,6 @@ class NeuralLUTNode(BaseNode):
         return torch.tensor(0.0, device=next(self.parameters()).device)
 
     def extra_repr(self) -> str:
-        return f"num_inputs={self.num_inputs}, output_dim={self.output_dim}, " \
+        return f"input_dim={self.input_dim}, output_dim={self.output_dim}, " \
                f"hidden_width={self.hidden_width}, depth={self.depth}, " \
                f"skip_interval={self.skip_interval}, activation={self.activation_type}"

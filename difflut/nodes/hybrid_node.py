@@ -3,147 +3,87 @@ import torch.nn as nn
 from typing import Optional
 from .base_node import BaseNode
 from ..registry import register_node
-from .cuda import is_cuda_available, hybrid_forward
+from .cuda import is_cuda_available
 
-@register_node("hybrid")
-class HybridNode(BaseNode):
-    """
-    Hybrid LUT node combining DWN and UnboundProbabilistic approaches.
-    
-    Forward pass: Uses binary thresholding like DWN (discrete, efficient)
-    Backward pass: Uses probabilistic gradients like UnboundProbabilistic (smooth, trainable)
-    
-    This combines the best of both worlds:
-    - Fast, discrete inference (DWN)
-    - Smooth, effective gradients (UnboundProbabilistic)
-    """
-    
-    def __init__(self, 
-                 num_inputs: int, 
-                 output_dim: int = 1,
-                 use_cuda: bool = True,
-                 regularizers: dict = None):
-        """
-        Args:
-            num_inputs: Number of input bits (n)
-            output_dim: Number of output dimensions
-            use_cuda: Whether to use CUDA kernels (if available)
-            regularizers: Dict of custom regularization functions
-        """
-        super().__init__(num_inputs=num_inputs, regularizers=regularizers)
-        self.output_dim = output_dim
-        self.use_cuda = use_cuda and is_cuda_available()
-        
-        # Initialize LUT weights: shape (output_dim, 2^num_inputs)
-        lut_size = 2 ** num_inputs
-        self.luts = nn.Parameter(
-            torch.rand(output_dim, lut_size) * 2 - 1  # Uniform [-1, 1]
-        )
-        
-        # Create mapping tensor (each LUT maps to all inputs in order)
-        # Shape: (output_dim, num_inputs)
-        self.register_buffer(
-            'mapping', 
-            torch.arange(num_inputs, dtype=torch.int32).unsqueeze(0).expand(output_dim, -1)
-        )
-        
-        # Precompute all binary combinations for probabilistic backward
-        binary_combinations = []
-        for i in range(2**num_inputs):
-            bits = []
-            for j in range(num_inputs):
-                bits.append((i >> j) & 1)
-            binary_combinations.append(bits)
-        
-        self.register_buffer(
-            'binary_combinations',
-            torch.tensor(binary_combinations, dtype=torch.float32)
-        )
-         
-    def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
-        """
-        Convert binary input to LUT index.
-        
-        Args:
-            x_binary: Binary tensor of shape (batch_size, num_inputs)
-        Returns:
-            Indices of shape (batch_size,)
-        """
-        batch_size = x_binary.shape[0]
-        device = x_binary.device
-        indices = torch.zeros(batch_size, dtype=torch.long, device=device)
-        
-        # Build index bit by bit (LSB first, matching DWN)
-        for l in range(self.num_inputs):
-            indices = indices | (x_binary[:, l].long() << l)
-        
-        return indices
-    
-    def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass during training with hybrid behavior.
-        Uses CUDA kernel if available, otherwise falls back to Python.
-        """
-        # Handle dimension
-        if x.dim() == 3:
-            x = x.squeeze(1)
-        
-        # Use CUDA kernels if available and on GPU
-        if self.use_cuda and x.is_cuda:
-            # Ensure input is contiguous and float32
-            x_cont = x.contiguous().float()
-            
-            # CUDA kernel expects mapping as int32
-            mapping = self.mapping.int()
-            
-            # Call hybrid CUDA kernel
-            output = hybrid_forward(
-                x_cont, 
-                mapping, 
-                self.luts,
-                self.binary_combinations
-            )
-            
-            return output
-        else:
-            # Fallback to Python implementation
-            return self._forward_python(x)
-    
-    def _forward_python(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Python fallback implementation with custom backward.
-        Forward: Binary thresholding (DWN-style)
-        Backward: Probabilistic gradients (UnboundProbabilistic-style)
-        """
-        # Use custom autograd function
-        return HybridFunction.apply(x, self.luts, self.binary_combinations, self.num_inputs, self.output_dim)
-    
-    def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass during evaluation (same as training forward).
-        """
-        if x.dim() == 3:
-            x = x.squeeze(1)
-        
-        # Use CUDA for evaluation too if available
-        if self.use_cuda and x.is_cuda:
-            x_cont = x.contiguous().float()
-            mapping = self.mapping.int()
-            output = hybrid_forward(x_cont, mapping, self.luts, self.binary_combinations)
-            return output
-        else:
-            return self._forward_python(x)
-
-    def _builtin_regularization(self) -> torch.Tensor:
-        """No built-in regularization."""
-        return torch.tensor(0.0, device=self.luts.device, requires_grad=False)
+# Try to import the hybrid CUDA extension
+try:
+    import hybrid_cuda as _hybrid_cuda_module
+    _HYBRID_CUDA_EXT_AVAILABLE = True
+except ImportError:
+    _HYBRID_CUDA_EXT_AVAILABLE = False
+    _hybrid_cuda_module = None
 
 
 class HybridFunction(torch.autograd.Function):
     """
-    Custom autograd function for hybrid forward/backward.
-    Forward: Binary thresholding (discrete)
-    Backward: Probabilistic gradients (continuous)
+    PyTorch autograd function wrapper for Hybrid CUDA kernels.
+    Forward: Binary thresholding (DWN-style)
+    Backward: Probabilistic gradients (UnboundProbabilistic-style)
+    """
+    @staticmethod
+    def forward(ctx, input, mapping, luts, binary_combinations):
+        """
+        Forward pass using CUDA kernel.
+        
+        Args:
+            input: (batch_size, input_length) float tensor
+            mapping: (num_luts, n) int tensor - mapping of inputs to each LUT
+            luts: (num_luts, 2^n) float tensor - LUT values
+            binary_combinations: (2^n, n) float tensor - precomputed binary patterns
+        
+        Returns:
+            output: (batch_size, num_luts) float tensor
+        """
+        if not _HYBRID_CUDA_EXT_AVAILABLE:
+            raise RuntimeError("Hybrid CUDA extension not available. Please compile hybrid_cuda extension.")
+        
+        # Ensure correct dtypes and contiguity
+        input = input.contiguous().float()
+        mapping = mapping.contiguous().int()
+        luts = luts.contiguous().float()
+        binary_combinations = binary_combinations.contiguous().float()
+        
+        # Call CUDA forward kernel
+        output = _hybrid_cuda_module.forward(input, mapping, luts)
+        
+        # Save for backward
+        ctx.save_for_backward(input, mapping, luts, binary_combinations)
+        
+        return output
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass using CUDA kernel with probabilistic gradients.
+        
+        Args:
+            grad_output: (batch_size, num_luts) gradient tensor
+        
+        Returns:
+            Gradients for (input, mapping, luts, binary_combinations)
+        """
+        if not _HYBRID_CUDA_EXT_AVAILABLE:
+            raise RuntimeError("Hybrid CUDA extension not available. Please compile hybrid_cuda extension.")
+        
+        input, mapping, luts, binary_combinations = ctx.saved_tensors
+        
+        # Ensure contiguity
+        grad_output = grad_output.contiguous().float()
+        
+        # Call CUDA backward kernel
+        grad_input, grad_luts = _hybrid_cuda_module.backward(
+            input, mapping, luts, binary_combinations, grad_output
+        )
+        
+        # Return gradients (None for mapping and binary_combinations as they don't need gradients)
+        return grad_input, None, grad_luts, None
+
+
+class HybridFunctionCPU(torch.autograd.Function):
+    """
+    CPU fallback for Hybrid with custom backward.
+    Forward: Binary thresholding at 0.5 (DWN-style)
+    Backward: Probabilistic gradients (UnboundProbabilistic-style)
     """
     
     @staticmethod
@@ -152,7 +92,7 @@ class HybridFunction(torch.autograd.Function):
         Forward pass: Binary thresholding like DWN.
         
         Args:
-            x: Input tensor (batch_size, num_inputs)
+            x: Input tensor (batch_size, num_inputs) in [0, 1]
             luts: LUT weights (output_dim, 2^num_inputs)
             binary_combinations: Precomputed binary patterns (2^num_inputs, num_inputs)
             num_inputs: Number of inputs
@@ -164,7 +104,7 @@ class HybridFunction(torch.autograd.Function):
         ctx.output_dim = output_dim
         
         # Forward: Binary thresholding at 0.5 for [0, 1] inputs
-        x_binary = (x > 0.5).float()
+        x_binary = (x >= 0.5).float()
         
         # Convert to indices
         batch_size = x.shape[0]
@@ -198,9 +138,8 @@ class HybridFunction(torch.autograd.Function):
         
         batch_size = x.shape[0]
         
-        # Ensure x is in [0, 1] range for probabilistic computation
-        # Apply sigmoid to map any range to [0, 1]
-        x_prob = torch.sigmoid(x)
+        # Input x is already in [0, 1] range, use directly for probabilistic computation
+        x_prob = x
         
         # Compute probabilistic expectation for gradient
         # x_prob: (batch_size, num_inputs)
@@ -215,24 +154,18 @@ class HybridFunction(torch.autograd.Function):
         probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^num_inputs)
         
         # Gradient w.r.t. LUTs
-        # grad_output: (batch_size,) or (batch_size, output_dim)
         if grad_output.dim() == 1:
             grad_output = grad_output.unsqueeze(1)
         
         # grad_luts = probs^T @ grad_output
-        # probs: (batch_size, 2^num_inputs)
-        # grad_output: (batch_size, output_dim)
-        # Result: (2^num_inputs, output_dim)
         grad_luts = torch.matmul(probs.t(), grad_output)
         grad_luts = grad_luts.t()  # (output_dim, 2^num_inputs)
         
         # Gradient w.r.t. inputs
-        # For each input j, ∂Pr(a|x)/∂x_j = Pr(a|x) * (a_j - x_j) / (x_j * (1 - x_j))
         grad_input = torch.zeros_like(x)
         
         for j in range(num_inputs):
             # Derivative of probability w.r.t. x_j
-            # ∂Pr(a|x)/∂x_j = Pr(a|x) * [(a_j - x_j) / (x_j(1-x_j) + eps)]
             eps = 1e-8
             a_j = binary_combinations[:, j].unsqueeze(0)  # (1, 2^num_inputs)
             x_j = x_prob[:, j].unsqueeze(1)  # (batch_size, 1)
@@ -247,17 +180,173 @@ class HybridFunction(torch.autograd.Function):
             for dim in range(output_dim):
                 lut_weights = luts[dim, :].unsqueeze(0)  # (1, 2^num_inputs)
                 grad_j = torch.sum(prob_deriv * lut_weights, dim=1)  # (batch_size,)
-                
-                if output_dim == 1:
-                    grad_input[:, j] += grad_j * grad_output[:, dim]
-                else:
-                    grad_input[:, j] += grad_j * grad_output[:, dim]
-            
-            # Apply chain rule for sigmoid
-            sigmoid_grad = x_prob[:, j] * (1 - x_prob[:, j])
-            grad_input[:, j] *= sigmoid_grad
+                grad_input[:, j] += grad_j * grad_output[:, dim]
         
         return grad_input, grad_luts, None, None, None
+
+
+def hybrid_forward(input, mapping, luts, binary_combinations):
+    """
+    Hybrid forward pass with automatic differentiation support.
+    Forward: Binary thresholding at 0.5 (efficient, discrete)
+    Backward: Probabilistic gradients (smooth, trainable)
+    
+    Args:
+        input: (batch_size, input_length) tensor in [0, 1]
+        mapping: (num_luts, n) int tensor
+        luts: (num_luts, 2^n) tensor in [0, 1]
+        binary_combinations: (2^n, n) tensor - precomputed binary patterns
+    
+    Returns:
+        output: (batch_size, num_luts) tensor
+    """
+    if _HYBRID_CUDA_EXT_AVAILABLE and input.is_cuda:
+        return HybridFunction.apply(input, mapping, luts, binary_combinations)
+    else:
+        # CPU fallback - extract num_inputs and output_dim from shapes
+        num_inputs = mapping.shape[1]
+        output_dim = luts.shape[0]
+        return HybridFunctionCPU.apply(input, luts, binary_combinations, num_inputs, output_dim)
+
+@register_node("hybrid")
+class HybridNode(BaseNode):
+    """
+    Hybrid LUT node combining DWN and UnboundProbabilistic approaches.
+    
+    Forward pass: Uses binary thresholding like DWN (discrete, efficient)
+    Backward pass: Uses probabilistic gradients like UnboundProbabilistic (smooth, trainable)
+    
+    This combines the best of both worlds:
+    - Fast, discrete inference (DWN)
+    - Smooth, effective gradients (UnboundProbabilistic)
+    """
+    
+    def __init__(self, 
+                 input_dim: list = None,
+                 output_dim: list = None,
+                 use_cuda: bool = True,
+                 regularizers: dict = None):
+        """
+        Args:
+            input_dim: Input dimensions as list (e.g., [6])
+            output_dim: Output dimensions as list (e.g., [1])
+            use_cuda: Whether to use CUDA kernels (if available)
+            regularizers: Dict of custom regularization functions
+        """
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        self.use_cuda = use_cuda and is_cuda_available()
+        
+        # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
+        # Gaussian initialization around 0
+        lut_size = 2 ** self.num_inputs
+        self.raw_luts = nn.Parameter(
+            torch.randn(self.num_outputs, lut_size) * 0.1  # Gaussian N(0, 0.1^2)
+        )
+        
+        # Create mapping tensor (each LUT maps to all inputs in order)
+        # Shape: (num_outputs, num_inputs)
+        self.register_buffer(
+            'mapping', 
+            torch.arange(self.num_inputs, dtype=torch.int32).unsqueeze(0).expand(self.num_outputs, -1)
+        )
+        
+        # Precompute all binary combinations for probabilistic backward
+        binary_combinations = []
+        for i in range(2**self.num_inputs):
+            bits = []
+            for j in range(self.num_inputs):
+                bits.append((i >> j) & 1)
+            binary_combinations.append(bits)
+        
+        self.register_buffer(
+            'binary_combinations',
+            torch.tensor(binary_combinations, dtype=torch.float32)
+        )
+    
+    def _get_luts(self) -> torch.Tensor:
+        """
+        Get actual LUT weights by applying sigmoid to raw weights.
+        Maps from (-inf, inf) to [0, 1].
+        """
+        return torch.sigmoid(self.raw_luts)
+         
+    def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
+        """
+        Convert binary input to LUT index.
+        
+        Args:
+            x_binary: Binary tensor of shape (batch_size, num_inputs)
+        Returns:
+            Indices of shape (batch_size,)
+        """
+        batch_size = x_binary.shape[0]
+        device = x_binary.device
+        indices = torch.zeros(batch_size, dtype=torch.long, device=device)
+        
+        # Build index bit by bit (LSB first, matching DWN)
+        for l in range(self.num_inputs):
+            indices = indices | (x_binary[:, l].long() << l)
+        
+        return indices
+    
+    def forward_train(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass during training with automatic CUDA/CPU dispatch.
+        Inputs are in [0, 1], binarized using Heaviside at 0.5.
+        """
+        # Handle dimension
+        if x.dim() == 3:
+            x = x.squeeze(1)
+        
+        # Get actual LUT weights via sigmoid
+        luts = self._get_luts()
+        
+        # Use hybrid_forward which handles CUDA/CPU dispatch automatically
+        if self.use_cuda and x.is_cuda:
+            x = x.contiguous().float()
+            mapping = self.mapping.int()
+        else:
+            mapping = self.mapping
+        
+        return hybrid_forward(x, mapping, luts, self.binary_combinations)
+    
+    def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Evaluation: Inputs already binarized in {0, 1}.
+        Output binarized to {0, 1} using Heaviside at 0.5.
+        """
+        if x.dim() == 3:
+            x = x.squeeze(1)
+        
+        # Get actual LUT weights via sigmoid
+        luts = self._get_luts()
+        
+        # Inputs are already binarized in {0, 1}, use directly
+        x_binary = x.long()
+        batch_size = x_binary.shape[0]
+        device = x_binary.device
+        
+        indices = torch.zeros(batch_size, dtype=torch.long, device=device)
+        for l in range(self.num_inputs):
+            indices = indices | (x_binary[:, l] << l)
+        
+        if self.num_outputs == 1:
+            output = luts[0, indices]
+        else:
+            outputs = []
+            for dim in range(self.num_outputs):
+                outputs.append(luts[dim, indices])
+            output = torch.stack(outputs, dim=1)
+        
+        # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
+        # output >= 0.5 -> 1, output < 0.5 -> 0
+        output = (output >= 0.5).float()
+        
+        return output
+
+    def _builtin_regularization(self) -> torch.Tensor:
+        """No built-in regularization."""
+        return torch.tensor(0.0, device=self.raw_luts.device, requires_grad=False)
 
 
 # Export

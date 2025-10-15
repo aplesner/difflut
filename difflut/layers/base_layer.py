@@ -18,11 +18,12 @@ class BaseLUTLayer(nn.Module, ABC):
         self.output_size = output_size
         self.n = n
         
-        # Create nodes
+        # Create nodes with new input_dim and output_dim interface
         self.nodes = nn.ModuleList()
         for i in range(output_size):
             node_kwargs_i = node_kwargs or {}
-            node = node_type(num_inputs=n, **node_kwargs_i)
+            # Use new interface: input_dim and output_dim as lists
+            node = node_type(input_dim=[n], output_dim=[1], **node_kwargs_i)
             self.nodes.append(node)
     
     @abstractmethod

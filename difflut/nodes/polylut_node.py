@@ -13,25 +13,24 @@ class PolyLUTNode(BaseNode):
     """
     
     def __init__(self, 
-                 num_inputs: int,
-                 output_dim: int = 1,
+                 input_dim: list = None,
+                 output_dim: list = None,
                  degree: int = 2,
                  init_fn: Optional[Callable] = None,
                  regularizers: dict = None):
         """
         Args:
-            num_inputs: Number of inputs to the LUT
-            output_dim: Number of output values
+            input_dim: Input dimensions as list (e.g., [6])
+            output_dim: Output dimensions as list (e.g., [1])
             degree: Maximum degree of polynomial terms
             init_fn: Optional initialization function
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(num_inputs=num_inputs, regularizers=regularizers)
-        self.output_dim = output_dim
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.degree = degree
         
         # Generate all monomial combinations up to degree D
-        self.monomial_combinations = self._generate_monomial_combinations(num_inputs, degree)
+        self.monomial_combinations = self._generate_monomial_combinations(self.num_inputs, degree)
         self.num_monomials = len(self.monomial_combinations)
         
         # Store as buffer for efficient computation
@@ -40,9 +39,9 @@ class PolyLUTNode(BaseNode):
         
         # Initialize weights for polynomial coefficients
         if init_fn:
-            self.weights = nn.Parameter(init_fn((self.num_monomials, output_dim)))
+            self.weights = nn.Parameter(init_fn((self.num_monomials, self.num_outputs)))
         else:
-            self.weights = nn.Parameter(torch.randn(self.num_monomials, output_dim) * 0.1)
+            self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
 
     def _generate_monomial_combinations(self, num_inputs: int, degree: int) -> list:
         """Generate all monomial combinations up to given degree."""
@@ -97,24 +96,29 @@ class PolyLUTNode(BaseNode):
         monomials = self._compute_monomials(x)  # [batch, num_monomials]
         
         # Linear combination of monomials
-        z = torch.matmul(monomials, self.weights)  # [batch, output_dim]
+        z = torch.matmul(monomials, self.weights)  # [batch, num_outputs]
         output = torch.sigmoid(z)
         
-        if self.output_dim == 1:
+        if self.num_outputs == 1:
             output = output.squeeze(-1)
         
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during evaluation: polynomial transform + step function."""
+        """
+        Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
+        This makes it behave like a real LUT with binary outputs.
+        """
         if x.dim() == 3:
             x = x.squeeze(1)
         
+        # Compute same as forward_train (polynomial + sigmoid)
         monomials = self._compute_monomials(x)
         z = torch.matmul(monomials, self.weights)
-        output = (z >= 0).float()
+        output = (z >= 0.0).float()
+
         
-        if self.output_dim == 1:
+        if self.num_outputs == 1:
             output = output.squeeze(-1)
         
         return output
@@ -124,5 +128,5 @@ class PolyLUTNode(BaseNode):
         return torch.tensor(0.0, device=self.weights.device)
 
     def extra_repr(self) -> str:
-        return f"num_inputs={self.num_inputs}, output_dim={self.output_dim}, " \
+        return f"input_dim={self.input_dim}, output_dim={self.output_dim}, " \
                f"degree={self.degree}, num_monomials={self.num_monomials}"

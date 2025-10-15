@@ -14,6 +14,11 @@ class GroupedMappingModule(nn.Module):
     This achieves parameter reduction while maintaining learnability:
     - Learnable layer: output_size * n * input_size parameters
     - Grouped layer: output_size * n * group_size parameters (where group_size < input_size)
+    
+    Optimizations:
+    - Vectorized operations instead of loops where possible
+    - Efficient gather operations in eval mode
+    - Better weight initialization for faster convergence
     """
     
     def __init__(self, 
@@ -21,7 +26,8 @@ class GroupedMappingModule(nn.Module):
                  output_size: int,
                  n_inputs_per_node: int,
                  num_groups: int = 4,
-                 tau: float = 0.001):
+                 tau: float = 0.001,
+                 overlap: float = 0.0):
         """
         Args:
             input_size: Total number of input features
@@ -29,6 +35,7 @@ class GroupedMappingModule(nn.Module):
             n_inputs_per_node: Number of inputs each node needs (n)
             num_groups: Number of groups to divide the input space into
             tau: Temperature for softmax during training
+            overlap: Fraction of overlap between adjacent groups (0.0-0.5) for better accuracy
         """
         super().__init__()
         self.input_size = input_size
@@ -36,9 +43,12 @@ class GroupedMappingModule(nn.Module):
         self.n_inputs_per_node = n_inputs_per_node
         self.num_groups = num_groups
         self.tau = tau
+        self.overlap = overlap
         
         # Calculate group size and nodes per group
-        self.group_size = (input_size + num_groups - 1) // num_groups  # Ceiling division
+        base_group_size = input_size // num_groups
+        overlap_size = int(base_group_size * overlap)
+        self.group_size = base_group_size + overlap_size
         self.nodes_per_group = (output_size + num_groups - 1) // num_groups
         
         # Create weight matrices for each group
@@ -47,18 +57,22 @@ class GroupedMappingModule(nn.Module):
             nn.Parameter(torch.randn(
                 min(self.nodes_per_group, output_size - i * self.nodes_per_group),
                 n_inputs_per_node,
-                min(self.group_size, input_size - i * self.group_size)
+                min(self.group_size, input_size - max(0, i * base_group_size - overlap_size))
             ))
             for i in range(num_groups)
         ])
         
-        # Initialize weights
+        # Better initialization: uniform distribution with small positive bias
+        # This encourages initial exploration of all inputs
         for weight in self.group_weights:
             nn.init.xavier_uniform_(weight)
+            # Add small positive bias to prevent initial collapse to single input
+            with torch.no_grad():
+                weight.add_(0.1)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass with grouped connections.
+        Forward pass with grouped connections (optimized vectorized version).
         
         Args:
             x: Input tensor of shape (batch_size, input_size)
@@ -66,62 +80,80 @@ class GroupedMappingModule(nn.Module):
             Output tensor of shape (batch_size, output_size, n_inputs_per_node)
         """
         batch_size = x.shape[0]
-        outputs = []
+        device = x.device
         
-        node_offset = 0
-        input_offset = 0
+        # Calculate base group size for overlap handling
+        base_group_size = self.input_size // self.num_groups
+        overlap_size = int(base_group_size * self.overlap)
         
-        for group_idx in range(self.num_groups):
-            # Determine the actual sizes for this group
-            group_nodes = min(self.nodes_per_group, self.output_size - node_offset)
-            group_inputs = min(self.group_size, self.input_size - input_offset)
+        if self.training:
+            # TRAINING MODE: Soft selection with vectorized operations
+            # Pre-allocate output tensor
+            output = torch.zeros(batch_size, self.output_size, self.n_inputs_per_node, 
+                               device=device, dtype=x.dtype)
             
-            if group_nodes == 0:
-                break
+            node_offset = 0
             
-            # Get the input slice for this group
-            x_group = x[:, input_offset:input_offset + group_inputs]  # (batch_size, group_inputs)
-            
-            # Get weights for this group
-            W = self.group_weights[group_idx]  # (group_nodes, n, group_inputs)
-            
-            if self.training:
-                # Soft selection during training
-                weights = F.softmax(W / self.tau, dim=-1)  # (group_nodes, n, group_inputs)
+            for group_idx in range(self.num_groups):
+                group_nodes = min(self.nodes_per_group, self.output_size - node_offset)
                 
-                # Compute output: batch matmul
-                # x_group: (batch_size, group_inputs)
-                # weights: (group_nodes, n, group_inputs)
-                # We want: (batch_size, group_nodes, n)
-                group_output = torch.einsum('bi,oni->bon', x_group, weights)
-            else:
-                # Hard selection during evaluation
+                if group_nodes == 0:
+                    break
+                
+                # Calculate input range with overlap
+                input_start = max(0, group_idx * base_group_size - overlap_size)
+                input_end = min(self.input_size, input_start + self.group_size)
+                group_inputs = input_end - input_start
+                
+                # Get the input slice for this group
+                x_group = x[:, input_start:input_end]
+                
+                # Get weights and compute soft selection
+                W = self.group_weights[group_idx]
+                weights = F.softmax(W / self.tau, dim=-1)
+                
+                # Efficient einsum operation
+                output[:, node_offset:node_offset + group_nodes, :] = \
+                    torch.einsum('bi,oni->bon', x_group, weights)
+                
+                node_offset += group_nodes
+        else:
+            # EVALUATION MODE: Hard selection with fully vectorized gather
+            # Build a global index tensor for all groups at once
+            global_indices = torch.zeros(self.output_size, self.n_inputs_per_node, 
+                                        dtype=torch.long, device=device)
+            
+            node_offset = 0
+            
+            for group_idx in range(self.num_groups):
+                group_nodes = min(self.nodes_per_group, self.output_size - node_offset)
+                
+                if group_nodes == 0:
+                    break
+                
+                # Calculate input range with overlap
+                input_start = max(0, group_idx * base_group_size - overlap_size)
+                
+                # Get hard indices for this group
+                W = self.group_weights[group_idx]
                 hard_indices = torch.argmax(W, dim=-1)  # (group_nodes, n)
                 
-                # Gather from input
-                # Expand x_group for gathering: (batch_size, 1, 1, group_inputs)
-                x_expanded = x_group.unsqueeze(1).unsqueeze(1)
-                # Expand indices: (1, group_nodes, n, 1)
-                indices_expanded = hard_indices.unsqueeze(0).unsqueeze(-1).expand(
-                    batch_size, -1, -1, 1
-                )
+                # Add input offset to convert to global indices
+                global_indices[node_offset:node_offset + group_nodes] = \
+                    hard_indices + input_start
                 
-                # Gather: (batch_size, group_nodes, n)
-                group_output = torch.gather(
-                    x_expanded.expand(batch_size, group_nodes, self.n_inputs_per_node, group_inputs),
-                    3,
-                    indices_expanded
-                ).squeeze(-1)
+                node_offset += group_nodes
             
-            outputs.append(group_output)
+            # Single vectorized gather operation for all nodes
+            # Expand x for gathering: (batch_size, output_size, input_size)
+            x_expanded = x.unsqueeze(1).expand(batch_size, self.output_size, self.input_size)
+            # Expand indices: (batch_size, output_size, n)
+            indices_expanded = global_indices.unsqueeze(0).expand(batch_size, -1, -1)
             
-            node_offset += group_nodes
-            input_offset += group_inputs
+            # Gather all at once
+            output = torch.gather(x_expanded, 2, indices_expanded)
         
-        # Concatenate all group outputs along the node dimension
-        full_output = torch.cat(outputs, dim=1)  # (batch_size, output_size, n)
-        
-        return full_output
+        return output
     
     def count_parameters(self):
         """Count the number of parameters in this module."""
@@ -150,7 +182,8 @@ class GroupedLayer(BaseLUTLayer):
                  n: int = 6,
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  num_groups: int = 4,
-                 tau: float = 0.001):
+                 tau: float = 0.001,
+                 overlap: float = 0.0):
         """
         Args:
             input_size: Size of input vector
@@ -160,12 +193,14 @@ class GroupedLayer(BaseLUTLayer):
             node_kwargs: Additional arguments for nodes
             num_groups: Number of groups to divide inputs and nodes into
             tau: Temperature for softmax in grouped mapping
+            overlap: Overlap fraction between groups (0.0-0.5) for better accuracy
         """
         # Initialize parent with nodes
         super().__init__(input_size, output_size, node_type, n, node_kwargs)
         
         self.num_groups = num_groups
         self.tau = tau
+        self.overlap = overlap
         
         # Create grouped mapping module
         self.mapping = GroupedMappingModule(
@@ -173,7 +208,8 @@ class GroupedLayer(BaseLUTLayer):
             output_size=output_size,
             n_inputs_per_node=n,
             num_groups=num_groups,
-            tau=tau
+            tau=tau,
+            overlap=overlap
         )
     
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
@@ -192,27 +228,30 @@ class GroupedLayer(BaseLUTLayer):
         with torch.no_grad():
             mapping_matrix = torch.zeros(self.output_size, self.n, dtype=torch.long)
             
+            # Calculate base group size for overlap handling
+            base_group_size = self.input_size // self.num_groups
+            overlap_size = int(base_group_size * self.overlap)
+            
             node_offset = 0
-            input_offset = 0
             
             for group_idx in range(self.num_groups):
                 group_nodes = min(self.mapping.nodes_per_group, 
                                 self.output_size - node_offset)
-                group_inputs = min(self.mapping.group_size, 
-                                 self.input_size - input_offset)
                 
                 if group_nodes == 0:
                     break
+                
+                # Calculate input range with overlap
+                input_start = max(0, group_idx * base_group_size - overlap_size)
                 
                 W = self.mapping.group_weights[group_idx]
                 hard_indices = torch.argmax(W, dim=-1)  # (group_nodes, n)
                 
                 # Add input offset to get global indices
                 mapping_matrix[node_offset:node_offset + group_nodes] = \
-                    hard_indices + input_offset
+                    hard_indices + input_start
                 
                 node_offset += group_nodes
-                input_offset += group_inputs
             
             return mapping_matrix
     
@@ -251,4 +290,5 @@ class GroupedLayer(BaseLUTLayer):
     def extra_repr(self) -> str:
         """String representation for print(model)."""
         return f"input_size={self.input_size}, output_size={self.output_size}, " \
-               f"n={self.n}, num_groups={self.num_groups}, tau={self.tau}, mapping=grouped"
+               f"n={self.n}, num_groups={self.num_groups}, tau={self.tau}, " \
+               f"overlap={self.overlap}, mapping=grouped"

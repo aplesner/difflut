@@ -84,16 +84,16 @@ class RandomLayer(BaseLUTLayer):
             Mapped inputs of shape (batch_size, output_size, n)
         """
         batch_size = x.shape[0]
-        device = x.device
         
-        # Pre-allocate output tensor
-        mapped_inputs = torch.zeros(batch_size, self.output_size, self.n,
-                                   device=device, dtype=x.dtype)
+        # Vectorized gathering - much faster than loop
+        # Shape of self._mapping: (output_size, n)
+        # Expand for batch dimension and gather
+        indices = self._mapping.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, output_size, n)
         
-        # Efficient gathering using advanced indexing
-        for node_idx in range(self.output_size):
-            indices = self._mapping[node_idx]  # Shape: (n,)
-            mapped_inputs[:, node_idx, :] = x[:, indices]
+        # Gather inputs using advanced indexing
+        # x[:, indices] doesn't work directly, so we use gather
+        x_expanded = x.unsqueeze(1).expand(-1, self.output_size, -1)  # (batch_size, output_size, input_size)
+        mapped_inputs = torch.gather(x_expanded, 2, indices)  # (batch_size, output_size, n)
         
         return mapped_inputs
     

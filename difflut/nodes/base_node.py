@@ -102,11 +102,12 @@ class BaseNode(nn.Module, ABC):
     Abstract base class for all LUT nodes with automatic gradient handling
     """
     
-    def __init__(self, num_inputs: int, use_surrogate: bool = True, 
-                 regularizers: dict = None):
+    def __init__(self, input_dim: list = None, output_dim: list = None, 
+                 use_surrogate: bool = True, regularizers: dict = None):
         """
         Args:
-            num_inputs: Number of inputs to the LUT node
+            input_dim: Input dimensions as a list (e.g., [6] for 6 inputs, [6, 6] for 6x6 inputs)
+            output_dim: Output dimensions as a list (e.g., [1] for single output, [4] for 4 outputs)
             use_surrogate: Whether to use surrogate gradients (if implemented)
             regularizers: Dict of regularization functions to apply.
                          Format: {"name": [reg_fn, weight], ...}
@@ -114,7 +115,15 @@ class BaseNode(nn.Module, ABC):
                          and returns a scalar tensor, and weight is a float.
         """
         super().__init__()
-        self.num_inputs = num_inputs
+        
+        # Set defaults if not provided
+        self.input_dim = input_dim if input_dim is not None else [1]
+        self.output_dim = output_dim if output_dim is not None else [1]
+        
+        # For backward compatibility, compute num_inputs as the product of input dimensions
+        self.num_inputs = int(torch.prod(torch.tensor(self.input_dim)).item())
+        self.num_outputs = int(torch.prod(torch.tensor(self.output_dim)).item())
+        
         self.use_surrogate = use_surrogate
         self.regularizers = regularizers or {}
     

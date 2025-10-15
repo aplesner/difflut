@@ -23,12 +23,13 @@ __global__ void hybrid_forward_kernel(
     
     if (batch_idx >= batch_size || lut_idx >= num_luts) return;
     
-    // Compute LUT address using binary thresholding
+    // Compute LUT address using binary thresholding at 0.5
     int addr = 0;
     for (int i = 0; i < n; i++) {
         int input_idx = mapping[lut_idx * n + i];
         float val = input[batch_idx * input_length + input_idx];
-        if (val > 0.5f) {
+        // Threshold at 0.5: val >= 0.5 -> 1, val < 0.5 -> 0
+        if (val >= 0.5f) {
             addr |= (1 << i);
         }
     }
@@ -39,7 +40,7 @@ __global__ void hybrid_forward_kernel(
 }
 
 // CUDA kernel for hybrid backward pass - input gradients
-// Backward: Probabilistic gradients (like UnboundProbabilistic)
+// Backward: Probabilistic gradients with inputs in [0, 1]
 __global__ void hybrid_backward_input_kernel(
     const float* __restrict__ input,
     const int* __restrict__ mapping,
@@ -62,9 +63,8 @@ __global__ void hybrid_backward_input_kernel(
     const int lut_size = 1 << n;
     const float eps = 1e-8f;
     
-    // Apply sigmoid to input for probabilistic computation
-    float x_val = input[batch_idx * input_length + input_idx];
-    float x_prob = 1.0f / (1.0f + expf(-x_val));
+    // Input is already in [0, 1], use directly for probabilistic computation
+    float x_prob = input[batch_idx * input_length + input_idx];
     
     float grad_sum = 0.0f;
     
@@ -88,7 +88,7 @@ __global__ void hybrid_backward_input_kernel(
             float prob = 1.0f;
             for (int i = 0; i < n; i++) {
                 int mapped_input = mapping[lut_idx * n + i];
-                float xi = 1.0f / (1.0f + expf(-input[batch_idx * input_length + mapped_input]));
+                float xi = input[batch_idx * input_length + mapped_input];
                 float ai = binary_combinations[addr * n + i];
                 prob *= (xi * ai + (1.0f - xi) * (1.0f - ai));
             }
@@ -105,9 +105,8 @@ __global__ void hybrid_backward_input_kernel(
         }
     }
     
-    // Apply chain rule for sigmoid
-    float sigmoid_grad = x_prob * (1.0f - x_prob);
-    grad_input[batch_idx * input_length + input_idx] = grad_sum * sigmoid_grad;
+    // No sigmoid chain rule needed since input is already in [0, 1]
+    grad_input[batch_idx * input_length + input_idx] = grad_sum;
 }
 
 // CUDA kernel for hybrid backward pass - LUT gradients
@@ -138,9 +137,8 @@ __global__ void hybrid_backward_lut_kernel(
         float prob = 1.0f;
         for (int i = 0; i < n; i++) {
             int mapped_input = mapping[lut_idx * n + i];
+            // Input is already in [0, 1], use directly
             float xi = input[batch_idx * input_length + mapped_input];
-            // Apply sigmoid
-            xi = 1.0f / (1.0f + expf(-xi));
             float ai = binary_combinations[addr * n + i];
             prob *= (xi * ai + (1.0f - xi) * (1.0f - ai));
         }
