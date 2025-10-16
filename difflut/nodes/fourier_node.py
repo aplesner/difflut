@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 from typing import Optional
+import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
@@ -13,6 +14,14 @@ try:
 except ImportError:
     _FOURIER_CUDA_EXT_AVAILABLE = False
     _fourier_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'fourier_cuda' not available. FourierNode will use slower CPU fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.fourier_node')",
+        RuntimeWarning,
+        stacklevel=2
+    )
 
 
 class FourierFunction(torch.autograd.Function):

@@ -1,6 +1,7 @@
 import torch
 from abc import ABC, abstractmethod
 from typing import Union, Optional
+import warnings
 
 class BaseEncoder(ABC):
     """
@@ -63,7 +64,8 @@ class BaseEncoder(ABC):
         if not self._is_fitted:
             raise RuntimeError(
                 f"{self.__class__.__name__} must be fitted before encoding. "
-                "Call fit() first."
+                "Call fit() first with your training data to compute encoding parameters. "
+                "Example: encoder.fit(train_data).encode(test_data)"
             )
     
     @property

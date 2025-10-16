@@ -1,6 +1,7 @@
 from typing import Optional
 import torch
 import torch.nn as nn
+import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
@@ -12,6 +13,14 @@ try:
 except ImportError:
     _GRADIENT_STABILIZED_CUDA_EXT_AVAILABLE = False
     _gradient_stabilized_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'gradient_stabilized_cuda' not available. GradientStabilizedNode will use slower CPU fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.gradient_stabilized_node')",
+        RuntimeWarning,
+        stacklevel=2
+    )
 
 
 class GradientStabilizedFunctionCUDA(torch.autograd.Function):

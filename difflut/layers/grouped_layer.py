@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Type, Dict, Any, Optional
+import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
 
@@ -37,6 +38,23 @@ class GroupedMappingModule(nn.Module):
             tau: Temperature for softmax during training
             overlap: Fraction of overlap between adjacent groups (0.0-0.5) for better accuracy
         """
+        # Validate inputs
+        if num_groups > input_size:
+            warnings.warn(
+                f"GroupedLayer: num_groups ({num_groups}) exceeds input_size ({input_size}). "
+                f"Each group will have very few inputs. Consider reducing num_groups or using LearnableLayer instead.",
+                UserWarning,
+                stacklevel=2
+            )
+        
+        if overlap < 0.0 or overlap > 0.5:
+            warnings.warn(
+                f"GroupedLayer: overlap should be between 0.0 and 0.5, got {overlap}. "
+                f"Values outside this range may cause unexpected behavior.",
+                UserWarning,
+                stacklevel=2
+            )
+        
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
@@ -50,6 +68,16 @@ class GroupedMappingModule(nn.Module):
         overlap_size = int(base_group_size * overlap)
         self.group_size = base_group_size + overlap_size
         self.nodes_per_group = (output_size + num_groups - 1) // num_groups
+        
+        # Warn if group size is very small
+        if self.group_size < n_inputs_per_node:
+            warnings.warn(
+                f"GroupedLayer: group_size ({self.group_size}) is smaller than n_inputs_per_node ({n_inputs_per_node}). "
+                f"This means nodes cannot select enough unique inputs within their group. "
+                f"Reduce num_groups or increase overlap.",
+                RuntimeWarning,
+                stacklevel=2
+            )
         
         # Create weight matrices for each group
         # Each group has nodes_per_group nodes, each selecting from group_size inputs

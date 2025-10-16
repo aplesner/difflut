@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional
+import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
@@ -12,6 +13,14 @@ try:
 except ImportError:
     _CUDA_EXT_AVAILABLE = False
     _efd_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'efd_cuda' not available. DWNNode will use slower CPU fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.dwn_node')",
+        RuntimeWarning,
+        stacklevel=2
+    )
 
 
 class EFDFunction(torch.autograd.Function):
@@ -203,6 +212,16 @@ class DWNNode(BaseNode):
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.use_cuda = use_cuda and is_cuda_available()
+        
+        # Warn if CUDA requested but not available
+        if use_cuda and not _CUDA_EXT_AVAILABLE:
+            warnings.warn(
+                "DWNNode: CUDA was requested (use_cuda=True) but CUDA extension is not available. "
+                "Using CPU fallback which may be significantly slower. "
+                "To enable CUDA: compile the extension with 'cd difflut && python setup.py install'",
+                RuntimeWarning,
+                stacklevel=2
+            )
         
         # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
         # Gaussian initialization around 0

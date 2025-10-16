@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Optional
+import warnings
 
 class CustomNodeFunction(torch.autograd.Function):
     """
@@ -124,8 +125,31 @@ class BaseNode(nn.Module, ABC):
         self.num_inputs = int(torch.prod(torch.tensor(self.input_dim)).item())
         self.num_outputs = int(torch.prod(torch.tensor(self.output_dim)).item())
         
+        # Warn about potentially large LUT sizes
+        lut_size = 2 ** self.num_inputs
+        if self.num_inputs > 10:
+            warnings.warn(
+                f"Node initialized with {self.num_inputs} inputs, resulting in a LUT size of {lut_size}. "
+                f"Large LUT sizes (>1024 entries) can cause memory issues and slow training. "
+                f"Consider using fewer inputs (n<=10) or using grouped/residual layers to reduce complexity.",
+                RuntimeWarning,
+                stacklevel=3
+            )
+        
         self.use_surrogate = use_surrogate
         self.regularizers = regularizers or {}
+        
+        # Warn if regularizers are provided but not in expected format
+        if regularizers:
+            for name, value in regularizers.items():
+                if not isinstance(value, (list, tuple)) or len(value) != 2:
+                    warnings.warn(
+                        f"Regularizer '{name}' should be a list/tuple of [function, weight], "
+                        f"but got {type(value).__name__}. This regularizer may not work correctly. "
+                        f"Example: regularizers={{'l2': [l2_weights, 0.01]}}",
+                        UserWarning,
+                        stacklevel=3
+                    )
     
     @abstractmethod
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:

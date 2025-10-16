@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional
+import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
@@ -12,6 +13,14 @@ try:
 except ImportError:
     _HYBRID_CUDA_EXT_AVAILABLE = False
     _hybrid_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'hybrid_cuda' not available. HybridNode will use slower CPU fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.hybrid_node')",
+        RuntimeWarning,
+        stacklevel=2
+    )
 
 
 class HybridFunction(torch.autograd.Function):

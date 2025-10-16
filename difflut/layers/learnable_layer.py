@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from typing import Type, Dict, Any, Optional
+import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
 
@@ -72,6 +73,25 @@ class LearnableLayer(BaseLUTLayer):
             tau_min: Minimum value tau can decay to
             tau_decay_iters: Number of iterations for tau to decay by factor of 10
         """
+        # Warn about parameter count
+        total_connections = output_size * n
+        if total_connections > input_size * 10:
+            warnings.warn(
+                f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
+                f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={n}).",
+                UserWarning,
+                stacklevel=2
+            )
+        
+        # Warn if tau parameters seem unusual
+        if tau_start < tau_min:
+            warnings.warn(
+                f"LearnableLayer: tau_start ({tau_start}) is less than tau_min ({tau_min}). "
+                f"This means tau will be clamped immediately. Set tau_start >= tau_min.",
+                UserWarning,
+                stacklevel=2
+            )
+        
         # Initialize parent with nodes
         super().__init__(input_size, output_size, node_type, n, node_kwargs)
         

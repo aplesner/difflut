@@ -5,6 +5,7 @@ Provides a centralized system for registering and retrieving nodes, layers, and 
 
 from typing import Dict, Type, Any, Optional, Callable
 import inspect
+import warnings
 
 
 class Registry:
@@ -35,7 +36,13 @@ class Registry:
         def decorator(cls: Type) -> Type:
             node_name = name if name is not None else cls.__name__
             if node_name in self._nodes:
-                raise ValueError(f"Node '{node_name}' is already registered")
+                warnings.warn(
+                    f"Node '{node_name}' is already registered and will be overwritten. "
+                    f"This may lead to unexpected behavior if other code depends on the original implementation. "
+                    f"Consider using a unique name or checking existing registrations with registry.list_nodes().",
+                    UserWarning,
+                    stacklevel=2
+                )
             self._nodes[node_name] = cls
             return cls
         return decorator
@@ -81,7 +88,13 @@ class Registry:
         def decorator(cls: Type) -> Type:
             layer_name = name if name is not None else cls.__name__
             if layer_name in self._layers:
-                raise ValueError(f"Layer '{layer_name}' is already registered")
+                warnings.warn(
+                    f"Layer '{layer_name}' is already registered and will be overwritten. "
+                    f"This may lead to unexpected behavior if other code depends on the original implementation. "
+                    f"Consider using a unique name or checking existing registrations with registry.list_layers().",
+                    UserWarning,
+                    stacklevel=2
+                )
             self._layers[layer_name] = cls
             return cls
         return decorator
@@ -127,7 +140,13 @@ class Registry:
         def decorator(cls: Type) -> Type:
             encoder_name = name if name is not None else cls.__name__
             if encoder_name in self._encoders:
-                raise ValueError(f"Encoder '{encoder_name}' is already registered")
+                warnings.warn(
+                    f"Encoder '{encoder_name}' is already registered and will be overwritten. "
+                    f"This may lead to unexpected behavior if other code depends on the original implementation. "
+                    f"Consider using a unique name or checking existing registrations with registry.list_encoders().",
+                    UserWarning,
+                    stacklevel=2
+                )
             self._encoders[encoder_name] = cls
             return cls
         return decorator

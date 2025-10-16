@@ -1,4 +1,5 @@
 import torch
+import warnings
 from .base_encoder import BaseEncoder
 from ..registry import register_encoder
 
@@ -63,6 +64,17 @@ class ThermometerEncoder(BaseEncoder):
             self for method chaining
         """
         x = self._to_tensor(x)
+
+        # Warn if num_bits is very large (exponential growth in features)
+        if self.num_bits > 32:
+            warnings.warn(
+                f"ThermometerEncoder: Using {self.num_bits} bits will create many features "
+                f"({self.num_bits} per input feature). This may lead to memory issues and overfitting. "
+                f"Consider using fewer bits (typically 4-8 bits is sufficient).",
+                UserWarning,
+                stacklevel=2
+            )
+        
         self.thresholds = self._compute_thresholds(x)
         self._is_fitted = True
         return self
