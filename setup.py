@@ -44,6 +44,6 @@ setup(
     ],
     python_requires='>=3.7',
     description='Differentiable LUT-based neural networks',
-    author='Your Name',
+    author='Simon Buehrer',
     license='MIT',
 )
