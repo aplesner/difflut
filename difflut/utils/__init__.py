@@ -12,6 +12,8 @@ from .regularizers import (
     COMMON_REGULARIZERS,
 )
 
+from .modules import GroupSum
+
 __all__ = [
     'l1_weights',
     'l2_weights',
@@ -22,4 +24,5 @@ __all__ = [
     'gradient_penalty',
     'orthogonality_regularizer',
     'COMMON_REGULARIZERS',
+    'GroupSum',
 ]
