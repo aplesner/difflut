@@ -17,16 +17,16 @@ from .nodes import (
     NeuralLUTNode,
     PolyLUTNode,
     ProbabilisticNode,
-    UnboundProbabilisticNode,
     HybridNode,
     FourierNode,
-    FourierHermitianNode,
+    GradientStabilizedNode,
 )
 
 from .layers import (
     RandomLayer,
     LearnableLayer,
     GroupedLayer,
+    ResidualLayer,
 )
 
 from .encoder import (
@@ -60,15 +60,15 @@ __all__ = [
     'NeuralLUTNode',
     'PolyLUTNode',
     'ProbabilisticNode',
-    'UnboundProbabilisticNode',
     'HybridNode',
     'FourierNode',
-    'FourierHermitianNode',
+    'GradientStabilizedNode',
     
     # Layers
     'RandomLayer',
     'LearnableLayer',
     'GroupedLayer',
+    'ResidualLayer',
     
     # Encoders
     'ThermometerEncoder',
