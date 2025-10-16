@@ -6,6 +6,8 @@
 
 // CUDA kernel for Fourier forward pass
 // Forward: Continuous Fourier computation
+// Note: frequencies are 0.5-scaled (e.g., {0, 0.5}^n instead of {0, 1}^n)
+// This ensures non-integer dot products at binary corners, giving proper variation in cos values
 __global__ void fourier_forward_kernel(
     const float* __restrict__ input,
     const float* __restrict__ frequencies,
@@ -29,12 +31,8 @@ __global__ void fourier_forward_kernel(
     const float PI = 3.14159265358979323846f;
     const float eps = 1e-8f;
     
-    // Apply sigmoid to input to ensure [0, 1] range
-    float x_sigmoid[32];  // Assuming max num_inputs <= 32
-    for (int i = 0; i < num_inputs; i++) {
-        float x_val = input[batch_idx * num_inputs + i];
-        x_sigmoid[i] = 1.0f / (1.0f + expf(-x_val));
-    }
+    // Input is assumed to already be in [0, 1] range - no sigmoid needed
+    // This was causing the bug where [0,1] inputs were squashed to [0.5,0.73]
     
     // Compute amplitude normalization
     float amplitude_sum = 0.0f;
@@ -49,7 +47,7 @@ __global__ void fourier_forward_kernel(
         // Compute dot product <k, x>
         float dot_product = 0.0f;
         for (int i = 0; i < num_inputs; i++) {
-            dot_product += frequencies[k * num_inputs + i] * x_sigmoid[i];
+            dot_product += frequencies[k * num_inputs + i] * input[batch_idx * num_inputs + i];
         }
         
         // Compute angle: 2π * <k, x> + phase_k
@@ -159,12 +157,7 @@ __global__ void fourier_backward_input_kernel(
     const float PI = 3.14159265358979323846f;
     const float eps = 1e-8f;
     
-    // Apply sigmoid to input
-    float x_sigmoid[32];
-    for (int i = 0; i < num_inputs; i++) {
-        float x_val = input[batch_idx * num_inputs + i];
-        x_sigmoid[i] = 1.0f / (1.0f + expf(-x_val));
-    }
+    // No sigmoid - input is already in [0, 1]
     
     float grad_sum = 0.0f;
     
@@ -186,7 +179,7 @@ __global__ void fourier_backward_input_kernel(
             // Compute dot product <k, x>
             float dot_product = 0.0f;
             for (int i = 0; i < num_inputs; i++) {
-                dot_product += frequencies[k * num_inputs + i] * x_sigmoid[i];
+                dot_product += frequencies[k * num_inputs + i] * input[batch_idx * num_inputs + i];
             }
             
             // Compute angle
@@ -196,13 +189,11 @@ __global__ void fourier_backward_input_kernel(
             float amp = amplitudes[k * output_dim + dim_idx] * amplitude_scale;
             
             // Derivative: -amplitude * 2π * k_i * sin(angle)
+            // No sigmoid derivative needed since input is already in [0,1]
             float deriv = -amp * 2.0f * PI * freq_val * sinf(angle);
             
-            // Chain with sigmoid derivative
-            float sigmoid_deriv = x_sigmoid[input_idx] * (1.0f - x_sigmoid[input_idx]);
-            
-            // Accumulate gradient
-            grad_sum += deriv * sigmoid_deriv * grad_output[batch_idx * output_dim + dim_idx];
+            // Accumulate gradient (no sigmoid chain rule needed)
+            grad_sum += deriv * grad_output[batch_idx * output_dim + dim_idx];
         }
     }
     
@@ -244,12 +235,10 @@ __global__ void fourier_backward_amplitude_kernel(
     
     // Sum over batch
     for (int batch_idx = 0; batch_idx < batch_size; batch_idx++) {
-        // Apply sigmoid to input
+        // No sigmoid - input is already in [0, 1]
         float dot_product = 0.0f;
         for (int i = 0; i < num_inputs; i++) {
-            float x_val = input[batch_idx * num_inputs + i];
-            float x_sig = 1.0f / (1.0f + expf(-x_val));
-            dot_product += frequencies[freq_idx * num_inputs + i] * x_sig;
+            dot_product += frequencies[freq_idx * num_inputs + i] * input[batch_idx * num_inputs + i];
         }
         
         // Compute angle
@@ -300,12 +289,10 @@ __global__ void fourier_backward_phase_kernel(
     
     // Sum over batch
     for (int batch_idx = 0; batch_idx < batch_size; batch_idx++) {
-        // Apply sigmoid to input
+        // No sigmoid - input is already in [0, 1]
         float dot_product = 0.0f;
         for (int i = 0; i < num_inputs; i++) {
-            float x_val = input[batch_idx * num_inputs + i];
-            float x_sig = 1.0f / (1.0f + expf(-x_val));
-            dot_product += frequencies[freq_idx * num_inputs + i] * x_sig;
+            dot_product += frequencies[freq_idx * num_inputs + i] * input[batch_idx * num_inputs + i];
         }
         
         // Compute angle

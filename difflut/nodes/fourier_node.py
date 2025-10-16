@@ -111,11 +111,12 @@ def fourier_forward(input, frequencies, amplitudes, phases, bias, max_amplitude,
         output_dim = bias.shape[0]
         num_frequencies = frequencies.shape[0]
         
-        # Apply sigmoid or heaviside to input
+        # Input is assumed to already be in [0, 1] range
+        # Apply heaviside for eval mode only
         if use_eval:
             x_processed = (input > 0.5).float()
         else:
-            x_processed = torch.sigmoid(input)
+            x_processed = input  # No sigmoid - input already in [0,1]
         
         # Compute dot products: (batch_size, num_frequencies)
         dot_products = torch.matmul(x_processed, frequencies.t())
@@ -185,23 +186,25 @@ class FourierNode(BaseNode):
         self.max_amplitude = max_amplitude
         self.use_cuda = use_cuda and is_cuda_available()
         
-        # Generate frequency vectors k (corners of hypercube {0,1}^n)
-        # These are the same as binary combinations in the LUT
+        # Generate frequency vectors k
+        # CRITICAL: We cannot use integer frequencies {0,1}^n because at binary corners,
+        # all dot products are integers, giving angles that are multiples of 2π.
+        # Since cos(2πn) = 1 for all n, this makes all Fourier terms identical at corners!
+        # Solution: Use fractional frequencies (scaled by 0.5) so we get proper variation.
         self.num_frequencies = 2 ** self.num_inputs if use_all_frequencies else min(2 ** self.num_inputs, 32)
         
         # Create frequency vectors
         if use_all_frequencies:
-            # All 2^n corners of the hypercube
+            # Use 0.5-scaled corners to avoid integer dot products at binary inputs
+            # This gives angles in {0, π, 2π, ...} instead of {0, 2π, 4π, ...}
             frequencies = []
             for i in range(2 ** self.num_inputs):
-                k = []
-                for j in range(self.num_inputs):
-                    k.append((i >> j) & 1)
+                k = [0.5 * ((i >> j) & 1) for j in reversed(range(self.num_inputs))]  # Scale by 0.5
                 frequencies.append(k)
             frequencies = torch.tensor(frequencies, dtype=torch.float32)
         else:
-            # Sample a subset of frequencies
-            frequencies = torch.randint(0, 2, (self.num_frequencies, self.num_inputs), dtype=torch.float32)
+            # Sample a subset of frequencies (also scaled by 0.5)
+            frequencies = 0.5 * torch.randint(0, 2, (self.num_frequencies, self.num_inputs), dtype=torch.float32)
         
         self.register_buffer('frequencies', frequencies)  # Shape: (num_freq, num_inputs)
         
@@ -234,8 +237,8 @@ class FourierNode(BaseNode):
         """
         batch_size = x.shape[0]
         
-        # Ensure input is in [0, 1] range
-        x = torch.sigmoid(x)  # Map to [0, 1]
+        # Input is assumed to already be in [0, 1] range
+        # No sigmoid needed - this was causing the bug!
         
         # Compute <k, x> for all frequencies
         # x: (batch_size, num_inputs)

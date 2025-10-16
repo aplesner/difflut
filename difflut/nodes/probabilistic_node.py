@@ -37,16 +37,13 @@ class ProbabilisticNode(BaseNode):
         else:
             self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
         
-        # Precompute all binary combinations
+        # Precompute all binary combinations (MSB-first order)
         binary_combinations = []
         for i in range(2**self.num_inputs):
-            bits = []
-            for j in range(self.num_inputs):
-                bits.append((i >> j) & 1)
+            bits = [((i >> j) & 1) for j in reversed(range(self.num_inputs))]  # MSB first
             binary_combinations.append(bits)
-        
         self.register_buffer('binary_combinations',
-                           torch.tensor(binary_combinations, dtype=torch.float32))
+                            torch.tensor(binary_combinations, dtype=torch.float32))
 
     @property
     def weights(self) -> torch.Tensor:
@@ -54,9 +51,8 @@ class ProbabilisticNode(BaseNode):
         return torch.sigmoid(self.raw_weights / self.temperature.clamp(min=1e-6))
 
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
-        """Convert binary vector to LUT index"""
-        powers = 2 ** torch.arange(self.num_inputs - 1, -1, -1, 
-                                   device=x_binary.device, dtype=torch.float32)
+        """Convert binary vector to LUT index (MSB-first order)"""
+        powers = 2 ** torch.arange(self.num_inputs - 1, -1, -1, device=x_binary.device, dtype=torch.float32)
         if x_binary.dim() == 1:
             return (x_binary * powers).sum().long()
         else:
@@ -85,29 +81,17 @@ class ProbabilisticNode(BaseNode):
             x = x.squeeze(1)
         
         batch_size = x.shape[0]
-        
+        # Ensure binary_combinations is on the same device and dtype as x
+        binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
         # Vectorized probability computation
-        # x: (batch_size, num_inputs)
-        # binary_combinations: (2^num_inputs, num_inputs)
-        # Expand dimensions for broadcasting
         x_expanded = x.unsqueeze(1)  # (batch_size, 1, num_inputs)
-        a_expanded = self.binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
-        
-        # Compute Pr(a|x) for all combinations at once
-        # prob_terms = x^a * (1-x)^(1-a)
+        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
         prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-        # Product over input dimensions: (batch_size, 2^num_inputs)
         probs = torch.prod(prob_terms, dim=2)
-        
-        # Use sigmoid weights: (2^num_inputs, num_outputs)
         weights = self.weights
-        
-        # Matrix multiply: (batch_size, 2^num_inputs) @ (2^num_inputs, num_outputs) -> (batch_size, num_outputs)
         output = torch.matmul(probs, weights)
-        
         if self.num_outputs == 1:
             output = output.squeeze(-1)
-        
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -120,27 +104,19 @@ class ProbabilisticNode(BaseNode):
         
         # Compute same as forward_train (probabilistic expectation)
         batch_size = x.shape[0]
-        
+        # Ensure binary_combinations is on the same device and dtype as x
+        binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
         # Vectorized probability computation
         x_expanded = x.unsqueeze(1)  # (batch_size, 1, num_inputs)
-        a_expanded = self.binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
-        
-        # Compute Pr(a|x) for all combinations at once
+        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
         prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
         probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^num_inputs)
-        
-        # Use sigmoid weights
         weights = self.weights
-        
-        # Matrix multiply to get output
         output = torch.matmul(probs, weights)
-        
         # Discretize: Heaviside at 0.5 since forward_train output is in [0,1]
         output = (output >= 0.5).float()
-        
         if self.num_outputs == 1:
             output = output.squeeze(-1)
-        
         return output
 
     def _builtin_regularization(self) -> torch.Tensor:
