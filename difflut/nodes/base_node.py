@@ -213,6 +213,35 @@ class BaseNode(nn.Module, ABC):
         device = next(self.parameters()).device if list(self.parameters()) else 'cpu'
         return torch.tensor(0.0, device=device)
     
+    def _prepare_input(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Prepare input tensor by handling different input dimensions.
+        Squeezes middle dimension if input is 3D.
+        
+        Args:
+            x: Input tensor of shape (batch_size, num_inputs) or (batch_size, 1, num_inputs)
+        
+        Returns:
+            Tensor of shape (batch_size, num_inputs)
+        """
+        if x.dim() == 3:
+            x = x.squeeze(1)
+        return x
+    
+    def _prepare_output(self, output: torch.Tensor) -> torch.Tensor:
+        """
+        Prepare output tensor by squeezing if single output dimension.
+        
+        Args:
+            output: Output tensor of shape (batch_size, num_outputs)
+        
+        Returns:
+            Tensor of shape (batch_size,) if num_outputs==1, else (batch_size, num_outputs)
+        """
+        if self.num_outputs == 1 and output.dim() > 1:
+            output = output.squeeze(-1)
+        return output
+    
     def export_bitstream(self) -> list:
         """
         Export node configuration as bitstream for FPGA deployment.

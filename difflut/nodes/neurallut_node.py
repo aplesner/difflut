@@ -159,8 +159,7 @@ class NeuralLUTNode(BaseNode):
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass during training with binary rounding and STE."""
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # MLP forward + sigmoid
         logits = self._mlp_forward(x)
@@ -173,28 +172,20 @@ class NeuralLUTNode(BaseNode):
         # This only affects gradients, not forward pass values
         output = GradientScalingFunction.apply(output, torch.tensor(self.grad_factor, device=output.device))
         
-        if self.output_dim == 1:
-            output = output.squeeze(-1)
-        
-        return output
+        return self._prepare_output(output)
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Compute same as forward_train (MLP + sigmoid)
         output = self._mlp_forward(x)
         output = (output >= 0.0).float()
         
-           
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        
-        return output
+        return self._prepare_output(output)
 
     def _precompute_lut(self):
         """Precompute the LUT for evaluation."""

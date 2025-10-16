@@ -241,9 +241,7 @@ class DWNNode(BaseNode):
         Forward pass during training with automatic CUDA/CPU dispatch.
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
         """
-        # Handle dimension
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
@@ -255,15 +253,15 @@ class DWNNode(BaseNode):
         else:
             mapping = self.mapping
         
-        return efd_forward(x, mapping, luts)
+        output = efd_forward(x, mapping, luts)
+        return self._prepare_output(output)
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using Heaviside at 0.5.
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
@@ -284,7 +282,7 @@ class DWNNode(BaseNode):
         # output >= 0.5 -> 1, output < 0.5 -> 0
         output = (output >= 0.5).float()
         
-        return output
+        return self._prepare_output(output)
     
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization to match base CUDA implementation."""

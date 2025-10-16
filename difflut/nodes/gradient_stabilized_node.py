@@ -230,23 +230,21 @@ class GradientStabilizedNode(BaseNode):
         Forward pass during training with gradient-stabilized backward.
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
         """
-        # Handle dimension
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
         # Use gradient-stabilized forward with CUDA support
-        return gradient_stabilized_forward(x, self.mapping, luts, self.gradient_scale, self.use_cuda)
+        output = gradient_stabilized_forward(x, self.mapping, luts, self.gradient_scale, self.use_cuda)
+        return self._prepare_output(output)
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using Heaviside at 0.5.
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
@@ -269,7 +267,9 @@ class GradientStabilizedNode(BaseNode):
             output = torch.stack(outputs, dim=1)
         
         # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
-        return (output >= 0.5).float()
+        output = (output >= 0.5).float()
+        
+        return self._prepare_output(output)
 
     def _builtin_regularization(self) -> torch.Tensor:
         """

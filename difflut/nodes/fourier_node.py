@@ -291,8 +291,7 @@ class FourierNode(BaseNode):
             Output tensor (batch_size, output_dim) or (batch_size,) if output_dim=1
         """
         # Handle different input dimensions
-        if x.dim() == 3:
-            x = x.squeeze(1)  # Remove middle dimension
+        x = self._prepare_input(x)
         
         # Use CUDA kernels if available and on GPU
         if self.use_cuda and x.is_cuda:
@@ -313,19 +312,15 @@ class FourierNode(BaseNode):
             # Fallback to Python implementation
             output = self._compute_output(x)
         
-        # Squeeze if num_outputs is 1
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        
-        return output
+        # Prepare output (squeeze if single output)
+        return self._prepare_output(output)
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Compute same as forward_train (Fourier transform)
         if self.use_cuda and x.is_cuda:
@@ -347,10 +342,7 @@ class FourierNode(BaseNode):
         # Discretize: Heaviside at 0.5 since forward_train output is in [0,1]
         output = (output >= 0.5).float()
         
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        
-        return output
+        return self._prepare_output(output)
     
     def _builtin_regularization(self) -> torch.Tensor:
         """

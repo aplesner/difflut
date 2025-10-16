@@ -37,27 +37,20 @@ class LinearLUTNode(BaseNode):
         Args:
             x: Input tensor (batch_size, num_inputs) or (batch_size, 1, num_inputs)
         """
-        # Handle different input dimensions
-        if x.dim() == 3:
-            x = x.squeeze(1)  # Remove middle dimension
+        x = self._prepare_input(x)
         
         # Linear transformation + sigmoid
         z = torch.matmul(x, self.weights)  # (batch_size, num_outputs)
         output = torch.sigmoid(z)
         
-        # Squeeze if num_outputs is 1
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        
-        return output
+        return self._prepare_output(output)
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Compute same as forward_train (linear + sigmoid)
         z = torch.matmul(x, self.weights)
@@ -65,10 +58,7 @@ class LinearLUTNode(BaseNode):
         # Discretize: Heaviside at 0.0 since forward_train output is in R
         output = (z >= 0.0).float()
         
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        
-        return output
+        return self._prepare_output(output)
 
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization by default."""

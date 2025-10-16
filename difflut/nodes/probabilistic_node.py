@@ -77,8 +77,7 @@ class ProbabilisticNode(BaseNode):
         Forward pass during training: probabilistic expectation (vectorized)
         f(x) = Σ_a ω_δ(a) * Pr(a|x)
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         batch_size = x.shape[0]
         # Ensure binary_combinations is on the same device and dtype as x
@@ -90,17 +89,15 @@ class ProbabilisticNode(BaseNode):
         probs = torch.prod(prob_terms, dim=2)
         weights = self.weights
         output = torch.matmul(probs, weights)
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        return output
+        
+        return self._prepare_output(output)
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
         """
-        if x.dim() == 3:
-            x = x.squeeze(1)
+        x = self._prepare_input(x)
         
         # Compute same as forward_train (probabilistic expectation)
         batch_size = x.shape[0]
@@ -115,9 +112,8 @@ class ProbabilisticNode(BaseNode):
         output = torch.matmul(probs, weights)
         # Discretize: Heaviside at 0.5 since forward_train output is in [0,1]
         output = (output >= 0.5).float()
-        if self.num_outputs == 1:
-            output = output.squeeze(-1)
-        return output
+        
+        return self._prepare_output(output)
 
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization by default."""
