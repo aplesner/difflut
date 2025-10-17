@@ -4,13 +4,7 @@ import itertools
 from typing import Optional, Callable
 import warnings
 from .base_node import BaseNode
-from ..registry         # Precompute all binary combinations (LSB-first order) - for CPU fallback
-        binary_combinations = []
-        for i in range(2**self.num_inputs):
-            bits = [((i >> j) & 1) for j in range(self.num_inputs)]  # LSB first
-            binary_combinations.append(bits)
-        self.register_buffer('binary_combinations',
-                            torch.tensor(binary_combinations, dtype=torch.float32))register_node
+from ..registry import register_node
 from .cuda import is_cuda_available
 
 # Try to import the compiled CUDA extension
