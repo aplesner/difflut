@@ -71,14 +71,10 @@ from .encoder import (
 
 from .utils import (
     GroupSum,
-    l1_weights,
-    l2_weights,
-    l1_lut_only,
-    l2_lut_only,
-    entropy_regularizer,
-    sparsity_regularizer,
-    gradient_penalty,
-    orthogonality_regularizer,
+    l_regularizer,
+    l1_regularizer,
+    l2_regularizer,
+    spectral_regularizer,
     COMMON_REGULARIZERS,
     # Warning utilities
     DiffLUTWarning,
@@ -134,14 +130,10 @@ __all__ = [
     
     # Utils
     'GroupSum',
-    'l1_weights',
-    'l2_weights',
-    'l1_lut_only',
-    'l2_lut_only',
-    'entropy_regularizer',
-    'sparsity_regularizer',
-    'gradient_penalty',
-    'orthogonality_regularizer',
+    'l_regularizer',
+    'l1_regularizer',
+    'l2_regularizer',
+    'spectral_regularizer',
     'COMMON_REGULARIZERS',
     
     # Warning utilities
