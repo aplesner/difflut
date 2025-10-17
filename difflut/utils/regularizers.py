@@ -5,199 +5,265 @@ Each regularizer is a function that takes a node as input and returns a scalar t
 These can be passed to nodes via the regularizers parameter.
 
 Example usage:
-    from difflut.utils.regularizers import l2_weights, l1_weights
+    from difflut.utils.regularizers import l_regularizer, spectral_regularizer
     
     node = DWNNode(
         num_inputs=6,
         regularizers={
-            "l2": [l2_weights, 0.01],
-            "l1": [l1_weights, 0.001]
+            "l1": [l_regularizer, 0.01, {"p": 1}],
+            "l2": [l_regularizer, 0.001, {"p": 2}],
+            "spectral": [spectral_regularizer, 0.001]
         }
     )
 """
 
 import torch
 import torch.nn as nn
+from typing import Optional
 
 
-def l2_weights(node: nn.Module) -> torch.Tensor:
+def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
     """
-    L2 (weight decay) regularization on all parameters.
+    Generate all Hamming neighbors of binary input z by flipping each bit.
     
     Args:
-        node: The node to regularize
+        z: Binary input tensor of shape (..., k) where k is the number of inputs
         
     Returns:
-        Sum of squared values of all parameters
+        Tensor of shape (..., k, k) where neighbors[..., i, :] is z with bit i flipped
     """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    for param in node.parameters():
-        reg = reg + torch.sum(param ** 2)
+    k = z.shape[-1]
+    # Expand z to shape (..., k, k)
+    z_expanded = z.unsqueeze(-2).expand(*z.shape[:-1], k, k)
+    # Create identity matrix to flip each bit
+    flip_mask = torch.eye(k, device=z.device, dtype=z.dtype)
+    # Flip bits: z^(i) has the i-th bit flipped
+    neighbors = z_expanded.clone()
+    neighbors = neighbors - 2 * z_expanded * flip_mask + flip_mask
+    return neighbors
+
+
+def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.Tensor:
+    """
+    Functional L-regularization for DiffLUT nodes.
+    
+    Measures how sensitive a node's output is to single-bit flips in its inputs.
+    This is the continuous relaxation of Boolean sensitivity that encourages
+    smooth and robust node behavior.
+    
+    The regularization is defined as:
+        R_L(g; z) = (1/k) * sum_i |g(z) - g(z^(i))|^p
+    
+    where z^(i) is z with the i-th bit flipped, and k is the number of inputs.
+    
+    Args:
+        node: The DiffLUT node to regularize
+        p: The norm parameter (1 for L1, 2 for L2, or any positive value)
+        num_samples: Number of random binary input samples to evaluate
+        
+    Returns:
+        Average functional sensitivity across sampled inputs
+    """
+    # Get device from node parameters
+    device = next(node.parameters()).device
+    
+    # Infer number of inputs from node
+    if hasattr(node, 'num_inputs'):
+        k = node.num_inputs
+    elif hasattr(node, 'in_features'):
+        k = node.in_features
+    elif hasattr(node, 'luts'):
+        # For DWN nodes with luts parameter
+        luts = node.luts
+        if luts.dim() == 2:
+            k = int(torch.log2(torch.tensor(luts.shape[1], dtype=torch.float32)).item())
+        else:
+            raise ValueError("Cannot infer number of inputs from node")
+    else:
+        raise ValueError("Cannot infer number of inputs from node")
+    
+    # Sample random binary inputs from {0, 1}^k
+    z = torch.randint(0, 2, (num_samples, k), device=device, dtype=torch.float32)
+    
+    # Generate Hamming neighbors: shape (num_samples, k, k)
+    z_neighbors = _generate_hamming_neighbors(z)
+    
+    # Compute node output for original inputs
+    with torch.no_grad():
+        g_z = node(z)  # Shape: (num_samples, output_dim)
+    
+    # Compute node outputs for all neighbors
+    # Reshape to (num_samples * k, k) for batch evaluation
+    z_neighbors_flat = z_neighbors.reshape(-1, k)
+    with torch.no_grad():
+        g_z_neighbors_flat = node(z_neighbors_flat)  # Shape: (num_samples * k, output_dim)
+    g_z_neighbors = g_z_neighbors_flat.reshape(num_samples, k, -1)  # Shape: (num_samples, k, output_dim)
+    
+    # Compute differences |g(z) - g(z^(i))|^p for each neighbor i
+    g_z_expanded = g_z.unsqueeze(1)  # Shape: (num_samples, 1, output_dim)
+    differences = torch.abs(g_z_expanded - g_z_neighbors)  # Shape: (num_samples, k, output_dim)
+    
+    # Apply p-norm
+    if p == 1:
+        sensitivity = differences
+    elif p == 2:
+        sensitivity = differences ** 2
+    else:
+        sensitivity = differences ** p
+    
+    # Average over inputs (1/k factor) and sum over output dimensions
+    reg = sensitivity.sum(dim=-1).mean(dim=-1).sum(dim=0) / k
+    
+    # Average over samples
+    reg = reg / num_samples
+    
     return reg
 
 
-def l1_weights(node: nn.Module) -> torch.Tensor:
+def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
     """
-    L1 (lasso) regularization on all parameters.
+    L1 functional regularization (convenience wrapper for l_regularizer with p=1).
     
     Args:
-        node: The node to regularize
+        node: The DiffLUT node to regularize
+        num_samples: Number of random binary input samples to evaluate
         
     Returns:
-        Sum of absolute values of all parameters
+        Average L1 functional sensitivity
     """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    for param in node.parameters():
-        reg = reg + torch.sum(torch.abs(param))
-    return reg
+    return l_regularizer(node, p=1, num_samples=num_samples)
 
 
-def l2_lut_only(node: nn.Module) -> torch.Tensor:
+def l2_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
     """
-    L2 regularization specifically on LUT tables (parameters named 'luts').
-    Useful for DWN nodes.
+    L2 functional regularization (convenience wrapper for l_regularizer with p=2).
     
     Args:
-        node: The node to regularize
+        node: The DiffLUT node to regularize
+        num_samples: Number of random binary input samples to evaluate
         
     Returns:
-        Sum of squared LUT values
+        Average L2 functional sensitivity
     """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
+    return l_regularizer(node, p=2, num_samples=num_samples)
+
+
+def _compute_walsh_hadamard_matrix(k: int, device: torch.device) -> torch.Tensor:
+    """
+    Compute the Walsh-Hadamard coefficient matrix C for a k-input LUT.
+    
+    The matrix C has shape (2^k, 2^k) where:
+        C[S, j] = (1 / 2^k) * prod_{i in S} (2 * j_i - 1)
+    
+    where j_i is the i-th bit in the binary representation of index j.
+    
+    Args:
+        k: Number of LUT inputs
+        
+    Returns:
+        Walsh-Hadamard coefficient matrix of shape (2^k, 2^k)
+    """
+    n = 2 ** k
+    
+    # Generate all binary indices j in {0, 1, ..., 2^k - 1}
+    indices = torch.arange(n, device=device)
+    
+    # Extract binary representation: shape (n, k)
+    binary_repr = torch.zeros((n, k), device=device)
+    for i in range(k):
+        binary_repr[:, i] = (indices >> i) & 1
+    
+    # Convert to {-1, 1} representation: 2 * j_i - 1
+    binary_signs = 2 * binary_repr - 1  # Shape: (n, k)
+    
+    # Compute coefficient matrix
+    # For each subset S (represented as row), compute product over elements in S
+    C = torch.zeros((n, n), device=device)
+    
+    for s_idx in range(n):
+        # Determine which bits are in subset S
+        s_binary = torch.zeros(k, device=device)
+        for i in range(k):
+            s_binary[i] = (s_idx >> i) & 1
+        
+        # Compute product for each j
+        # Product over i in S of (2 * j_i - 1)
+        product = torch.ones(n, device=device)
+        for i in range(k):
+            if s_binary[i] == 1:
+                product = product * binary_signs[:, i]
+        
+        C[s_idx, :] = product / n
+    
+    return C
+
+
+def spectral_regularizer(node: nn.Module) -> torch.Tensor:
+    """
+    Spectral regularization for truth-table parameterized DiffLUT nodes.
+    
+    Penalizes the Fourier spectrum (Walsh-Hadamard transform) of the LUT function,
+    encouraging low-frequency Boolean functions that are smooth and have low
+    complexity. This is particularly effective for DWN nodes.
+    
+    The regularization is defined as:
+        R_spec(g) = ||C · c||_2^2
+    
+    where c is the truth table vector and C is the Walsh-Hadamard coefficient matrix.
+    
+    Args:
+        node: The DiffLUT node to regularize (must have truth-table parameters)
+        
+    Returns:
+        Spectral norm of the LUT function(s)
+    """
+    device = next(node.parameters()).device
+    reg = torch.tensor(0.0, device=device)
+    
+    # Look for truth-table parameters (typically named 'luts' or similar)
     for name, param in node.named_parameters():
         if 'lut' in name.lower():
-            reg = reg + torch.sum(param ** 2)
-    return reg
-
-
-def l1_lut_only(node: nn.Module) -> torch.Tensor:
-    """
-    L1 regularization specifically on LUT tables (parameters named 'luts').
-    Useful for DWN nodes.
-    
-    Args:
-        node: The node to regularize
-        
-    Returns:
-        Sum of absolute LUT values
-    """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    for name, param in node.named_parameters():
-        if 'lut' in name.lower():
-            reg = reg + torch.sum(torch.abs(param))
-    return reg
-
-
-def entropy_regularizer(node: nn.Module) -> torch.Tensor:
-    """
-    Entropy regularization to encourage diversity in LUT entries.
-    Useful for preventing mode collapse.
-    
-    Args:
-        node: The node to regularize
-        
-    Returns:
-        Negative entropy (lower is more diverse)
-    """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    
-    for name, param in node.named_parameters():
-        if 'lut' in name.lower() or 'weight' in name.lower():
-            # Apply sigmoid to get probabilities
-            probs = torch.sigmoid(param.flatten())
-            # Clamp to avoid log(0)
-            probs = torch.clamp(probs, 1e-7, 1 - 1e-7)
-            # Compute entropy
-            entropy = -(probs * torch.log(probs) + (1 - probs) * torch.log(1 - probs))
-            reg = reg - entropy.mean()  # Negative because we want to maximize entropy
-    
-    return reg
-
-
-def sparsity_regularizer(node: nn.Module, threshold: float = 0.1) -> torch.Tensor:
-    """
-    Sparsity regularization to encourage parameters close to zero.
-    
-    Args:
-        node: The node to regularize
-        threshold: Values below this threshold are encouraged
-        
-    Returns:
-        Number of parameters above threshold (normalized)
-    """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    total_params = 0
-    
-    for param in node.parameters():
-        above_threshold = (torch.abs(param) > threshold).float()
-        reg = reg + torch.sum(above_threshold)
-        total_params += param.numel()
-    
-    # Normalize by total number of parameters
-    if total_params > 0:
-        reg = reg / total_params
-    
-    return reg
-
-
-def gradient_penalty(node: nn.Module) -> torch.Tensor:
-    """
-    Gradient penalty to smooth the LUT function.
-    Encourages neighboring LUT entries to have similar values.
-    
-    Args:
-        node: The node to regularize
-        
-    Returns:
-        Sum of squared differences between adjacent LUT entries
-    """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    
-    for name, param in node.named_parameters():
-        if 'lut' in name.lower() and param.dim() >= 2:
-            # Compute differences between consecutive entries
-            diff = param[:, 1:] - param[:, :-1]
-            reg = reg + torch.sum(diff ** 2)
-    
-    return reg
-
-
-def orthogonality_regularizer(node: nn.Module) -> torch.Tensor:
-    """
-    Orthogonality regularization for weight matrices.
-    Encourages weight matrices to be orthogonal (useful for MLPs).
-    
-    Args:
-        node: The node to regularize
-        
-    Returns:
-        Deviation from orthogonality
-    """
-    reg = torch.tensor(0.0, device=next(node.parameters()).device)
-    
-    for name, param in node.named_parameters():
-        if 'weight' in name.lower() and param.dim() == 2:
-            # Compute W @ W^T
-            prod = torch.matmul(param, param.t())
-            # Should be close to identity
-            identity = torch.eye(prod.shape[0], device=param.device)
-            reg = reg + torch.sum((prod - identity) ** 2)
+            # param should have shape (num_luts, 2^k) or (2^k,)
+            if param.dim() == 1:
+                # Single LUT: shape (2^k,)
+                lut_table = param.unsqueeze(0)
+            elif param.dim() == 2:
+                # Multiple LUTs: shape (num_luts, 2^k)
+                lut_table = param
+            else:
+                # Skip if not a truth table
+                continue
+            
+            # Infer k from table size
+            table_size = lut_table.shape[1]
+            k = int(torch.log2(torch.tensor(table_size, dtype=torch.float32)).item())
+            
+            # Verify that table_size is a power of 2
+            if 2 ** k != table_size:
+                continue  # Skip if not a valid truth table size
+            
+            # Compute Walsh-Hadamard coefficient matrix
+            C = _compute_walsh_hadamard_matrix(k, device)
+            
+            # Compute spectral norm: ||L · C||_F^2
+            # where L is the LUT table matrix (num_luts, 2^k)
+            fourier_coeffs = torch.matmul(lut_table, C.T)  # Shape: (num_luts, 2^k)
+            spectral_norm = torch.sum(fourier_coeffs ** 2)
+            
+            # Average over number of LUTs
+            reg = reg + spectral_norm / lut_table.shape[0]
     
     return reg
 
 
 # Convenient presets
 COMMON_REGULARIZERS = {
-    "l2_light": [l2_weights, 0.0001],
-    "l2_medium": [l2_weights, 0.001],
-    "l2_heavy": [l2_weights, 0.01],
-    "l1_light": [l1_weights, 0.0001],
-    "l1_medium": [l1_weights, 0.001],
-    "l1_heavy": [l1_weights, 0.01],
-    "lut_l2": [l2_lut_only, 0.001],
-    "lut_l1": [l1_lut_only, 0.001],
-    "entropy": [entropy_regularizer, 0.01],
-    "sparsity": [sparsity_regularizer, 0.01],
-    "smooth": [gradient_penalty, 0.001],
-    "orthogonal": [orthogonality_regularizer, 0.001],
+    "l1": [l1_regularizer, 0.01],
+    "l2": [l2_regularizer, 0.001],
+    "l_p1": [l_regularizer, 0.01, {"p": 1}],
+    "l_p2": [l_regularizer, 0.001, {"p": 2}],
+    "spectral": [spectral_regularizer, 0.001],
+    "spectral_light": [spectral_regularizer, 0.0001],
+    "spectral_medium": [spectral_regularizer, 0.001],
+    "spectral_heavy": [spectral_regularizer, 0.01],
 }
