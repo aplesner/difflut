@@ -2,8 +2,108 @@ import torch
 import torch.nn as nn
 import itertools
 from typing import Optional, Callable
+import warnings
 from .base_node import BaseNode
 from ..registry import register_node
+from .cuda import is_cuda_available
+
+# Try to import the compiled CUDA extension
+try:
+    import probabilistic_cuda as _probabilistic_cuda_module
+    _CUDA_EXT_AVAILABLE = True
+except ImportError:
+    _CUDA_EXT_AVAILABLE = False
+    _probabilistic_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'probabilistic_cuda' not available. ProbabilisticNode will use slower CPU fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.probabilistic_node')",
+        RuntimeWarning,
+        stacklevel=2
+    )
+
+
+class ProbabilisticFunction(torch.autograd.Function):
+    """
+    PyTorch autograd function wrapper for Probabilistic CUDA kernels.
+    """
+    @staticmethod
+    def forward(ctx, input, mapping, luts, temperature):
+        """
+        Forward pass using CUDA kernel.
+        
+        Args:
+            input: (batch_size, input_length) float tensor in [0, 1]
+            mapping: (num_luts, n) int tensor - mapping of inputs to each LUT
+            luts: (num_luts, 2^n) float tensor - raw LUT weights (before sigmoid)
+            temperature: scalar tensor
+        
+        Returns:
+            output: (batch_size, num_luts) float tensor
+        """
+        if not _CUDA_EXT_AVAILABLE:
+            raise RuntimeError("CUDA extension not available. Please compile probabilistic_cuda extension.")
+        
+        # Ensure correct dtypes and contiguity
+        input = input.contiguous().float()
+        mapping = mapping.contiguous().int()
+        luts = luts.contiguous().float()
+        
+        # Call CUDA forward kernel
+        output = _probabilistic_cuda_module.forward(input, mapping, luts, temperature)
+        
+        # Save for backward
+        ctx.save_for_backward(input, mapping, luts, temperature)
+        
+        return output
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass using CUDA kernel.
+        
+        Args:
+            grad_output: (batch_size, num_luts) gradient tensor
+        
+        Returns:
+            Gradients for (input, mapping, luts, temperature)
+        """
+        if not _CUDA_EXT_AVAILABLE:
+            raise RuntimeError("CUDA extension not available. Please compile probabilistic_cuda extension.")
+        
+        input, mapping, luts, temperature = ctx.saved_tensors
+        
+        # Ensure contiguity
+        grad_output = grad_output.contiguous().float()
+        
+        # Call CUDA backward kernel
+        grad_input, grad_luts = _probabilistic_cuda_module.backward(
+            input, mapping, luts, temperature, grad_output
+        )
+        
+        # Return gradients (None for mapping and temperature as they don't need gradients)
+        return grad_input, None, grad_luts, None
+
+
+def probabilistic_forward(input, mapping, luts, temperature):
+    """
+    Probabilistic forward pass with automatic differentiation support.
+    
+    Args:
+        input: (batch_size, input_length) tensor in [0, 1]
+        mapping: (num_luts, n) int tensor
+        luts: (num_luts, 2^n) tensor - raw weights before sigmoid
+        temperature: scalar tensor
+    
+    Returns:
+        output: (batch_size, num_luts) tensor
+    """
+    if _CUDA_EXT_AVAILABLE and input.is_cuda:
+        return ProbabilisticFunction.apply(input, mapping, luts, temperature)
+    else:
+        # CPU fallback handled in forward_train
+        return None
 
 @register_node("probabilistic")
 class ProbabilisticNode(BaseNode):
@@ -18,18 +118,33 @@ class ProbabilisticNode(BaseNode):
                  init_fn: Optional[Callable] = None,
                  regularizers: dict = None,
                  temperature: float = 1.0,
-                 eval_mode: str = "expectation"):
+                 eval_mode: str = "expectation",
+                 use_cuda: bool = True):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
             output_dim: Output dimensions as list (e.g., [1])
             init_fn: Optional initialization function
             regularizers: Dict of custom regularization functions
+            temperature: Temperature for sigmoid scaling
+            eval_mode: Evaluation mode
+            use_cuda: Whether to use CUDA kernels (if available)
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.register_buffer('temperature', torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
+        self.use_cuda = use_cuda and is_cuda_available()
+        
+        # Warn if CUDA requested but not available
+        if use_cuda and not _CUDA_EXT_AVAILABLE:
+            warnings.warn(
+                "ProbabilisticNode: CUDA was requested (use_cuda=True) but CUDA extension is not available. "
+                "Using CPU fallback which may be significantly slower. "
+                "To enable CUDA: compile the extension with 'cd difflut && python setup.py install'",
+                RuntimeWarning,
+                stacklevel=2
+            )
         
         # Store raw weights (logits) that will be passed through sigmoid
         if init_fn:
@@ -37,13 +152,17 @@ class ProbabilisticNode(BaseNode):
         else:
             self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
         
-        # Precompute all binary combinations (MSB-first order)
+        # Precompute all binary combinations (MSB-first order) - for CPU fallback
         binary_combinations = []
         for i in range(2**self.num_inputs):
             bits = [((i >> j) & 1) for j in reversed(range(self.num_inputs))]  # MSB first
             binary_combinations.append(bits)
         self.register_buffer('binary_combinations',
                             torch.tensor(binary_combinations, dtype=torch.float32))
+        
+        # Create mapping tensor for CUDA (each LUT maps to all inputs in order)
+        # Shape: (num_outputs, num_inputs)
+        self.register_buffer('mapping', torch.arange(self.num_inputs, dtype=torch.int32).unsqueeze(0).expand(self.num_outputs, -1))
 
     @property
     def weights(self) -> torch.Tensor:
@@ -76,9 +195,21 @@ class ProbabilisticNode(BaseNode):
         """
         Forward pass during training: probabilistic expectation (vectorized)
         f(x) = Σ_a ω_δ(a) * Pr(a|x)
+        Uses CUDA kernel if available, otherwise falls back to CPU.
         """
         x = self._prepare_input(x)
         
+        # Try CUDA kernel first
+        if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
+            # Transpose raw_weights to match CUDA kernel expectations
+            # raw_weights is (2^n, num_outputs), need (num_outputs, 2^n)
+            luts = self.raw_weights.t().contiguous()
+            mapping = self.mapping.int()
+            
+            output = probabilistic_forward(x, mapping, luts, self.temperature)
+            return self._prepare_output(output)
+        
+        # CPU fallback - original vectorized implementation
         batch_size = x.shape[0]
         # Ensure binary_combinations is on the same device and dtype as x
         binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)

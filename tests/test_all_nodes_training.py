@@ -283,7 +283,7 @@ def plot_all_surfaces(all_results, save_path):
 
 def plot_loss_curves(all_results, save_path):
     """
-    Plot loss curves for all nodes (successful and failed).
+    Plot loss curves for all nodes (successful and failed) in separate subplots.
     
     Args:
         all_results: List of result dictionaries
@@ -325,7 +325,54 @@ def plot_loss_curves(all_results, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     plt.close(fig)
-    print(f"  Combined loss curves saved: {save_path}")
+    print(f"  Individual loss curves saved: {save_path}")
+
+
+def plot_combined_loss_curves(all_results, save_path):
+    """
+    Plot all loss curves in a single plot for direct comparison.
+    
+    Args:
+        all_results: List of result dictionaries
+        save_path: Path to save the plot
+    """
+    # Get results with history
+    results_with_history = [r for r in all_results if r.get('loss_history') is not None]
+    
+    if not results_with_history:
+        print("No loss histories to plot")
+        return
+    
+    # Create single plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # Color palette for different nodes
+    colors = plt.cm.tab10(np.linspace(0, 1, len(results_with_history)))
+    
+    for idx, result in enumerate(results_with_history):
+        label = f"{result['node_name']} (LR={result['best_lr']})"
+        linestyle = '-' if result['success'] else '--'
+        linewidth = 2 if result['success'] else 1.5
+        alpha = 1.0 if result['success'] else 0.6
+        
+        ax.plot(result['loss_history'], 
+               label=label, 
+               color=colors[idx],
+               linestyle=linestyle,
+               linewidth=linewidth,
+               alpha=alpha)
+    
+    ax.set_xlabel('Epoch', fontsize=12)
+    ax.set_ylabel('MSE Loss', fontsize=12)
+    ax.set_title('Training Loss Comparison Across All Nodes', fontsize=14, weight='bold')
+    ax.set_yscale('log')
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc='best', fontsize=9, ncol=2)
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    plt.close(fig)
+    print(f"  Combined loss comparison saved: {save_path}")
 
 
 def main():
@@ -335,8 +382,8 @@ def main():
     print("="*60)
     
     # Configuration
-    EPOCHS = 50
-    LEARNING_RATES = [0.1, 0.01, 0.001]
+    EPOCHS = 10
+    LEARNING_RATES = [0.1]
     N_SAMPLES = 1000
     
     # Setup output directory
@@ -382,10 +429,15 @@ def main():
     surface_plot_path = output_dir / "all_nodes_surfaces.png"
     plot_all_surfaces(all_results, surface_plot_path)
     
-    # Generate combined loss curves plot
-    print("\nGenerating loss curves plot...")
-    loss_plot_path = output_dir / "loss_curves.png"
+    # Generate individual loss curves plot
+    print("\nGenerating individual loss curves plot...")
+    loss_plot_path = output_dir / "loss_curves_individual.png"
     plot_loss_curves(all_results, loss_plot_path)
+    
+    # Generate combined loss curves plot
+    print("\nGenerating combined loss comparison plot...")
+    combined_loss_plot_path = output_dir / "loss_curves_combined.png"
+    plot_combined_loss_curves(all_results, combined_loss_plot_path)
     
     # Print final summary
     print("\n" + "="*60)
@@ -413,7 +465,8 @@ def main():
     print("\n" + "="*60)
     print(f"All plots saved to: {output_dir}")
     print(f"  - Combined surfaces: {surface_plot_path.name}")
-    print(f"  - Loss curves: {loss_plot_path.name}")
+    print(f"  - Individual loss curves: {loss_plot_path.name}")
+    print(f"  - Combined loss comparison: {combined_loss_plot_path.name}")
     print("="*60)
     
     # Return exit code
