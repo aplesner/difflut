@@ -4,7 +4,13 @@ import itertools
 from typing import Optional, Callable
 import warnings
 from .base_node import BaseNode
-from ..registry import register_node
+from ..registry         # Precompute all binary combinations (LSB-first order) - for CPU fallback
+        binary_combinations = []
+        for i in range(2**self.num_inputs):
+            bits = [((i >> j) & 1) for j in range(self.num_inputs)]  # LSB first
+            binary_combinations.append(bits)
+        self.register_buffer('binary_combinations',
+                            torch.tensor(binary_combinations, dtype=torch.float32))register_node
 from .cuda import is_cuda_available
 
 # Try to import the compiled CUDA extension
@@ -152,10 +158,10 @@ class ProbabilisticNode(BaseNode):
         else:
             self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
         
-        # Precompute all binary combinations (MSB-first order) - for CPU fallback
+        # Precompute all binary combinations (LSB-first order) - for CPU fallback
         binary_combinations = []
         for i in range(2**self.num_inputs):
-            bits = [((i >> j) & 1) for j in reversed(range(self.num_inputs))]  # MSB first
+            bits = [((i >> j) & 1) for j in range(self.num_inputs)]  # LSB first
             binary_combinations.append(bits)
         self.register_buffer('binary_combinations',
                             torch.tensor(binary_combinations, dtype=torch.float32))
@@ -170,8 +176,8 @@ class ProbabilisticNode(BaseNode):
         return torch.sigmoid(self.raw_weights / self.temperature.clamp(min=1e-6))
 
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
-        """Convert binary vector to LUT index (MSB-first order)"""
-        powers = 2 ** torch.arange(self.num_inputs - 1, -1, -1, device=x_binary.device, dtype=torch.float32)
+        """Convert binary vector to LUT index (LSB-first order)"""
+        powers = 2 ** torch.arange(self.num_inputs, device=x_binary.device, dtype=torch.float32)
         if x_binary.dim() == 1:
             return (x_binary * powers).sum().long()
         else:
@@ -225,23 +231,22 @@ class ProbabilisticNode(BaseNode):
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
-        This makes it behave like a real LUT with binary outputs.
+        Evaluation: Direct LUT lookup simulating hardware behavior.
+        Assumes inputs are already binary (0 or 1) from encoder or previous nodes.
+        Returns binary outputs (0 or 1).
         """
         x = self._prepare_input(x)
-        
-        # Compute same as forward_train (probabilistic expectation)
         batch_size = x.shape[0]
-        # Ensure binary_combinations is on the same device and dtype as x
-        binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
-        # Vectorized probability computation
-        x_expanded = x.unsqueeze(1)  # (batch_size, 1, num_inputs)
-        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
-        prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-        probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^num_inputs)
-        weights = self.weights
-        output = torch.matmul(probs, weights)
-        # Discretize: Heaviside at 0.5 since forward_train output is in [0,1]
+        
+        # Convert binary inputs to LUT indices (MSB-first)
+        # For each sample, compute index = sum(x[i] * 2^(n-1-i))
+        indices = self._binary_to_index(x)  # (batch_size,)
+        
+        # Look up weights and threshold at 0.5 to get binary output
+        weights = self.weights  # (2^num_inputs, num_outputs)
+        output = weights[indices]  # (batch_size, num_outputs)
+        
+        # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output = (output >= 0.5).float()
         
         return self._prepare_output(output)

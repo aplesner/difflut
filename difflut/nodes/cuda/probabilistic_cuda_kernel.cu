@@ -28,7 +28,8 @@ __global__ void probabilistic_cuda_forward_kernel(
                 float prob = 1.0f;
                 
                 for (int l = 0; l < n; ++l) {
-                    uint a_l = (addr >> l) & 1;  // LSB first (matching MSB-first by reversing bit order)
+                    // LSB-first bit ordering (consistent across all nodes)
+                    uint a_l = (addr >> l) & 1;  // LSB first
                     float x_l = input[i][mapping[j][l]];
                     
                     // Clamp input to [0, 1] for numerical stability
@@ -112,7 +113,8 @@ __global__ void probabilistic_cuda_backward_kernel(
                 float prob = 1.0f;
                 
                 for (int l = 0; l < n; ++l) {
-                    uint a_l = (addr >> l) & 1;
+                    // LSB-first bit ordering (consistent across all nodes)
+                    uint a_l = (addr >> l) & 1;  // LSB first
                     float x_l = input[i][mapping[j][l]];
                     x_l = fmaxf(0.0f, fminf(1.0f, x_l));
                     
