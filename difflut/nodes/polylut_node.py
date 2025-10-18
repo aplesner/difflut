@@ -15,7 +15,7 @@ class PolyLUTNode(BaseNode):
     def __init__(self, 
                  input_dim: list = None,
                  output_dim: list = None,
-                 degree: int = 8,
+                 degree: int = 2,
                  init_fn: Optional[Callable] = None,
                  regularizers: dict = None):
         """

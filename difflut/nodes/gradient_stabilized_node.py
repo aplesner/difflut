@@ -41,6 +41,11 @@ class GradientStabilizedFunctionCUDA(torch.autograd.Function):
             luts: (num_luts, 2^n) tensor in [0, 1]
             gradient_scale: scalar tensor for gradient scaling
         """
+        # Ensure all tensors are contiguous
+        input = input.contiguous()
+        mapping = mapping.contiguous()
+        luts = luts.contiguous()
+        
         output = _gradient_stabilized_cuda_module.forward(input, mapping, luts)
         ctx.save_for_backward(input, mapping, luts, gradient_scale)
         return output
@@ -55,6 +60,9 @@ class GradientStabilizedFunctionCUDA(torch.autograd.Function):
         """
         input, mapping, luts, gradient_scale = ctx.saved_tensors
         grad_scale_value = gradient_scale.item() if gradient_scale.numel() == 1 else gradient_scale
+        
+        # Ensure grad_output is contiguous
+        grad_output = grad_output.contiguous()
         
         grad_input, grad_luts = _gradient_stabilized_cuda_module.backward(
             input, mapping, luts, grad_output, float(grad_scale_value)
