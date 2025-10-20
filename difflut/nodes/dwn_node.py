@@ -28,14 +28,16 @@ class EFDFunction(torch.autograd.Function):
     PyTorch autograd function wrapper for EFD CUDA kernels.
     """
     @staticmethod
-    def forward(ctx, input, mapping, luts):
+    def forward(ctx, input, mapping, luts, alpha, beta):
         """
         Forward pass using CUDA kernel.
         
         Args:
             input: (batch_size, input_length) float tensor in [0, 1]
             mapping: (num_luts, n) int tensor - mapping of inputs to each LUT
-            luts: (num_luts, 2^n) float tensor in [0, 1] - LUT values
+            luts: (num_luts, 2^n) float tensor in [-1, 1] - LUT values
+            alpha: scalar tensor for gradient scaling
+            beta: scalar tensor for Hamming distance decay
         
         Returns:
             output: (batch_size, num_luts) float tensor
@@ -52,36 +54,36 @@ class EFDFunction(torch.autograd.Function):
         output = _efd_cuda_module.forward(input, mapping, luts)
         
         # Save for backward
-        ctx.save_for_backward(input, mapping, luts)
+        ctx.save_for_backward(input, mapping, luts, alpha, beta)
         
         return output
     
     @staticmethod
     def backward(ctx, grad_output):
         """
-        Backward pass using CUDA kernel with simple finite difference.
+        Backward pass using CUDA kernel with alpha/beta scaling.
         
         Args:
             grad_output: (batch_size, num_luts) gradient tensor
         
         Returns:
-            Gradients for (input, mapping, luts)
+            Gradients for (input, mapping, luts, alpha, beta)
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
         
-        input, mapping, luts = ctx.saved_tensors
+        input, mapping, luts, alpha, beta = ctx.saved_tensors
         
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
         
-        # Call CUDA backward kernel
+        # Call CUDA backward kernel with alpha and beta
         grad_input, grad_luts = _efd_cuda_module.backward(
-            input, mapping, luts, grad_output
+            input, mapping, luts, grad_output, alpha.item(), beta.item()
         )
         
-        # Return gradients (None for mapping as it doesn't need gradients)
-        return grad_input, None, grad_luts
+        # Return gradients (None for mapping, alpha, beta)
+        return grad_input, None, grad_luts, None, None
 
 
 class EFDFunctionCPU(torch.autograd.Function):
@@ -89,7 +91,7 @@ class EFDFunctionCPU(torch.autograd.Function):
     CPU fallback for EFD with proper Extended Finite Difference backward pass.
     """
     @staticmethod
-    def forward(ctx, input, mapping, luts):
+    def forward(ctx, input, mapping, luts, alpha, beta):
         """Forward pass with binary thresholding."""
         # Binary threshold at 0.5 for [0, 1] inputs
         x_binary = (input >= 0.5).float()
@@ -109,14 +111,14 @@ class EFDFunctionCPU(torch.autograd.Function):
                 output[i, j] = luts[j, addr]
         
         # Save for backward
-        ctx.save_for_backward(input, mapping, luts)
+        ctx.save_for_backward(input, mapping, luts, alpha, beta)
         
         return output
     
     @staticmethod
     def backward(ctx, grad_output):
-        """Backward pass using Extended Finite Difference (EFD)."""
-        input, mapping, luts = ctx.saved_tensors
+        """Backward pass using Extended Finite Difference (EFD) with alpha/beta scaling."""
+        input, mapping, luts, alpha, beta = ctx.saved_tensors
         batch_size = input.shape[0]
         input_length = input.shape[1]
         num_luts = luts.shape[0]
@@ -125,6 +127,9 @@ class EFDFunctionCPU(torch.autograd.Function):
         
         grad_input = torch.zeros_like(input)
         grad_luts = torch.zeros_like(luts)
+        
+        alpha_val = alpha.item()
+        beta_val = beta.item()
         
         for i in range(batch_size):
             for j in range(num_luts):
@@ -137,7 +142,7 @@ class EFDFunctionCPU(torch.autograd.Function):
                 # LUT gradient
                 grad_luts[j, addr] += grad_output[i, j]
                 
-                # Input gradient using Extended Finite Difference
+                # Input gradient using Extended Finite Difference with alpha/beta scaling
                 for l in range(n):
                     total_gradient = 0.0
                     
@@ -160,31 +165,33 @@ class EFDFunctionCPU(torch.autograd.Function):
                         # Get LUT value at position k
                         lut_value = luts[j, k].item()
                         
-                        # Add weighted contribution
-                        total_gradient += sign_factor * lut_value / (hamming_dist + 1.0)
+                        # Add weighted contribution: alpha * sign * lut * beta^hamming_dist
+                        total_gradient += alpha_val * sign_factor * lut_value * (beta_val ** hamming_dist)
                     
                     grad_input[i, mapping[j, l]] += total_gradient * grad_output[i, j]
         
-        return grad_input, None, grad_luts
+        return grad_input, None, grad_luts, None, None
 
 
-def efd_forward(input, mapping, luts):
+def efd_forward(input, mapping, luts, alpha, beta):
     """
     EFD forward pass with automatic differentiation support.
     
     Args:
         input: (batch_size, input_length) tensor in [0, 1]
         mapping: (num_luts, n) int tensor
-        luts: (num_luts, 2^n) tensor in [0, 1]
+        luts: (num_luts, 2^n) tensor in [-1, 1]
+        alpha: scalar tensor for gradient scaling
+        beta: scalar tensor for Hamming distance decay
     
     Returns:
         output: (batch_size, num_luts) tensor
     """
     if _CUDA_EXT_AVAILABLE and input.is_cuda:
-        return EFDFunction.apply(input, mapping, luts)
+        return EFDFunction.apply(input, mapping, luts, alpha, beta)
     else:
         # CPU fallback with proper EFD backward
-        return EFDFunctionCPU.apply(input, mapping, luts)
+        return EFDFunctionCPU.apply(input, mapping, luts, alpha, beta)
 
 @register_node("dwn")
 class DWNNode(BaseNode):
@@ -192,26 +199,33 @@ class DWNNode(BaseNode):
     Differentiable Weightless Neural Network node with Extended Finite Difference (EFD).
     
     Forward: Binary thresholding at 0.5 for inputs in [0, 1]
-    Backward: Extended Finite Difference (EFD) - iterates over all 2^n addresses
-              with Hamming distance weighting: (-1)^(1-k_j) * lut[k] / (hamming_dist + 1)
+    Backward: Extended Finite Difference (EFD) with alpha/beta scaling:
+              alpha * (-1)^(1-k_j) * lut[k] * beta^hamming_dist
     
-    Weights: Raw weights passed through sigmoid to get LUT values in [0, 1]
+    Weights: LUT values in [-1, 1], clamped during training
     """
     
     def __init__(self, 
                  input_dim: list = None,
                  output_dim: list = None,
                  use_cuda: bool = True,
-                 regularizers: dict = None):
+                 regularizers: dict = None,
+                 alpha: float = None,
+                 beta: float = None,
+                 clamp_luts: bool = True):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
             output_dim: Output dimensions as list (e.g., [1])
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
+            alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
+            beta: Hamming distance decay factor (default: 0.25/0.75)
+            clamp_luts: Whether to clamp LUT values to [-1, 1] during training
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.use_cuda = use_cuda and is_cuda_available()
+        self.clamp_luts = clamp_luts
         
         # Warn if CUDA requested but not available
         if use_cuda and not _CUDA_EXT_AVAILABLE:
@@ -223,23 +237,31 @@ class DWNNode(BaseNode):
                 stacklevel=2
             )
         
-        # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
-        # Gaussian initialization around 0
+        # Set alpha and beta based on input dimension
+        if alpha is None:
+            alpha = 0.5 * (0.75 ** (self.num_inputs - 1))
+        if beta is None:
+            beta = 0.25 / 0.75
+        
+        self.register_buffer('alpha', torch.tensor(alpha, dtype=torch.float32))
+        self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))
+        
+        # Initialize LUT weights: shape (num_outputs, 2^num_inputs)
+        # Uniform initialization in [-1, 1]
         lut_size = 2 ** self.num_inputs
-        self.raw_luts = nn.Parameter(
-            torch.randn(self.num_outputs, lut_size) * 0.1  # Gaussian N(0, 0.1^2)
+        self.luts = nn.Parameter(
+            torch.rand(self.num_outputs, lut_size) * 2 - 1  # Uniform in [-1, 1]
         )
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)
         self.register_buffer('mapping', torch.arange(self.num_inputs, dtype=torch.int32).unsqueeze(0).expand(self.num_outputs, -1))
          
-    def _get_luts(self) -> torch.Tensor:
-        """
-        Get actual LUT weights by applying sigmoid to raw weights.
-        Maps from (-inf, inf) to [0, 1].
-        """
-        return torch.sigmoid(self.raw_luts)
+    def _clamp_luts_if_needed(self):
+        """Clamp LUT values to [-1, 1] during training if enabled."""
+        if self.training and self.clamp_luts:
+            with torch.no_grad():
+                self.luts.clamp_(-1.0, 1.0)
     
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
         """
@@ -262,8 +284,8 @@ class DWNNode(BaseNode):
         """
         x = self._prepare_input(x)
         
-        # Get actual LUT weights via sigmoid
-        luts = self._get_luts()
+        # Clamp LUT values to [-1, 1] if enabled
+        self._clamp_luts_if_needed()
         
         # Use efd_forward which handles CUDA/CPU dispatch automatically
         if self.use_cuda and x.is_cuda:
@@ -272,7 +294,7 @@ class DWNNode(BaseNode):
         else:
             mapping = self.mapping
         
-        output = efd_forward(x, mapping, luts)
+        output = efd_forward(x, mapping, self.luts, self.alpha, self.beta)
         return self._prepare_output(output)
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -282,27 +304,24 @@ class DWNNode(BaseNode):
         """
         x = self._prepare_input(x)
         
-        # Get actual LUT weights via sigmoid
-        luts = self._get_luts()
-        
         # Inputs are already binarized in {0, 1}, use directly
         x_binary = x.float()
         indices = self._binary_to_index(x_binary)
         
         if self.num_outputs == 1:
-            output = luts[0, indices]
+            output = self.luts[0, indices]
         else:
             outputs = []
             for dim in range(self.num_outputs):
-                outputs.append(luts[dim, indices])
+                outputs.append(self.luts[dim, indices])
             output = torch.stack(outputs, dim=1)
         
-        # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
-        # output >= 0.5 -> 1, output < 0.5 -> 0
-        output = (output >= 0.5).float()
+        # Binarize output: [-1, 1] -> {0, 1} using Heaviside at 0.0
+        # For [0,1] domain with threshold 0.5, map: output > 0 -> 1, output <= 0 -> 0
+        output = (output > 0.0).float()
         
         return self._prepare_output(output)
     
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization to match base CUDA implementation."""
-        return torch.tensor(0.0, device=self.raw_luts.device, requires_grad=False)
+        return torch.tensor(0.0, device=self.luts.device, requires_grad=False)

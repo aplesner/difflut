@@ -17,14 +17,16 @@ __global__ void gradient_stabilized_cuda_forward_kernel(
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < batch_size; i += blockDim.x * gridDim.x) {
         for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < num_luts; j += blockDim.y * gridDim.y) {
                 
-            // Binary thresholding at 0.5: input >= 0.5 -> 1, input < 0.5 -> 0
+            // Threshold at 0.5: input >= 0.5 -> 1, input < 0.5 -> 0
             uint addr = input[i][mapping[j][0]] >= 0.5f;
             for(int l = 1; l < mapping.size(1); ++l)
                 addr |= (uint)(input[i][mapping[j][l]] >= 0.5f) << l;
 
             output[i][j] = luts[j][addr];
+    
         };
     };
+
 }
 
 torch::Tensor gradient_stabilized_cuda_forward(
@@ -62,67 +64,62 @@ __global__ void gradient_stabilized_cuda_backward_kernel(
     const torch::PackedTensorAccessor32<int, 2, torch::RestrictPtrTraits> mapping,          // (num_luts, n)
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts,           // (num_luts, 2^n)
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> output_grad,    // (batch_size, num_luts)
-    const float gradient_scale,                                                               // scalar
+    const float gradient_scale,                                                              // scalar scaling factor
     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> input_grad,           // (batch_size, input_length) 
     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts_grad) {          // (num_luts, 2^n)
           
-    const int batch_size = output_grad.size(0);
-    const int num_luts = output_grad.size(1);
-    const int n = mapping.size(1);
-    const int lut_size = 1 << n;
 
-    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < batch_size; i += blockDim.x * gridDim.x) {
-        for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < num_luts; j += blockDim.y * gridDim.y) {
+    for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < output_grad.size(0); i += blockDim.x * gridDim.x) {
+        for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < output_grad.size(1); j += blockDim.y * gridDim.y) {
 
-            // Current address based on binary thresholding at 0.5
+            // LUT grad - threshold at 0.5
             uint addr = input[i][mapping[j][0]] >= 0.5f;
-            for(int l = 1; l < n; ++l) {
+            for(int l = 1; l < mapping.size(1); ++l) {
                 addr |= (uint)(input[i][mapping[j][l]] >= 0.5f) << l;
-            }
+            };
             
-            // Apply gradient scaling
-            float scaled_grad_output = output_grad[i][j] * gradient_scale;
-            
-            // LUT gradient - standard accumulation
-            atomicAdd(&luts_grad[j][addr], scaled_grad_output);
+            // Apply gradient scaling to LUT gradient
+            atomicAdd(&luts_grad[j][addr], output_grad[i][j] * gradient_scale);
 
-            // Input gradient with distance-based weighting
-            // Compute LUT variation (max - min) for this LUT
-            float lut_min = luts[j][0];
-            float lut_max = luts[j][0];
-            for(int k = 1; k < lut_size; ++k) {
-                lut_min = fminf(lut_min, luts[j][k]);
-                lut_max = fmaxf(lut_max, luts[j][k]);
-            }
-            float lut_variation = lut_max - lut_min;
+            // Input grad using Extended Finite Difference (EFD) with scaling
+            // Iterate over ALL 2^n possible addresses with Hamming distance weighting
+            const int n = mapping.size(1);
+            const int lut_size = 1 << n;
             
-            // For each input dimension
             for(int l = 0; l < n; ++l) {
-                int input_idx = mapping[j][l];
-                float x_val = input[i][input_idx];
+                float total_gradient = 0.0f;
                 
-                // Distance from threshold (0.5)
-                // At 0.5: distance_from_threshold = 1.0
-                // At 0.0 or 1.0: distance_from_threshold = 0.0
-                float distance_from_threshold = 1.0f - 2.0f * fabsf(x_val - 0.5f);
-                distance_from_threshold = fmaxf(0.0f, fminf(1.0f, distance_from_threshold));
+                // Create mask to exclude l-th bit for Hamming distance calculation
+                uint mask = ((1 << n) - 1) & ~(1 << l);
+                uint addr_masked = addr & mask;
                 
-                // Gradient magnitude based on LUT variation and distance
-                float gradient_magnitude = distance_from_threshold * lut_variation;
-                
-                // Apply gradient with proper sign
-                float grad_contrib;
-                if (x_val >= 0.5f) {
-                    grad_contrib = gradient_magnitude * scaled_grad_output;
-                } else {
-                    grad_contrib = -gradient_magnitude * scaled_grad_output;
+                // Iterate over all possible addresses k
+                for(uint k = 0; k < lut_size; ++k) {
+                    // Calculate Hamming distance between addr and k, excluding l-th bit
+                    uint k_masked = k & mask;
+                    int hamming_dist = __popc(addr_masked ^ k_masked);
+                    
+                    // Get k_l (l-th bit of k)
+                    uint k_l = (k >> l) & 1;
+                    
+                    // Calculate sign factor: (-1)^(1-k_l)
+                    float sign_factor = (k_l == 0) ? -1.0f : 1.0f;
+                    
+                    // Get LUT value at position k
+                    float lut_value = luts[j][k];
+                    
+                    // Add weighted contribution
+                    total_gradient += sign_factor * lut_value / (hamming_dist + 1.0f);
                 }
                 
-                atomicAdd(&input_grad[i][input_idx], grad_contrib);
-            }
-        }
-    }
-}
+                // Apply gradient scaling to input gradient
+                atomicAdd(&input_grad[i][mapping[j][l]], total_gradient * output_grad[i][j] * gradient_scale);
+            };
+
+        };
+    };
+
+};
 
 std::vector<torch::Tensor> gradient_stabilized_cuda_backward(
     torch::Tensor input_tensor,

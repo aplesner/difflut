@@ -12,7 +12,9 @@ std::vector<torch::Tensor> efd_cuda_backward(
   torch::Tensor input,
   torch::Tensor mapping,
   torch::Tensor luts,
-  torch::Tensor output_grad
+  torch::Tensor output_grad,
+  float alpha,
+  float beta
 );
 
 #define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
@@ -33,12 +35,14 @@ std::vector<torch::Tensor> efd_backward(
   torch::Tensor input,
   torch::Tensor mapping,
   torch::Tensor luts,
-  torch::Tensor output_grad) {
+  torch::Tensor output_grad,
+  float alpha,
+  float beta) {
     CHECK_INPUT(input);
     CHECK_INPUT(mapping);
     CHECK_INPUT(luts);
     CHECK_INPUT(output_grad);
-    return efd_cuda_backward(input, mapping, luts, output_grad);
+    return efd_cuda_backward(input, mapping, luts, output_grad, alpha, beta);
 };
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
