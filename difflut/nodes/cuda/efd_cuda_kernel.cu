@@ -64,6 +64,8 @@ __global__ void efd_cuda_backward_kernel(
     const torch::PackedTensorAccessor32<int, 2, torch::RestrictPtrTraits> mapping,          // (num_luts, n)
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts,           // (num_luts, 2^n)
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> output_grad,    // (batch_size, num_luts)
+    const float alpha,                                                                        // gradient scaling factor
+    const float beta,                                                                         // Hamming distance decay factor
     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> input_grad,           // (batch_size, input_lenght) 
     torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts_grad) {          // (num_luts, 2^n)
           
@@ -71,14 +73,14 @@ __global__ void efd_cuda_backward_kernel(
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < output_grad.size(0); i += blockDim.x * gridDim.x) {
         for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < output_grad.size(1); j += blockDim.y * gridDim.y) {
 
-                        // LUT grad - threshold at 0.5
+            // LUT grad - threshold at 0.5
             uint addr = input[i][mapping[j][0]] >= 0.5f;
             for(int l = 1; l < mapping.size(1); ++l) {
                 addr |= (uint)(input[i][mapping[j][l]] >= 0.5f) << l;
             };
             atomicAdd(&luts_grad[j][addr], output_grad[i][j]);
 
-            // Input grad using Extended Finite Difference (EFD)
+            // Input grad using Extended Finite Difference (EFD) with alpha/beta scaling
             // Iterate over ALL 2^n possible addresses with Hamming distance weighting
             const int n = mapping.size(1);
             const int lut_size = 1 << n;
@@ -105,8 +107,8 @@ __global__ void efd_cuda_backward_kernel(
                     // Get LUT value at position k
                     float lut_value = luts[j][k];
                     
-                    // Add weighted contribution
-                    total_gradient += sign_factor * lut_value / (hamming_dist + 1.0f);
+                    // Add weighted contribution: alpha * sign * lut * beta^hamming_dist
+                    total_gradient += alpha * sign_factor * lut_value * powf(beta, hamming_dist);
                 }
                 
                 atomicAdd(&input_grad[i][mapping[j][l]], total_gradient * output_grad[i][j]);
@@ -121,7 +123,9 @@ std::vector<torch::Tensor> efd_cuda_backward(
     torch::Tensor input_tensor,
     torch::Tensor mapping_tensor,
     torch::Tensor luts_tensor,
-    torch::Tensor output_grad_tensor) {
+    torch::Tensor output_grad_tensor,
+    float alpha,
+    float beta) {
   
     auto batch_size = output_grad_tensor.size(0);
     auto output_size = output_grad_tensor.size(1);
@@ -141,6 +145,8 @@ std::vector<torch::Tensor> efd_cuda_backward(
         mapping_tensor.packed_accessor32<int, 2, torch::RestrictPtrTraits>(),
         luts_tensor.packed_accessor32<float, 2, torch::RestrictPtrTraits>(),
         output_grad_tensor.packed_accessor32<float, 2, torch::RestrictPtrTraits>(),
+        alpha,
+        beta,
         input_grad_tensor.packed_accessor32<float, 2, torch::RestrictPtrTraits>(),
         luts_grad_tensor.packed_accessor32<float, 2, torch::RestrictPtrTraits>()
     );
