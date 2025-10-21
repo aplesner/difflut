@@ -1,4 +1,20 @@
 # pyproject.toml
 [build-system]
-requires = ["setuptools", "wheel", "torch"]
+requires = ["setuptools>=45", "wheel", "torch>=1.9.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "difflut"
+version = "1.0.10"
+description = "Differentiable LUT-based neural networks"
+readme = "README.md"
+requires-python = ">=3.7"
+license = {text = "MIT"}
+authors = [
+    {name = "Simon Buehrer"}
+]
+
+dependencies = [
+    "torch>=1.9.0",
+    "numpy",
+]

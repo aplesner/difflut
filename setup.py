@@ -10,7 +10,14 @@ cuda_available = False
 try:
     import torch
     from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-    cuda_available = torch.cuda.is_available() and (os.environ.get('CUDA_HOME') or os.environ.get('CUDA_PATH'))
+    # Check if CUDA_HOME is set (don't rely on torch.cuda.is_available() during build)
+    cuda_home = os.environ.get('CUDA_HOME') or os.environ.get('CUDA_PATH')
+    if cuda_home:
+        print(f"CUDA_HOME detected: {cuda_home}")
+        cuda_available = True
+    else:
+        print("CUDA_HOME not set. Checking torch.cuda.is_available()...")
+        cuda_available = torch.cuda.is_available()
 except ImportError:
     print("Warning: PyTorch not found, CUDA extensions will not be built.")
 except Exception as e:
