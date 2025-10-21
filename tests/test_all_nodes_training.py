@@ -382,9 +382,9 @@ def main():
     print("="*60)
     
     # Configuration
-    EPOCHS = 10
+    EPOCHS = 50
     LEARNING_RATES = [0.1, 0.01,0.001]
-    N_SAMPLES = 1000
+    N_SAMPLES = 2000
     
     # Setup output directory
     output_dir = Path(__file__).parent / "test_outputs"

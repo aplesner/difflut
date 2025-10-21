@@ -23,22 +23,6 @@ except ImportError:
     )
 
 
-class STEFunction(torch.autograd.Function):
-    """
-    Straight-Through Estimator: Binarizes forward, passes gradients through unchanged.
-    Binarizes values >= 0.5 to 1, values < 0.5 to 0.
-    """
-    @staticmethod
-    def forward(ctx, input):
-        """Binarize input to {0, 1}."""
-        return torch.where(input >= 0.5, torch.ones_like(input), torch.zeros_like(input))
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        """Pass gradient through unchanged."""
-        return grad_output
-
-
 class EFDFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for EFD CUDA kernels.
@@ -219,7 +203,6 @@ class DWNNode(BaseNode):
               alpha * (-1)^(1-k_j) * lut[k] * beta^hamming_dist
     
     Weights: LUT values in [0, 1], clamped during training
-    STE: Optional Straight-Through Estimator binarizes outputs during training
     """
     
     def __init__(self, 
@@ -229,8 +212,7 @@ class DWNNode(BaseNode):
                  regularizers: dict = None,
                  alpha: float = None,
                  beta: float = None,
-                 clamp_luts: bool = True,
-                 ste: bool = False):
+                 clamp_luts: bool = True):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
@@ -240,12 +222,10 @@ class DWNNode(BaseNode):
             alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
             beta: Hamming distance decay factor (default: 0.25/0.75)
             clamp_luts: Whether to clamp LUT values to [0, 1] during training
-            ste: Whether to apply Straight-Through Estimator during training
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.use_cuda = use_cuda and is_cuda_available()
         self.clamp_luts = clamp_luts
-        self.ste = ste
         
         # Warn if CUDA requested but not available
         if use_cuda and not _CUDA_EXT_AVAILABLE:
@@ -316,10 +296,6 @@ class DWNNode(BaseNode):
             mapping = self.mapping
         
         output = efd_forward(x, mapping, self.luts, self.alpha, self.beta)
-        
-        # Apply STE if enabled (binarizes output but passes gradients through)
-        if self.ste:
-            output = STEFunction.apply(output)
         
         return self._prepare_output(output)
     

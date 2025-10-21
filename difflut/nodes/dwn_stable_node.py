@@ -24,22 +24,6 @@ except ImportError:
     )
 
 
-class STEFunction(torch.autograd.Function):
-    """
-    Straight-Through Estimator: Binarizes forward, passes gradients through unchanged.
-    Binarizes values >= 0.5 to 1, values < 0.5 to 0.
-    """
-    @staticmethod
-    def forward(ctx, input):
-        """Binarize input to {0, 1}."""
-        return torch.where(input >= 0.5, torch.ones_like(input), torch.zeros_like(input))
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        """Pass gradient through unchanged."""
-        return grad_output
-
-
 class GradientStabilizedFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for Gradient Stabilized CUDA kernels.
@@ -218,7 +202,6 @@ class DWNStableNode(BaseNode):
     Backward: Extended Finite Difference (EFD) multiplied by gradient_scale
     
     Weights: Raw weights passed through sigmoid to get LUT values in [0, 1]
-    STE: Optional Straight-Through Estimator binarizes outputs during training
     """
     
     def __init__(self, 
@@ -226,8 +209,7 @@ class DWNStableNode(BaseNode):
                  output_dim: list = None,
                  use_cuda: bool = True,
                  regularizers: dict = None,
-                 gradient_scale: float = 1.25,
-                 ste: bool = False):
+                 gradient_scale: float = 1.25):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
@@ -235,11 +217,9 @@ class DWNStableNode(BaseNode):
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
             gradient_scale: Initial gradient scaling factor (learnable)
-            ste: Whether to apply Straight-Through Estimator during training
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.use_cuda = use_cuda and is_cuda_available()
-        self.ste = ste
         
         # Warn if CUDA requested but not available
         if use_cuda and not _CUDA_EXT_AVAILABLE:
@@ -305,10 +285,6 @@ class DWNStableNode(BaseNode):
             mapping = self.mapping
         
         output = dwn_stable_forward(x, mapping, luts, self.gradient_scale)
-        
-        # Apply STE if enabled (binarizes output but passes gradients through)
-        if self.ste:
-            output = STEFunction.apply(output)
         
         return self._prepare_output(output)
     
