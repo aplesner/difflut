@@ -46,9 +46,10 @@ from .nodes import (
     NeuralLUTNode,
     PolyLUTNode,
     ProbabilisticNode,
+    ProbabilisticStableNode,
     HybridNode,
     FourierNode,
-    GradientStabilizedNode,
+    DWNStableNode,
 )
 
 from .layers import (
@@ -108,9 +109,10 @@ __all__ = [
     'NeuralLUTNode',
     'PolyLUTNode',
     'ProbabilisticNode',
+    'ProbabilisticStableNode',
     'HybridNode',
     'FourierNode',
-    'GradientStabilizedNode',
+    'DWNStableNode',
     
     # Layers
     'RandomLayer',

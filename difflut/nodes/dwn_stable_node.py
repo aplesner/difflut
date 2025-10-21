@@ -9,16 +9,16 @@ from .cuda import is_cuda_available
 
 # Try to import the compiled CUDA extension
 try:
-    import gradient_stabilized_cuda as _gradient_stabilized_cuda_module
+    import dwn_stable_cuda as _dwn_stable_cuda_module
     _CUDA_EXT_AVAILABLE = True
 except ImportError:
     _CUDA_EXT_AVAILABLE = False
-    _gradient_stabilized_cuda_module = None
+    _dwn_stable_cuda_module = None
     warnings.warn(
-        "CUDA extension 'gradient_stabilized_cuda' not available. GradientStabilizedNode will use slower CPU fallback. "
+        "CUDA extension 'dwn_stable_cuda' not available. DWNStableNode will use slower CPU fallback. "
         "For better performance, compile the CUDA extension using: "
         "'cd difflut && python setup.py install'. "
-        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.gradient_stabilized_node')",
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.dwn_stable_node')",
         RuntimeWarning,
         stacklevel=2
     )
@@ -44,7 +44,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
             output: (batch_size, num_luts) float tensor
         """
         if not _CUDA_EXT_AVAILABLE:
-            raise RuntimeError("CUDA extension not available. Please compile gradient_stabilized_cuda extension.")
+            raise RuntimeError("CUDA extension not available. Please compile dwn_stable_cuda extension.")
         
         # Ensure correct dtypes and contiguity
         input = input.contiguous().float()
@@ -52,7 +52,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
         luts = luts.contiguous().float()
         
         # Call CUDA forward kernel (same as EFD)
-        output = _gradient_stabilized_cuda_module.forward(input, mapping, luts)
+        output = _dwn_stable_cuda_module.forward(input, mapping, luts)
         
         # Save for backward
         ctx.save_for_backward(input, mapping, luts, gradient_scale)
@@ -71,7 +71,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
             Gradients for (input, mapping, luts, gradient_scale)
         """
         if not _CUDA_EXT_AVAILABLE:
-            raise RuntimeError("CUDA extension not available. Please compile gradient_stabilized_cuda extension.")
+            raise RuntimeError("CUDA extension not available. Please compile dwn_stable_cuda extension.")
         
         input, mapping, luts, gradient_scale = ctx.saved_tensors
         
@@ -79,7 +79,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
         grad_output = grad_output.contiguous().float()
         
         # Call CUDA backward kernel with gradient scaling
-        grad_input, grad_luts = _gradient_stabilized_cuda_module.backward(
+        grad_input, grad_luts = _dwn_stable_cuda_module.backward(
             input, mapping, luts, grad_output, gradient_scale.item()
         )
         
@@ -174,7 +174,7 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
         return grad_input, None, grad_luts, None
 
 
-def gradient_stabilized_forward(input, mapping, luts, gradient_scale):
+def dwn_stable_forward(input, mapping, luts, gradient_scale):
     """
     Gradient Stabilized forward pass with automatic differentiation support.
     
@@ -193,8 +193,8 @@ def gradient_stabilized_forward(input, mapping, luts, gradient_scale):
         # CPU fallback with proper EFD backward
         return GradientStabilizedFunctionCPU.apply(input, mapping, luts, gradient_scale)
 
-@register_node("gradient_stabilized")
-class GradientStabilizedNode(BaseNode):
+@register_node("dwn_stable")
+class DWNStableNode(BaseNode):
     """
     Gradient Stabilized Node - Same as DWN but with gradient scaling.
     
@@ -224,7 +224,7 @@ class GradientStabilizedNode(BaseNode):
         # Warn if CUDA requested but not available
         if use_cuda and not _CUDA_EXT_AVAILABLE:
             warnings.warn(
-                "GradientStabilizedNode: CUDA was requested (use_cuda=True) but CUDA extension is not available. "
+                "DWNStableNode: CUDA was requested (use_cuda=True) but CUDA extension is not available. "
                 "Using CPU fallback which may be significantly slower. "
                 "To enable CUDA: compile the extension with 'cd difflut && python setup.py install'",
                 RuntimeWarning,
@@ -276,14 +276,14 @@ class GradientStabilizedNode(BaseNode):
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
-        # Use gradient_stabilized_forward which handles CUDA/CPU dispatch automatically
+        # Use dwn_stable_forward which handles CUDA/CPU dispatch automatically
         if self.use_cuda and x.is_cuda:
             x = x.contiguous().float()
             mapping = self.mapping.int()
         else:
             mapping = self.mapping
         
-        output = gradient_stabilized_forward(x, mapping, luts, self.gradient_scale)
+        output = dwn_stable_forward(x, mapping, luts, self.gradient_scale)
         return self._prepare_output(output)
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
