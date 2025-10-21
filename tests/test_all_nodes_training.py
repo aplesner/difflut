@@ -383,7 +383,7 @@ def main():
     
     # Configuration
     EPOCHS = 10
-    LEARNING_RATES = [0.1]
+    LEARNING_RATES = [0.1, 0.01,0.001]
     N_SAMPLES = 1000
     
     # Setup output directory

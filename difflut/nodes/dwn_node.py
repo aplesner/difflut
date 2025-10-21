@@ -23,6 +23,22 @@ except ImportError:
     )
 
 
+class STEFunction(torch.autograd.Function):
+    """
+    Straight-Through Estimator: Binarizes forward, passes gradients through unchanged.
+    Binarizes values >= 0.5 to 1, values < 0.5 to 0.
+    """
+    @staticmethod
+    def forward(ctx, input):
+        """Binarize input to {0, 1}."""
+        return torch.where(input >= 0.5, torch.ones_like(input), torch.zeros_like(input))
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        """Pass gradient through unchanged."""
+        return grad_output
+
+
 class EFDFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for EFD CUDA kernels.
@@ -33,14 +49,14 @@ class EFDFunction(torch.autograd.Function):
         Forward pass using CUDA kernel.
         
         Args:
-            input: (batch_size, input_length) float tensor in [-1, 1]
+            input: (batch_size, input_length) float tensor in [0, 1]
             mapping: (num_luts, n) int tensor - mapping of inputs to each LUT
-            luts: (num_luts, 2^n) float tensor in [-1, 1] - LUT values
+            luts: (num_luts, 2^n) float tensor in [0, 1] - LUT values
             alpha: scalar tensor for gradient scaling
             beta: scalar tensor for Hamming distance decay
         
         Returns:
-            output: (batch_size, num_luts) float tensor in [-1, 1]
+            output: (batch_size, num_luts) float tensor in [0, 1]
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
@@ -93,8 +109,8 @@ class EFDFunctionCPU(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input, mapping, luts, alpha, beta):
         """Forward pass with binary thresholding."""
-        # Binary threshold at 0.0 for [-1, 1] inputs
-        x_binary = (input >= 0.0).float()
+        # Binary threshold at 0.5 for [0, 1] inputs
+        x_binary = (input >= 0.5).float()
         batch_size = x_binary.shape[0]
         num_luts = luts.shape[0]
         n = mapping.shape[1]
@@ -136,7 +152,7 @@ class EFDFunctionCPU(torch.autograd.Function):
                 # Compute current address (for LUT gradient)
                 addr = 0
                 for l in range(n):
-                    if input[i, mapping[j, l]] >= 0.0:
+                    if input[i, mapping[j, l]] >= 0.5:
                         addr |= (1 << l)
                 
                 # LUT gradient
@@ -178,14 +194,14 @@ def efd_forward(input, mapping, luts, alpha, beta):
     EFD forward pass with automatic differentiation support.
     
     Args:
-        input: (batch_size, input_length) tensor in [-1, 1]
+        input: (batch_size, input_length) tensor in [0, 1]
         mapping: (num_luts, n) int tensor
-        luts: (num_luts, 2^n) tensor in [-1, 1]
+        luts: (num_luts, 2^n) tensor in [0, 1]
         alpha: scalar tensor for gradient scaling
         beta: scalar tensor for Hamming distance decay
     
     Returns:
-        output: (batch_size, num_luts) tensor in [-1, 1]
+        output: (batch_size, num_luts) tensor in [0, 1]
     """
     if _CUDA_EXT_AVAILABLE and input.is_cuda:
         return EFDFunction.apply(input, mapping, luts, alpha, beta)
@@ -198,11 +214,12 @@ class DWNNode(BaseNode):
     """
     Differentiable Weightless Neural Network node with Extended Finite Difference (EFD).
     
-    Forward: Binary thresholding at 0.0 for inputs in [-1, 1]
+    Forward: Binary thresholding at 0.5 (> 0.5) for inputs in [0, 1]
     Backward: Extended Finite Difference (EFD) with alpha/beta scaling:
               alpha * (-1)^(1-k_j) * lut[k] * beta^hamming_dist
     
-    Weights: LUT values in [-1, 1], clamped during training
+    Weights: LUT values in [0, 1], clamped during training
+    STE: Optional Straight-Through Estimator binarizes outputs during training
     """
     
     def __init__(self, 
@@ -212,7 +229,8 @@ class DWNNode(BaseNode):
                  regularizers: dict = None,
                  alpha: float = None,
                  beta: float = None,
-                 clamp_luts: bool = True):
+                 clamp_luts: bool = True,
+                 ste: bool = False):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
@@ -221,11 +239,13 @@ class DWNNode(BaseNode):
             regularizers: Dict of custom regularization functions
             alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
             beta: Hamming distance decay factor (default: 0.25/0.75)
-            clamp_luts: Whether to clamp LUT values to [-1, 1] during training
+            clamp_luts: Whether to clamp LUT values to [0, 1] during training
+            ste: Whether to apply Straight-Through Estimator during training
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
         self.use_cuda = use_cuda and is_cuda_available()
         self.clamp_luts = clamp_luts
+        self.ste = ste
         
         # Warn if CUDA requested but not available
         if use_cuda and not _CUDA_EXT_AVAILABLE:
@@ -247,10 +267,10 @@ class DWNNode(BaseNode):
         self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))
         
         # Initialize LUT weights: shape (num_outputs, 2^num_inputs)
-        # Uniform initialization in [-1, 1]
+        # Uniform initialization in [0, 1]
         lut_size = 2 ** self.num_inputs
         self.luts = nn.Parameter(
-            torch.rand(self.num_outputs, lut_size) * 2 - 1  # Uniform in [-1, 1]
+            torch.rand(self.num_outputs, lut_size)  # Uniform in [0, 1]
         )
         
         # Create mapping tensor (each LUT maps to all inputs in order)
@@ -258,10 +278,10 @@ class DWNNode(BaseNode):
         self.register_buffer('mapping', torch.arange(self.num_inputs, dtype=torch.int32).unsqueeze(0).expand(self.num_outputs, -1))
          
     def _clamp_luts_if_needed(self):
-        """Clamp LUT values to [-1, 1] during training if enabled."""
+        """Clamp LUT values to [0, 1] during training if enabled."""
         if self.training and self.clamp_luts:
             with torch.no_grad():
-                self.luts.clamp_(-1.0, 1.0)
+                self.luts.clamp_(0.0, 1.0)
     
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
         """
@@ -280,8 +300,8 @@ class DWNNode(BaseNode):
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass during training with automatic CUDA/CPU dispatch.
-        Inputs are in [-1, 1], binarized using Heaviside at 0.0.
-        Outputs are in [-1, 1].
+        Inputs are in [0, 1], binarized using Heaviside at 0.5.
+        Outputs are in [0, 1] (or binarized with STE if enabled).
         """
         x = self._prepare_input(x)
         
@@ -296,17 +316,22 @@ class DWNNode(BaseNode):
             mapping = self.mapping
         
         output = efd_forward(x, mapping, self.luts, self.alpha, self.beta)
+        
+        # Apply STE if enabled (binarizes output but passes gradients through)
+        if self.ste:
+            output = STEFunction.apply(output)
+        
         return self._prepare_output(output)
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Evaluation: Inputs already binarized in {-1, 1}.
-        Output binarized to {-1, 1} using Heaviside at 0.0.
+        Evaluation: Inputs already binarized in {0, 1}.
+        Output binarized to {0, 1} using threshold at 0.5.
         """
         x = self._prepare_input(x)
         
-        # Inputs are already binarized in {-1, 1}, convert to {0, 1} for indexing
-        x_binary = (x >= 0.0).float()
+        # Inputs are already binarized in {0, 1}, convert to {0, 1} for indexing
+        x_binary = (x >= 0.5).float()
         indices = self._binary_to_index(x_binary)
         
         if self.num_outputs == 1:
@@ -317,8 +342,8 @@ class DWNNode(BaseNode):
                 outputs.append(self.luts[dim, indices])
             output = torch.stack(outputs, dim=1)
         
-        # Binarize output: [-1, 1] -> {-1, 1} using Heaviside at 0.0
-        output = torch.where(output > 0.0, torch.ones_like(output), -torch.ones_like(output))
+        # Binarize output: [0, 1] -> {0, 1} using threshold at 0.5
+        output = torch.where(output >= 0.5, torch.ones_like(output), torch.zeros_like(output))
         
         return self._prepare_output(output)
     

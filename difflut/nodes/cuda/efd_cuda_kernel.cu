@@ -6,10 +6,10 @@
 template <typename T> T ceil_div(const T x, const T y) { return x / y + !!(x % y); }
 
 __global__ void efd_cuda_forward_kernel(
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> input,    // (batch_size, input_length) in [-1, 1]
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> input,    // (batch_size, input_length) in [0, 1]
     const torch::PackedTensorAccessor32<int, 2, torch::RestrictPtrTraits> mapping,    // (num_luts, n)
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts,     // (num_luts, 2^n) in [-1, 1]
-    torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> output) {       // (batch_size, num_luts) in [-1, 1]
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts,     // (num_luts, 2^n) in [0, 1]
+    torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> output) {       // (batch_size, num_luts) in [0, 1]
     
     const int batch_size = output.size(0);
     const int num_luts = output.size(1);
@@ -17,10 +17,10 @@ __global__ void efd_cuda_forward_kernel(
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < batch_size; i += blockDim.x * gridDim.x) {
         for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < num_luts; j += blockDim.y * gridDim.y) {
 
-            // Binary threshold at 0.0 for inputs in [-1, 1]
-            uint addr = input[i][mapping[j][0]] >= 0.0f;
+            // Binary threshold at 0.5 for inputs in [0, 1]
+            uint addr = input[i][mapping[j][0]] >= 0.5f;
             for(int l = 1; l < mapping.size(1); ++l)
-                addr |= (uint)(input[i][mapping[j][l]] >= 0.0f) << l;
+                addr |= (uint)(input[i][mapping[j][l]] >= 0.5f) << l;
 
             output[i][j] = luts[j][addr];
     
@@ -60,9 +60,9 @@ torch::Tensor efd_cuda_forward(
 };
 
 __global__ void efd_cuda_backward_kernel(
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> input,          // (batch_size, input_length) in [-1, 1]
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> input,          // (batch_size, input_length) in [0, 1]
     const torch::PackedTensorAccessor32<int, 2, torch::RestrictPtrTraits> mapping,          // (num_luts, n)
-    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts,           // (num_luts, 2^n) in [-1, 1]
+    const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> luts,           // (num_luts, 2^n) in [0, 1]
     const torch::PackedTensorAccessor32<float, 2, torch::RestrictPtrTraits> output_grad,    // (batch_size, num_luts)
     const float alpha,                                                                        // gradient scaling factor
     const float beta,                                                                         // Hamming distance decay factor
@@ -73,10 +73,10 @@ __global__ void efd_cuda_backward_kernel(
     for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < output_grad.size(0); i += blockDim.x * gridDim.x) {
         for (int j = blockIdx.y * blockDim.y + threadIdx.y; j < output_grad.size(1); j += blockDim.y * gridDim.y) {
 
-            // LUT grad - threshold at 0.0 for inputs in [-1, 1]
-            uint addr = input[i][mapping[j][0]] >= 0.0f;
+            // LUT grad - threshold at 0.5 for inputs in [0, 1]
+            uint addr = input[i][mapping[j][0]] >= 0.5f;
             for(int l = 1; l < mapping.size(1); ++l) {
-                addr |= (uint)(input[i][mapping[j][l]] >= 0.0f) << l;
+                addr |= (uint)(input[i][mapping[j][l]] >= 0.5f) << l;
             };
             atomicAdd(&luts_grad[j][addr], output_grad[i][j]);
 

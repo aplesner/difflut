@@ -29,7 +29,7 @@ __global__ void gradient_stabilized_cuda_forward_kernel(
 
 }
 
-torch::Tensor gradient_stabilized_cuda_forward(
+torch::Tensor dwn_stable_cuda_forward(
     torch::Tensor input_tensor,
     torch::Tensor mapping_tensor,
     torch::Tensor luts_tensor) {
@@ -121,7 +121,7 @@ __global__ void gradient_stabilized_cuda_backward_kernel(
 
 };
 
-std::vector<torch::Tensor> gradient_stabilized_cuda_backward(
+std::vector<torch::Tensor> dwn_stable_cuda_backward(
     torch::Tensor input_tensor,
     torch::Tensor mapping_tensor,
     torch::Tensor luts_tensor,
