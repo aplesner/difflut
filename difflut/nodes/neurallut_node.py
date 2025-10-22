@@ -28,8 +28,8 @@ class NeuralLUTNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  hidden_width: int = 8,
                  depth: int = 2,
                  skip_interval: int = 2,
@@ -43,8 +43,8 @@ class NeuralLUTNode(BaseNode):
                  grad_factor: float = 1.0):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Number of inputs (e.g., 6)
+            output_dim: Number of outputs (e.g., 1)
             hidden_width: Width of hidden layers
             depth: Number of layers in the MLP
             skip_interval: Interval for skip connections (0 = no skips)
@@ -159,8 +159,6 @@ class NeuralLUTNode(BaseNode):
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass during training with binary rounding and STE."""
-        x = self._prepare_input(x)
-        
         # MLP forward + sigmoid
         logits = self._mlp_forward(x)
         
@@ -172,20 +170,18 @@ class NeuralLUTNode(BaseNode):
         # This only affects gradients, not forward pass values
         output = GradientScalingFunction.apply(output, torch.tensor(self.grad_factor, device=output.device))
         
-        return self._prepare_output(output)
+        return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
         """
-        x = self._prepare_input(x)
-        
         # Compute same as forward_train (MLP + sigmoid)
         output = self._mlp_forward(x)
         output = (output >= 0.0).float()
         
-        return self._prepare_output(output)
+        return output
 
     def _precompute_lut(self):
         """Precompute the LUT for evaluation."""

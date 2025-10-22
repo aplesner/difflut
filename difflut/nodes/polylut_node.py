@@ -13,15 +13,15 @@ class PolyLUTNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  degree: int = 2,
                  init_fn: Optional[Callable] = None,
                  regularizers: dict = None):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Number of inputs (e.g., 6)
+            output_dim: Number of outputs (e.g., 1)
             degree: Maximum degree of polynomial terms
             init_fn: Optional initialization function
             regularizers: Dict of custom regularization functions
@@ -89,8 +89,6 @@ class PolyLUTNode(BaseNode):
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass during training: polynomial transform + sigmoid activation."""
-        x = self._prepare_input(x)
-        
         # Compute all monomials
         monomials = self._compute_monomials(x)  # [batch, num_monomials]
         
@@ -98,21 +96,19 @@ class PolyLUTNode(BaseNode):
         z = torch.matmul(monomials, self.weights)  # [batch, num_outputs]
         output = torch.sigmoid(z)
         
-        return self._prepare_output(output)
+        return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
         """
-        x = self._prepare_input(x)
-        
         # Compute same as forward_train (polynomial + sigmoid)
         monomials = self._compute_monomials(x)
         z = torch.matmul(monomials, self.weights)
         output = (z >= 0.0).float()
         
-        return self._prepare_output(output)
+        return output
 
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization by default."""

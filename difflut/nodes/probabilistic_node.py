@@ -113,8 +113,8 @@ class ProbabilisticNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  init_fn: Optional[Callable] = None,
                  regularizers: dict = None,
                  temperature: float = 1.0,
@@ -122,8 +122,8 @@ class ProbabilisticNode(BaseNode):
                  use_cuda: bool = True):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Number of inputs (e.g., 6)
+            output_dim: Number of outputs (e.g., 1)
             init_fn: Optional initialization function
             regularizers: Dict of custom regularization functions
             temperature: Temperature for sigmoid scaling
@@ -197,8 +197,6 @@ class ProbabilisticNode(BaseNode):
         f(x) = Σ_a ω_δ(a) * Pr(a|x)
         Uses CUDA kernel if available, otherwise falls back to CPU.
         """
-        x = self._prepare_input(x)
-        
         # Try CUDA kernel first
         if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
             # Transpose raw_weights to match CUDA kernel expectations
@@ -207,7 +205,7 @@ class ProbabilisticNode(BaseNode):
             mapping = self.mapping.int()
             
             output = probabilistic_forward(x, mapping, luts, self.temperature)
-            return self._prepare_output(output)
+            return output
         
         # CPU fallback - original vectorized implementation
         batch_size = x.shape[0]
@@ -221,7 +219,7 @@ class ProbabilisticNode(BaseNode):
         weights = self.weights
         output = torch.matmul(probs, weights)
         
-        return self._prepare_output(output)
+        return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -229,7 +227,6 @@ class ProbabilisticNode(BaseNode):
         Assumes inputs are already binary (0 or 1) from encoder or previous nodes.
         Returns binary outputs (0 or 1).
         """
-        x = self._prepare_input(x)
         batch_size = x.shape[0]
         
         # Convert binary inputs to LUT indices (MSB-first)
@@ -243,7 +240,7 @@ class ProbabilisticNode(BaseNode):
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output = (output >= 0.5).float()
         
-        return self._prepare_output(output)
+        return output
 
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization by default."""

@@ -206,8 +206,8 @@ class DWNNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  use_cuda: bool = True,
                  regularizers: dict = None,
                  alpha: float = None,
@@ -216,8 +216,8 @@ class DWNNode(BaseNode):
                  init_fn: Optional[Callable] = None):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Number of inputs (e.g., 6)
+            output_dim: Number of outputs (e.g., 1)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
             alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
@@ -286,8 +286,6 @@ class DWNNode(BaseNode):
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
         Outputs are in [0, 1] (or binarized with STE if enabled).
         """
-        x = self._prepare_input(x)
-        
         # Clamp LUT values to [-1, 1] if enabled
         self._clamp_luts_if_needed()
         
@@ -300,15 +298,13 @@ class DWNNode(BaseNode):
         
         output = efd_forward(x, mapping, self.luts, self.alpha, self.beta)
         
-        return self._prepare_output(output)
+        return output
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using threshold at 0.5.
         """
-        x = self._prepare_input(x)
-        
         # Inputs are already binarized in {0, 1}, convert to {0, 1} for indexing
         x_binary = (x >= 0.5).float()
         indices = self._binary_to_index(x_binary)
@@ -324,7 +320,7 @@ class DWNNode(BaseNode):
         # Binarize output: [0, 1] -> {0, 1} using threshold at 0.5
         output = torch.where(output >= 0.5, torch.ones_like(output), torch.zeros_like(output))
         
-        return self._prepare_output(output)
+        return output
     
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization to match base CUDA implementation."""

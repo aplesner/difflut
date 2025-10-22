@@ -52,10 +52,9 @@ def ones_init(node: nn.Module, **kwargs) -> None:
 
 
 @register_initializer("normal")
-@register_initializer("gaussian")
 def normal_init(node: nn.Module, mean: float = 0.0, std: float = 1.0, **kwargs) -> None:
     """
-    Initialize all learnable parameters from a normal/Gaussian distribution.
+    Initialize all learnable parameters from a normal distribution.
     
     Args:
         node: The DiffLUT node to initialize

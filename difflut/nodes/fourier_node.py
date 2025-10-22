@@ -190,6 +190,7 @@ class FourierNode(BaseNode):
             max_amplitude: Maximum amplitude of oscillation (default 0.5 for [0,1] output)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
+            
             init_fn: Optional initialization function for weights
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
