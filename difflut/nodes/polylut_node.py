@@ -17,16 +17,18 @@ class PolyLUTNode(BaseNode):
                  output_dim: int = None,
                  degree: int = 2,
                  init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None,
                  regularizers: dict = None):
         """
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
             degree: Maximum degree of polynomial terms
-            init_fn: Optional initialization function
+            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.degree = degree
         
         # Generate all monomial combinations up to degree D
@@ -37,11 +39,9 @@ class PolyLUTNode(BaseNode):
         self.register_buffer('exponent_matrix', 
                            torch.tensor(self.monomial_combinations, dtype=torch.float32))
         
-        # Initialize weights for polynomial coefficients
-        if init_fn:
-            self.weights = nn.Parameter(init_fn((self.num_monomials, self.num_outputs)))
-        else:
-            self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
+        # Initialize weights for polynomial coefficients with default values, then apply init_fn if provided
+        self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
+        self._apply_init_fn(self.weights, name="weights")
 
     def _generate_monomial_combinations(self, num_inputs: int, degree: int) -> list:
         """Generate all monomial combinations up to given degree."""

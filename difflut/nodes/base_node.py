@@ -21,7 +21,9 @@ class BaseNode(nn.Module, ABC):
                          Format: {"name": [reg_fn, weight, kwargs], ...}
                          where reg_fn is callable(node) -> scalar tensor,
                                weight is float, and kwargs is dict.
-            init_fn: Optional initialization function for weights
+            init_fn: Optional initialization function for parameters.
+                    Should accept (parameter: torch.Tensor, **kwargs) and modify in-place.
+                    This is passed to subclasses for their use - BaseNode does NOT apply it.
             init_kwargs: Optional dict of kwargs to pass to the initializer function
         """
         super().__init__()
@@ -69,7 +71,7 @@ class BaseNode(nn.Module, ABC):
             if not callable(init_fn):
                 raise TypeError(
                     f"init_fn must be callable, but got {type(init_fn).__name__}. "
-                    f"Example: init_fn=torch.nn.init.xavier_uniform_"
+                    f"Signature should be: init_fn(parameter: torch.Tensor, **kwargs) -> None"
                 )
         
         self.init_fn = init_fn
@@ -83,16 +85,6 @@ class BaseNode(nn.Module, ABC):
         
         # Validate and normalize regularizers format
         self._validate_regularizers()
-        
-        # Apply initialization if provided
-        if self.init_fn is not None:
-            try:
-                self.init_fn(self, **self.init_kwargs)
-            except Exception as e:
-                raise RuntimeError(
-                    f"Initialization function failed with error: {e}. "
-                    f"Check that init_fn is compatible with your node type and init_kwargs are correct."
-                )
     
     @property
     def num_inputs(self) -> int:
@@ -103,6 +95,29 @@ class BaseNode(nn.Module, ABC):
     def num_outputs(self) -> int:
         """Get number of outputs."""
         return self.output_dim
+    
+    def _apply_init_fn(self, param: torch.Tensor, name: str = "parameter") -> None:
+        """
+        Apply the node's init_fn to a specific parameter.
+        Helper method for subclasses to initialize parameters selectively.
+        
+        Args:
+            param: The parameter tensor to initialize
+            name: Name of the parameter (for error messages)
+            
+        Raises:
+            RuntimeError: If init_fn is set but fails during execution
+        """
+        if self.init_fn is None:
+            return
+        
+        try:
+            self.init_fn(param, **self.init_kwargs)
+        except Exception as e:
+            raise RuntimeError(
+                f"Initialization of '{name}' failed with error: {e}. "
+                f"Check that init_fn is compatible with the parameter and init_kwargs are correct."
+            )
     
     def _validate_regularizers(self):
         """Validate regularizers format - only accepts [fn, weight, kwargs] format"""

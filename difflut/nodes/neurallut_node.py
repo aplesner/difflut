@@ -34,6 +34,7 @@ class NeuralLUTNode(BaseNode):
                  depth: int = 2,
                  skip_interval: int = 2,
                  init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None,
                  activation: str = 'relu',
                  regularizers: dict = None,
                  tau_start: float = 1.0,
@@ -48,7 +49,8 @@ class NeuralLUTNode(BaseNode):
             hidden_width: Width of hidden layers
             depth: Number of layers in the MLP
             skip_interval: Interval for skip connections (0 = no skips)
-            init_fn: Optional initialization function
+            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
             activation: Activation function ('relu' or 'sigmoid')
             regularizers: Dict of custom regularization functions
             tau: Initial output scaling factor (division) for backward pass (default: 1.0)
@@ -58,7 +60,7 @@ class NeuralLUTNode(BaseNode):
             ste: Whether to use Straight-Through Estimator (default: False)
             grad_factor: Gradient scaling factor for backward pass (default: 1.0)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.output_dim = output_dim
         self.hidden_width = hidden_width
         self.depth = depth
@@ -72,7 +74,7 @@ class NeuralLUTNode(BaseNode):
         self.tau_decay_iters = tau_decay_iters
         self.tau = tau_start  # Start with tau_start instead of tau
         # Build the MLP with skip connections
-        self._build_network(init_fn)
+        self._build_network()
 
         self.ste_if = self.ste_forward if self.ste else lambda y_soft, u: y_soft
         
@@ -80,23 +82,23 @@ class NeuralLUTNode(BaseNode):
         self.register_buffer('lut_table', None)
         self._lut_computed = False
 
-    def _build_network(self, init_fn: Optional[Callable]):
+    def _build_network(self):
         """Build the MLP network with skip connections."""
         self.layers = nn.ModuleList()
         
         # Input layer
         in_features = self.num_inputs
         out_features = self.hidden_width if self.depth > 1 else self.num_outputs
-        self.layers.append(self._create_linear(in_features, out_features, init_fn))
+        self.layers.append(self._create_linear(in_features, out_features))
         
         # Hidden layers
         for i in range(1, self.depth - 1):
-            layer = self._create_linear(self.hidden_width, self.hidden_width, init_fn)
+            layer = self._create_linear(self.hidden_width, self.hidden_width)
             self.layers.append(layer)
         
         # Output layer
         if self.depth > 1:
-            self.layers.append(self._create_linear(self.hidden_width, self.num_outputs, init_fn))
+            self.layers.append(self._create_linear(self.hidden_width, self.num_outputs))
         
         # Skip connections
         self.skip_layers = nn.ModuleList()
@@ -104,23 +106,17 @@ class NeuralLUTNode(BaseNode):
             for i in range(self.depth):
                 if i > 0 and i % self.skip_interval == 0:
                     target_dim = self.hidden_width if i < self.depth - 1 else self.num_outputs
-                    skip = self._create_linear(self.num_inputs, target_dim, init_fn)
+                    skip = self._create_linear(self.num_inputs, target_dim)
                     self.skip_layers.append(skip)
                 else:
                     self.skip_layers.append(None)
 
-    def _create_linear(self, in_features: int, out_features: int, 
-                      init_fn: Optional[Callable]) -> nn.Linear:
+    def _create_linear(self, in_features: int, out_features: int) -> nn.Linear:
         """Create and initialize a linear layer."""
         linear = nn.Linear(in_features, out_features, bias=True)
-        if init_fn:
-            init_fn(linear.weight)
-            if linear.bias is not None:
-                init_fn(linear.bias)
-        else:
-            nn.init.xavier_uniform_(linear.weight)
-            if linear.bias is not None:
-                nn.init.zeros_(linear.bias)
+        nn.init.xavier_uniform_(linear.weight)
+        if linear.bias is not None:
+            nn.init.zeros_(linear.bias)
         return linear
 
     def _activation(self, x: torch.Tensor) -> torch.Tensor:

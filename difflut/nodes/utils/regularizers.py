@@ -1,20 +1,4 @@
-"""
-Common regularization functions for DiffLUT nodes.
 
-Each regularizer is a function that takes a node as input and returns a scalar tensor.
-These can be passed to nodes via the regularizers parameter.
-
-Example usage:
-    from difflut.nodes.utils import get_regularizer
-    
-    l1_reg = get_regularizer("l1")
-    node = DWNNode(
-        num_inputs=6,
-        regularizers={
-            "l1": [l1_reg, 0.01, {"num_samples": 100}],
-        }
-    )
-"""
 
 import torch
 import torch.nn as nn

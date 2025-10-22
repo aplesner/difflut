@@ -174,26 +174,27 @@ class FourierNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  use_all_frequencies: bool = True,
                  max_amplitude: float = 0.5,
                  use_cuda: bool = True,
                  regularizers: dict = None,
-                 init_fn: Optional[Callable] = None):
+                 init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Input dimensions (e.g., 6)
+            output_dim: Output dimensions (e.g., 1)
             use_all_frequencies: If True, use all 2^n frequency vectors.
                                 If False, use only a subset for efficiency.
             max_amplitude: Maximum amplitude of oscillation (default 0.5 for [0,1] output)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
-            
-            init_fn: Optional initialization function for weights
+            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_all_frequencies = use_all_frequencies
         self.max_amplitude = max_amplitude
         self.use_cuda = use_cuda and is_cuda_available()
@@ -225,23 +226,17 @@ class FourierNode(BaseNode):
         # However, since our frequencies are from {0,1}^n, we use a different approach:
         # We store amplitude and phase for each frequency
         
-        # Amplitudes (always positive)
-        if self.init_fn:
-            self.amplitudes = nn.Parameter(self.init_fn((self.num_frequencies, self.num_outputs)))
-        else:
-            self.amplitudes = nn.Parameter(torch.rand(self.num_frequencies, self.num_outputs) * 0.1)
+        # Amplitudes (always positive) - create with defaults, then apply init_fn if provided
+        self.amplitudes = nn.Parameter(torch.rand(self.num_frequencies, self.num_outputs) * 0.1)
+        self._apply_init_fn(self.amplitudes, name="amplitudes")
         
         # Phases (in radians)
-        if self.init_fn:
-            self.phases = nn.Parameter(self.init_fn((self.num_frequencies, self.num_outputs)))
-        else:
-            self.phases = nn.Parameter(torch.rand(self.num_frequencies, self.num_outputs) * 2 * np.pi - np.pi)
+        self.phases = nn.Parameter(torch.rand(self.num_frequencies, self.num_outputs) * 2 * np.pi - np.pi)
+        self._apply_init_fn(self.phases, name="phases")
         
         # Bias term (initialized at 0.5 to center output in [0, 1])
-        if self.init_fn:
-            self.bias = nn.Parameter(self.init_fn((self.num_outputs,)))
-        else:
-            self.bias = nn.Parameter(torch.full((self.num_outputs,), 0.5))
+        self.bias = nn.Parameter(torch.full((self.num_outputs,), 0.5))
+        self._apply_init_fn(self.bias, name="bias")
     
     def _compute_output(self, x: torch.Tensor) -> torch.Tensor:
         """

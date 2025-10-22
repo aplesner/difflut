@@ -205,22 +205,26 @@ class DWNStableNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  use_cuda: bool = True,
                  regularizers: dict = None,
                  gradient_scale: float = 1.25,
-                 init_fn: Optional[Callable] = None):
+                 init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Number of inputs (e.g., 6)
+            output_dim: Number of outputs (e.g., 1)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
             gradient_scale: Initial gradient scaling factor (learnable)
-            init_fn: Optional initialization function for LUT weights
+            init_fn: Optional initialization function for LUT weights.
+                    Signature: init_fn(parameter: torch.Tensor, **init_kwargs) -> None
+            init_kwargs: Optional dict of kwargs to pass to the initializer function
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, 
+                        init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_cuda = use_cuda and is_cuda_available()
         
         # Warn if CUDA requested but not available
@@ -238,11 +242,10 @@ class DWNStableNode(BaseNode):
         
         # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
         lut_size = 2 ** self.num_inputs
-        if self.init_fn:
-            self.raw_luts = nn.Parameter(self.init_fn((self.num_outputs, lut_size)))
-        else:
-            # Default: Gaussian initialization around 0
-            self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
+        self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
+        
+        # Apply initialization to raw_luts if init_fn is provided
+        self._apply_init_fn(self.raw_luts, name="raw_luts")
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)
@@ -275,8 +278,6 @@ class DWNStableNode(BaseNode):
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
         Outputs are in [0, 1] (or binarized with STE if enabled).
         """
-        x = self._prepare_input(x)
-        
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
@@ -289,15 +290,13 @@ class DWNStableNode(BaseNode):
         
         output = dwn_stable_forward(x, mapping, luts, self.gradient_scale)
         
-        return self._prepare_output(output)
+        return output
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using Heaviside at 0.5.
         """
-        x = self._prepare_input(x)
-        
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
@@ -317,7 +316,7 @@ class DWNStableNode(BaseNode):
         # output >= 0.5 -> 1, output < 0.5 -> 0
         output = (output >= 0.5).float()
         
-        return self._prepare_output(output)
+        return output
     
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization to match base CUDA implementation."""

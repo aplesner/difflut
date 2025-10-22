@@ -116,6 +116,7 @@ class ProbabilisticNode(BaseNode):
                  input_dim: int = None,
                  output_dim: int = None,
                  init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None,
                  regularizers: dict = None,
                  temperature: float = 1.0,
                  eval_mode: str = "expectation",
@@ -124,13 +125,14 @@ class ProbabilisticNode(BaseNode):
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
-            init_fn: Optional initialization function
+            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
             temperature: Temperature for sigmoid scaling
             eval_mode: Evaluation mode
             use_cuda: Whether to use CUDA kernels (if available)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.register_buffer('temperature', torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
@@ -146,11 +148,9 @@ class ProbabilisticNode(BaseNode):
                 stacklevel=2
             )
         
-        # Store raw weights (logits) that will be passed through sigmoid
-        if self.init_fn:
-            self.raw_weights = nn.Parameter(self.init_fn((2**self.num_inputs, self.num_outputs)))
-        else:
-            self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
+        # Store raw weights (logits) that will be passed through sigmoid with default values, then apply init_fn if provided
+        self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
+        self._apply_init_fn(self.raw_weights, name="raw_weights")
         
         # Precompute all binary combinations (LSB-first order) - for CPU fallback
         binary_combinations = []

@@ -231,29 +231,29 @@ class HybridNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
                  use_cuda: bool = True,
                  regularizers: dict = None,
-                 init_fn: Optional[Callable] = None):
+                 init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Input dimensions (e.g., 6)
+            output_dim: Output dimensions (e.g., 1)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
-            init_fn: Optional initialization function for LUT weights
+            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_cuda = use_cuda and is_cuda_available()
         
         # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
+        # Create with default values, then apply init_fn if provided
         lut_size = 2 ** self.num_inputs
-        if self.init_fn:
-            self.raw_luts = nn.Parameter(self.init_fn((self.num_outputs, lut_size)))
-        else:
-            # Default: Gaussian initialization around 0
-            self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
+        self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
+        self._apply_init_fn(self.raw_luts, name="raw_luts")
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)

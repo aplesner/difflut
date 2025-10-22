@@ -213,7 +213,8 @@ class DWNNode(BaseNode):
                  alpha: float = None,
                  beta: float = None,
                  clamp_luts: bool = True,
-                 init_fn: Optional[Callable] = None):
+                 init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None):
         """
         Args:
             input_dim: Number of inputs (e.g., 6)
@@ -223,9 +224,10 @@ class DWNNode(BaseNode):
             alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
             beta: Hamming distance decay factor (default: 0.25/0.75)
             clamp_luts: Whether to clamp LUT values to [0, 1] during training
-            init_fn: Optional initialization function for LUT weights
+            init_fn: Optional initialization function for LUT weights. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_cuda = use_cuda and is_cuda_available()
         self.clamp_luts = clamp_luts
         
@@ -249,12 +251,10 @@ class DWNNode(BaseNode):
         self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))
         
         # Initialize LUT weights: shape (num_outputs, 2^num_inputs)
+        # Create with default random values, then apply init_fn if provided
         lut_size = 2 ** self.num_inputs
-        if self.init_fn:
-            self.luts = nn.Parameter(self.init_fn((self.num_outputs, lut_size)))
-        else:
-            # Default: Uniform initialization in [0, 1]
-            self.luts = nn.Parameter(torch.rand(self.num_outputs, lut_size))
+        self.luts = nn.Parameter(torch.rand(self.num_outputs, lut_size))
+        self._apply_init_fn(self.luts, name="luts")
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)
