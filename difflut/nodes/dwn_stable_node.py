@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Callable
 import warnings
 import torch
 import torch.nn as nn
@@ -209,7 +209,8 @@ class DWNStableNode(BaseNode):
                  output_dim: list = None,
                  use_cuda: bool = True,
                  regularizers: dict = None,
-                 gradient_scale: float = 1.25):
+                 gradient_scale: float = 1.25,
+                 init_fn: Optional[Callable] = None):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
@@ -217,8 +218,9 @@ class DWNStableNode(BaseNode):
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
             gradient_scale: Initial gradient scaling factor (learnable)
+            init_fn: Optional initialization function for LUT weights
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
         self.use_cuda = use_cuda and is_cuda_available()
         
         # Warn if CUDA requested but not available
@@ -235,11 +237,12 @@ class DWNStableNode(BaseNode):
         self.gradient_scale = nn.Parameter(torch.tensor(gradient_scale))
         
         # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
-        # Gaussian initialization around 0
         lut_size = 2 ** self.num_inputs
-        self.raw_luts = nn.Parameter(
-            torch.randn(self.num_outputs, lut_size) * 0.1  # Gaussian N(0, 0.1^2)
-        )
+        if self.init_fn:
+            self.raw_luts = nn.Parameter(self.init_fn((self.num_outputs, lut_size)))
+        else:
+            # Default: Gaussian initialization around 0
+            self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)

@@ -16,7 +16,6 @@ class RandomLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 n: int = 6,
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  seed: int = 42):
         """
@@ -24,14 +23,13 @@ class RandomLayer(BaseLUTLayer):
             input_size: Size of input vector
             output_size: Size of output vector  
             node_type: LUT node class to use
-            n: Number of inputs per LUT
-            node_kwargs: Additional node arguments
+            node_kwargs: Additional node arguments (should include input_dim and output_dim)
             seed: Random seed for reproducible mapping
         """
         self.seed = seed
         
-        # Initialize parent
-        super().__init__(input_size, output_size, node_type, n, node_kwargs)
+        # Initialize parent (n will be extracted from created nodes)
+        super().__init__(input_size, output_size, node_type, node_kwargs)
         
         # Initialize the random mapping
         self._init_mapping()

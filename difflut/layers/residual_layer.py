@@ -26,7 +26,6 @@ class ResidualLayer(BaseLUTLayer):
                  output_size: int, 
                  node_type: Type[nn.Module],
                  intermediate_sizes: List[int],
-                 n: int = 6,
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  seed: int = 42):
         """
@@ -35,15 +34,14 @@ class ResidualLayer(BaseLUTLayer):
             output_size: Size of output vector  
             node_type: LUT node class to use
             intermediate_sizes: List of intermediate layer sizes (e.g., [200, 100])
-            n: Number of inputs per LUT
-            node_kwargs: Additional node arguments
+            node_kwargs: Additional node arguments (should include input_dim and output_dim)
             seed: Random seed for reproducible mapping
         """
         self.intermediate_sizes = intermediate_sizes
         self.seed = seed
         
-        # Initialize parent with final layer dimensions
-        super().__init__(input_size, output_size, node_type, n, node_kwargs)
+        # Initialize parent with final layer dimensions (n will be extracted from created nodes)
+        super().__init__(input_size, output_size, node_type, node_kwargs)
         
         # Build the sequence of intermediate layers
         self._build_layers()
@@ -63,7 +61,6 @@ class ResidualLayer(BaseLUTLayer):
                 input_size=current_size,
                 output_size=intermediate_size,
                 node_type=type(self.nodes[0]),  # Use the same node type
-                n=self.n,
                 node_kwargs=self._get_node_kwargs(),
                 seed=self.seed + i  # Different seed for each layer
             )
@@ -77,7 +74,6 @@ class ResidualLayer(BaseLUTLayer):
             input_size=concat_size,
             output_size=self.output_size,
             node_type=type(self.nodes[0]),
-            n=self.n,
             node_kwargs=self._get_node_kwargs(),
             seed=self.seed + len(self.intermediate_sizes)
         )
@@ -89,8 +85,12 @@ class ResidualLayer(BaseLUTLayer):
         node_kwargs = {}
         first_node = self.nodes[0]
         
+        # Include input_dim and output_dim (these are required)
+        node_kwargs['input_dim'] = first_node.input_dim
+        node_kwargs['output_dim'] = first_node.output_dim
+        
         # Common attributes that might be passed as kwargs
-        for attr in ['temperature', 'init_scale', 'use_bias', 'activation']:
+        for attr in ['temperature', 'init_scale', 'use_bias', 'activation', 'use_surrogate', 'regularizers', 'init_fn']:
             if hasattr(first_node, attr):
                 node_kwargs[attr] = getattr(first_node, attr)
         

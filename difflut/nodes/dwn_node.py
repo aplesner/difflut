@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import Optional, Callable
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
@@ -212,7 +212,8 @@ class DWNNode(BaseNode):
                  regularizers: dict = None,
                  alpha: float = None,
                  beta: float = None,
-                 clamp_luts: bool = True):
+                 clamp_luts: bool = True,
+                 init_fn: Optional[Callable] = None):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
@@ -222,8 +223,9 @@ class DWNNode(BaseNode):
             alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
             beta: Hamming distance decay factor (default: 0.25/0.75)
             clamp_luts: Whether to clamp LUT values to [0, 1] during training
+            init_fn: Optional initialization function for LUT weights
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
         self.use_cuda = use_cuda and is_cuda_available()
         self.clamp_luts = clamp_luts
         
@@ -247,11 +249,12 @@ class DWNNode(BaseNode):
         self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))
         
         # Initialize LUT weights: shape (num_outputs, 2^num_inputs)
-        # Uniform initialization in [0, 1]
         lut_size = 2 ** self.num_inputs
-        self.luts = nn.Parameter(
-            torch.rand(self.num_outputs, lut_size)  # Uniform in [0, 1]
-        )
+        if self.init_fn:
+            self.luts = nn.Parameter(self.init_fn((self.num_outputs, lut_size)))
+        else:
+            # Default: Uniform initialization in [0, 1]
+            self.luts = nn.Parameter(torch.rand(self.num_outputs, lut_size))
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)

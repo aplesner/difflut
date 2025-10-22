@@ -58,7 +58,7 @@ class NeuralLUTNode(BaseNode):
             ste: Whether to use Straight-Through Estimator (default: False)
             grad_factor: Gradient scaling factor for backward pass (default: 1.0)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
         self.output_dim = output_dim
         self.hidden_width = hidden_width
         self.depth = depth

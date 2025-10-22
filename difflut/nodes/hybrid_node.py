@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import Optional, Callable
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
@@ -234,23 +234,26 @@ class HybridNode(BaseNode):
                  input_dim: list = None,
                  output_dim: list = None,
                  use_cuda: bool = True,
-                 regularizers: dict = None):
+                 regularizers: dict = None,
+                 init_fn: Optional[Callable] = None):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
             output_dim: Output dimensions as list (e.g., [1])
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
+            init_fn: Optional initialization function for LUT weights
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
         self.use_cuda = use_cuda and is_cuda_available()
         
         # Initialize raw LUT weights: shape (num_outputs, 2^num_inputs)
-        # Gaussian initialization around 0
         lut_size = 2 ** self.num_inputs
-        self.raw_luts = nn.Parameter(
-            torch.randn(self.num_outputs, lut_size) * 0.1  # Gaussian N(0, 0.1^2)
-        )
+        if self.init_fn:
+            self.raw_luts = nn.Parameter(self.init_fn((self.num_outputs, lut_size)))
+        else:
+            # Default: Gaussian initialization around 0
+            self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
         
         # Create mapping tensor (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)

@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Callable
 import warnings
+from ..registry import REGISTRY
 
 class CustomNodeFunction(torch.autograd.Function):
     """
@@ -100,20 +101,30 @@ class CustomNodeFunction(torch.autograd.Function):
 
 class BaseNode(nn.Module, ABC):
     """
-    Abstract base class for all LUT nodes with automatic gradient handling
+    Abstract base class for all LUT nodes with automatic gradient handling.
+    
+    Default behavior:
+    - Initialization: gaussian_init (if no init_fn provided)
+    - Regularization: None (if no regularizers provided)
     """
     
     def __init__(self, input_dim: list = None, output_dim: list = None, 
-                 use_surrogate: bool = True, regularizers: dict = None):
+                 use_surrogate: bool = True, 
+                 init_fn: Optional[Callable] = None, 
+                 init_kwargs: dict = None,
+                 regularizers: dict = None):
         """
         Args:
             input_dim: Input dimensions as a list (e.g., [6] for 6 inputs, [6, 6] for 6x6 inputs)
             output_dim: Output dimensions as a list (e.g., [1] for single output, [4] for 4 outputs)
             use_surrogate: Whether to use surrogate gradients (if implemented)
-            regularizers: Dict of regularization functions to apply.
-                         Format: {"name": [reg_fn, weight], ...}
-                         where reg_fn is a callable that takes the node as input
-                         and returns a scalar tensor, and weight is a float.
+            init_fn: Optional initialization function. Defaults to gaussian_init if not provided.
+            init_kwargs: Optional dict of kwargs to pass to the initializer function
+            regularizers: Dict of regularization to apply.
+                         Format: {"name": [weight, kwargs], ...}
+                         where "name" is a registered regularizer name, weight is a float,
+                         and kwargs is an optional dict of parameters for the regularizer.
+                         Example: {"l1": [0.01, {"num_samples": 100}], "spectral": [0.001]}
         """
         super().__init__()
         
@@ -137,19 +148,74 @@ class BaseNode(nn.Module, ABC):
             )
         
         self.use_surrogate = use_surrogate
-        self.regularizers = regularizers or {}
+        self.init_kwargs = init_kwargs or {}
         
-        # Warn if regularizers are provided but not in expected format
-        if regularizers:
-            for name, value in regularizers.items():
-                if not isinstance(value, (list, tuple)) or len(value) != 2:
+        # Set default initializer to gaussian_init if not provided
+        if init_fn is None:
+            init_fn = REGISTRY.get_initializer("gaussian")
+        self.init_fn = init_fn
+        
+        # Validate and normalize regularizers format
+        self.regularizers = self._validate_regularizers(regularizers)
+        
+        # Apply initialization
+        self.init_fn(self, **self.init_kwargs)
+    
+    def _validate_regularizers(self, regularizers: dict) -> dict:
+        """Validate and normalize regularizers format to internal [fn, weight, kwargs] format"""
+        if not regularizers:
+            return {}
+        
+        validated = {}
+        for name, value in regularizers.items():
+            # Ensure value is list/tuple
+            if not isinstance(value, (list, tuple)):
+                warnings.warn(
+                    f"Regularizer '{name}' should be [weight] or [weight, kwargs], "
+                    f"but got {type(value).__name__}. Skipping. "
+                    f"Example: regularizers={{'l1': [0.01]}} or {{'l1': [0.01, {{'num_samples': 100}}]}}",
+                    UserWarning,
+                    stacklevel=3
+                )
+                continue
+            
+            # Parse the regularizer value
+            if len(value) == 1:
+                # Format: [weight]
+                weight = value[0]
+                kwargs = {}
+            elif len(value) == 2:
+                # Format: [weight, kwargs]
+                weight, kwargs = value
+                if not isinstance(kwargs, dict):
                     warnings.warn(
-                        f"Regularizer '{name}' should be a list/tuple of [function, weight], "
-                        f"but got {type(value).__name__}. This regularizer may not work correctly. "
-                        f"Example: regularizers={{'l2': [l2_weights, 0.01]}}",
+                        f"Regularizer '{name}' kwargs should be a dict, got {type(kwargs).__name__}. Using empty dict.",
                         UserWarning,
                         stacklevel=3
                     )
+                    kwargs = {}
+            else:
+                warnings.warn(
+                    f"Regularizer '{name}' has {len(value)} elements, expected 1 or 2 [weight] or [weight, kwargs]. "
+                    f"Skipping.",
+                    UserWarning,
+                    stacklevel=3
+                )
+                continue
+            
+            # Lookup regularizer function from registry
+            try:
+                reg_fn = REGISTRY.get_regularizer(name)
+                validated[name] = [reg_fn, weight, kwargs]
+            except ValueError as e:
+                warnings.warn(
+                    f"Regularizer '{name}' not found in registry. Available: {REGISTRY.list_regularizers()}. "
+                    f"Skipping.",
+                    UserWarning,
+                    stacklevel=3
+                )
+        
+        return validated
     
     @abstractmethod
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
@@ -220,9 +286,15 @@ class BaseNode(nn.Module, ABC):
         reg = self._builtin_regularization()
         
         # Add custom regularizers
-        for name, (reg_fn, weight) in self.regularizers.items():
+        for name, reg_config in self.regularizers.items():
             try:
-                reg_value = reg_fn(self)
+                if len(reg_config) == 3:
+                    reg_fn, weight, kwargs = reg_config
+                    reg_value = reg_fn(self, **kwargs)
+                else:
+                    # Fallback for old format [fn, weight]
+                    reg_fn, weight = reg_config[:2]
+                    reg_value = reg_fn(self)
                 reg = reg + weight * reg_value
             except Exception as e:
                 print(f"Warning: Regularizer '{name}' failed with error: {e}")

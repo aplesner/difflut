@@ -26,7 +26,7 @@ class PolyLUTNode(BaseNode):
             init_fn: Optional initialization function
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
         self.degree = degree
         
         # Generate all monomial combinations up to degree D

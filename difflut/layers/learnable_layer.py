@@ -55,7 +55,6 @@ class LearnableLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 n: int = 6,
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  tau: float = 0.001,
                  tau_start: float = 1.0,
@@ -66,23 +65,12 @@ class LearnableLayer(BaseLUTLayer):
             input_size: Size of input vector
             output_size: Number of LUT nodes
             node_type: LUT node class
-            n: Number of inputs per LUT
-            node_kwargs: Additional arguments for nodes
+            node_kwargs: Additional arguments for nodes (should include input_dim and output_dim)
             tau: Initial temperature for softmax in learnable mapping
             tau_start: Starting value for tau (used for exponential decay)
             tau_min: Minimum value tau can decay to
             tau_decay_iters: Number of iterations for tau to decay by factor of 10
         """
-        # Warn about parameter count
-        total_connections = output_size * n
-        if total_connections > input_size * 10:
-            warnings.warn(
-                f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
-                f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={n}).",
-                UserWarning,
-                stacklevel=2
-            )
-        
         # Warn if tau parameters seem unusual
         if tau_start < tau_min:
             warnings.warn(
@@ -92,8 +80,18 @@ class LearnableLayer(BaseLUTLayer):
                 stacklevel=2
             )
         
-        # Initialize parent with nodes
-        super().__init__(input_size, output_size, node_type, n, node_kwargs)
+        # Initialize parent with nodes (n will be extracted from created nodes)
+        super().__init__(input_size, output_size, node_type, node_kwargs)
+        
+        # Warn about parameter count after n is known
+        total_connections = output_size * self.n
+        if total_connections > input_size * 10:
+            warnings.warn(
+                f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
+                f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={self.n}).",
+                UserWarning,
+                stacklevel=2
+            )
         
         # Tau decay parameters
         self.tau_start = tau_start
@@ -102,7 +100,8 @@ class LearnableLayer(BaseLUTLayer):
         self.tau = tau_start  # Start with tau_start instead of tau
         
         # Create learnable mapping module (helper, not registered)
-        self.mapping = LearnableMappingModule(input_size, output_size * n, self.tau)
+        # Note: self.n is now available from parent's __init__
+        self.mapping = LearnableMappingModule(input_size, output_size * self.n, self.tau)
     
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
         """

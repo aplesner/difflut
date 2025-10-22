@@ -130,7 +130,7 @@ class ProbabilisticNode(BaseNode):
             eval_mode: Evaluation mode
             use_cuda: Whether to use CUDA kernels (if available)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn)
         self.register_buffer('temperature', torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
@@ -147,8 +147,8 @@ class ProbabilisticNode(BaseNode):
             )
         
         # Store raw weights (logits) that will be passed through sigmoid
-        if init_fn:
-            self.raw_weights = nn.Parameter(init_fn((2**self.num_inputs, self.num_outputs)))
+        if self.init_fn:
+            self.raw_weights = nn.Parameter(self.init_fn((2**self.num_inputs, self.num_outputs)))
         else:
             self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
         

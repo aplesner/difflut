@@ -5,14 +5,13 @@ Each regularizer is a function that takes a node as input and returns a scalar t
 These can be passed to nodes via the regularizers parameter.
 
 Example usage:
-    from difflut.utils.regularizers import l_regularizer, spectral_regularizer
+    from difflut.nodes.utils import get_regularizer
     
+    l1_reg = get_regularizer("l1")
     node = DWNNode(
         num_inputs=6,
         regularizers={
-            "l1": [l_regularizer, 0.01, {"p": 1}],
-            "l2": [l_regularizer, 0.001, {"p": 2}],
-            "spectral": [spectral_regularizer, 0.001]
+            "l1": [l1_reg, 0.01, {"num_samples": 100}],
         }
     )
 """
@@ -20,8 +19,10 @@ Example usage:
 import torch
 import torch.nn as nn
 from typing import Optional
+from ...registry import register_regularizer
 
 
+# Helper function (not registered)
 def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
     """
     Generate all Hamming neighbors of binary input z by flipping each bit.
@@ -43,6 +44,8 @@ def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
     return neighbors
 
 
+@register_regularizer("l")
+@register_regularizer("functional")
 def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.Tensor:
     """
     Functional L-regularization for DiffLUT nodes.
@@ -120,6 +123,8 @@ def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.
     return reg
 
 
+@register_regularizer("l1")
+@register_regularizer("l1_functional")
 def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
     """
     L1 functional regularization (convenience wrapper for l_regularizer with p=1).
@@ -134,6 +139,8 @@ def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
     return l_regularizer(node, p=1, num_samples=num_samples)
 
 
+@register_regularizer("l2")
+@register_regularizer("l2_functional")
 def l2_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
     """
     L2 functional regularization (convenience wrapper for l_regularizer with p=2).
@@ -148,6 +155,7 @@ def l2_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
     return l_regularizer(node, p=2, num_samples=num_samples)
 
 
+# Helper function (not registered)
 def _compute_walsh_hadamard_matrix(k: int, device: torch.device) -> torch.Tensor:
     """
     Compute the Walsh-Hadamard coefficient matrix C for a k-input LUT.
@@ -198,6 +206,9 @@ def _compute_walsh_hadamard_matrix(k: int, device: torch.device) -> torch.Tensor
     return C
 
 
+@register_regularizer("spectral")
+@register_regularizer("fourier")
+@register_regularizer("walsh")
 def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     """
     Spectral regularization for truth-table parameterized DiffLUT nodes.
@@ -256,14 +267,5 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     return reg
 
 
-# Convenient presets
-COMMON_REGULARIZERS = {
-    "l1": [l1_regularizer, 0.01],
-    "l2": [l2_regularizer, 0.001],
-    "l_p1": [l_regularizer, 0.01, {"p": 1}],
-    "l_p2": [l_regularizer, 0.001, {"p": 2}],
-    "spectral": [spectral_regularizer, 0.001],
-    "spectral_light": [spectral_regularizer, 0.0001],
-    "spectral_medium": [spectral_regularizer, 0.001],
-    "spectral_heavy": [spectral_regularizer, 0.01],
-}
+
+

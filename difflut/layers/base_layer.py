@@ -11,20 +11,23 @@ class BaseLUTLayer(nn.Module, ABC):
                  input_size: int,
                  output_size: int,
                  node_type,
-                 n: int = 6,
                  node_kwargs=None):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
-        self.n = n
         
-        # Create nodes with new input_dim and output_dim interface
+        # Create nodes - input_dim and output_dim should be specified in node_kwargs
         self.nodes = nn.ModuleList()
         for i in range(output_size):
             node_kwargs_i = node_kwargs or {}
-            # Use new interface: input_dim and output_dim as lists
-            node = node_type(input_dim=[n], output_dim=[1], **node_kwargs_i)
+            node = node_type(**node_kwargs_i)
             self.nodes.append(node)
+        
+        # Extract n (number of inputs per node) from the first node
+        if len(self.nodes) > 0:
+            self.n = self.nodes[0].num_inputs
+        else:
+            self.n = 0
     
     @abstractmethod
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:

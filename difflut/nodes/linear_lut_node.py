@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import itertools
+from typing import Optional, Callable
 from .base_node import BaseNode
 from ..registry import register_node
 
@@ -15,21 +16,21 @@ class LinearLUTNode(BaseNode):
                  input_dim: list = None,
                  output_dim: list = None,
                  init_fn=None,
+                 init_kwargs: dict = None,
                  regularizers: dict = None):
         """
         Args:
             input_dim: Input dimensions as list (e.g., [6])
             output_dim: Output dimensions as list (e.g., [1])
             init_fn: Optional initialization function
-            regularizers: Dict of custom regularization functions
+            init_kwargs: Optional dict of kwargs for initializer
+            regularizers: Dict of regularization (e.g., {"l1": [0.01], "spectral": [0.001, {"num": 200}]})
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, 
+                         init_fn=init_fn, init_kwargs=init_kwargs, regularizers=regularizers)
         
-        # Initialize weights
-        if init_fn:
-            self.weights = nn.Parameter(init_fn((self.num_inputs, self.num_outputs)))
-        else:
-            self.weights = nn.Parameter(torch.randn(self.num_inputs, self.num_outputs) * 0.1)
+        # Initialize weights (init will be applied in parent)
+        self.weights = nn.Parameter(torch.randn(self.num_inputs, self.num_outputs) * 0.1)
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
