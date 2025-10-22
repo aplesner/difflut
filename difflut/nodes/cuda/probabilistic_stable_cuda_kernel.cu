@@ -50,8 +50,9 @@ __global__ void probabilistic_stable_cuda_forward_kernel(
                     prob *= (a_l == 1) ? x_l : (1.0f - x_l);
                 }
                 
-                // Clamp LUT weight to [0, 1] (replaces sigmoid for speed)
-                float lut_weight = fmaxf(0.0f, fminf(1.0f, luts[j][addr]));
+                // Apply sigmoid to LUT weight for smooth gradients
+                // sigmoid(x) = 1 / (1 + exp(-x))
+                float lut_weight = 1.0f / (1.0f + expf(-luts[j][addr]));
                 
                 // Accumulate: result += lut_weight * prob
                 result += lut_weight * prob;
@@ -144,14 +145,13 @@ __global__ void probabilistic_stable_cuda_backward_kernel(
                 // Get raw LUT weight
                 float raw_weight = luts[j][addr];
                 
-                // Clamp to [0, 1] (replaces sigmoid)
-                float clamped_weight = fmaxf(0.0f, fminf(1.0f, raw_weight));
+                // Apply sigmoid: sigmoid(x) = 1 / (1 + exp(-x))
+                float sigmoid_weight = 1.0f / (1.0f + expf(-raw_weight));
                 
                 // Gradient w.r.t. LUT weights
-                // d(clamp(w))/dw = 1 if w in (0,1), 0 otherwise
-                if (raw_weight > 0.0f && raw_weight < 1.0f) {
-                    atomicAdd(&luts_grad[j][addr], prob * grad_out);
-                }
+                // d(sigmoid(w))/dw = sigmoid(w) * (1 - sigmoid(w))
+                float sigmoid_grad = sigmoid_weight * (1.0f - sigmoid_weight);
+                atomicAdd(&luts_grad[j][addr], prob * grad_out * sigmoid_grad);
                 
                 // Gradient w.r.t. inputs (accumulate locally first)
                 #pragma unroll
@@ -172,7 +172,7 @@ __global__ void probabilistic_stable_cuda_backward_kernel(
                         }
                     }
                     
-                    local_input_grad[l] += clamped_weight * dprob_dx * grad_out;
+                    local_input_grad[l] += sigmoid_weight * dprob_dx * grad_out;
                 }
             }
             

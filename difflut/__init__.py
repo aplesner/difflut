@@ -55,7 +55,6 @@ from .nodes import (
 from .layers import (
     RandomLayer,
     LearnableLayer,
-    GroupedLayer,
     ResidualLayer,
 )
 
@@ -117,7 +116,6 @@ __all__ = [
     # Layers
     'RandomLayer',
     'LearnableLayer',
-    'GroupedLayer',
     'ResidualLayer',
     
     # Encoders

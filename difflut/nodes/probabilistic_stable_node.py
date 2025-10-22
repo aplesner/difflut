@@ -51,7 +51,7 @@ class ProbabilisticStableFunction(torch.autograd.Function):
         Args:
             input: (batch_size, input_length) float tensor in [0, 1]
             mapping: (num_luts, n) int tensor - mapping of inputs to each LUT
-            luts: (num_luts, 2^n) float tensor - raw LUT weights (clamped to [0,1])
+            luts: (num_luts, 2^n) float tensor - raw LUT weights (passed through sigmoid)
             temperature: scalar tensor (unused, kept for compatibility)
             alpha: scalar tensor - gradient stabilization strength
             scale_min: scalar tensor - minimum allowed gradient scale
@@ -116,7 +116,7 @@ def probabilistic_stable_forward(input, mapping, luts, temperature, alpha, scale
     Args:
         input: (batch_size, input_length) tensor in [0, 1]
         mapping: (num_luts, n) int tensor
-        luts: (num_luts, 2^n) tensor - raw weights clamped to [0,1]
+        luts: (num_luts, 2^n) tensor - raw weights passed through sigmoid
         temperature: scalar tensor (unused, kept for compatibility)
         alpha: scalar tensor - gradient stabilization strength
         scale_min: scalar tensor - minimum allowed gradient scale
@@ -136,7 +136,7 @@ class ProbabilisticStableNode(BaseNode):
     """
     Probabilistic LUT node with continuous inputs in [0,1] and gradient stabilization.
     
-    Uses probabilistic forward pass with clamped weights (faster than sigmoid) and 
+    Uses probabilistic forward pass with sigmoid weights (smooth, differentiable) and 
     gradient-stabilized backward pass to prevent vanishing gradients in deep LUT networks.
     
     Gradient Stabilization:
@@ -147,9 +147,15 @@ class ProbabilisticStableNode(BaseNode):
     This ensures gradient magnitude is preserved across layers while avoiding
     explosion or vanishing.
     
+    Weight Initialization:
+    ---------------------
+    - Xavier/Glorot initialization scaled for probability distributions
+    - Centered at logit(0.5) = 0 for maximum initial uncertainty
+    - Variance scaled by sqrt(2/(fan_in + fan_out)) for stable gradients
+    
     Performance Optimizations:
     -------------------------
-    - Uses clamp(w, 0, 1) instead of sigmoid for 3-5x faster forward/backward
+    - Uses sigmoid(w) for smooth gradients everywhere
     - Local memory caching of inputs to reduce memory access
     - Reduced atomic operations in backward pass
     - Loop unrolling for small LUTs
@@ -203,7 +209,16 @@ class ProbabilisticStableNode(BaseNode):
         if init_fn:
             self.raw_weights = nn.Parameter(init_fn((2**self.num_inputs, self.num_outputs)))
         else:
-            self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
+            # Probabilistic-aware Xavier/Glorot initialization
+            # For probabilistic LUTs, we expect outputs in [0, 1] range
+            # Initialize to bias toward 0.5 (maximum uncertainty) with small variance
+            # Use inverse sigmoid (logit) of 0.5 = 0 as the center
+            fan_in = 2**self.num_inputs
+            fan_out = self.num_outputs
+            # Scale variance based on fan-in/fan-out for stable gradients
+            std = torch.sqrt(torch.tensor(2.0 / (fan_in + fan_out)))
+            # Initialize around logit(0.5) = 0 with scaled variance
+            self.raw_weights = nn.Parameter(torch.randn(fan_in, fan_out) * std)
         
         # Precompute all binary combinations (LSB-first order) - for CPU fallback
         binary_combinations = []
@@ -219,8 +234,8 @@ class ProbabilisticStableNode(BaseNode):
 
     @property
     def weights(self) -> torch.Tensor:
-        """Get weights with clamp applied to [0,1] (faster than sigmoid)."""
-        return torch.clamp(self.raw_weights, 0.0, 1.0)
+        """Get weights with sigmoid applied to [0,1] (smooth, differentiable)."""
+        return torch.sigmoid(self.raw_weights)
 
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
         """Convert binary vector to LUT index (LSB-first order)"""
@@ -278,7 +293,7 @@ class ProbabilisticStableNode(BaseNode):
         
         # Wrap in custom autograd function for CPU gradient stabilization
         output = CPUProbabilisticStableFunction.apply(
-            probs, weights, x, 
+            probs, weights, x, binary_combinations,
             self.alpha, self.num_inputs, self.num_outputs,
             self.scale_min, self.scale_max
         )
@@ -298,10 +313,10 @@ class ProbabilisticStableNode(BaseNode):
         indices = self._binary_to_index(x)  # (batch_size,)
         
         # Look up weights and threshold at 0.5 to get binary output
-        weights = self.weights  # (2^num_inputs, num_outputs) - clamped to [0, 1]
+        weights = self.weights  # (2^num_inputs, num_outputs) - sigmoid(raw_weights) in [0, 1]
         output = weights[indices]  # (batch_size, num_outputs)
         
-        # Threshold to get binary output (weights are in [0, 1] after clamp)
+        # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output = (output >= 0.5).float()
         
         return self._prepare_output(output)
@@ -319,14 +334,16 @@ class ProbabilisticStableNode(BaseNode):
 class CPUProbabilisticStableFunction(torch.autograd.Function):
     """
     CPU fallback with gradient stabilization.
+    Implements proper gradient computation through the probability chain.
     """
     @staticmethod
-    def forward(ctx, probs, weights, x, alpha, num_inputs, num_outputs, scale_min, scale_max):
+    def forward(ctx, probs, weights, x, binary_combinations, alpha, num_inputs, num_outputs, scale_min, scale_max):
         """
         Args:
             probs: (batch_size, 2^num_inputs) - precomputed probabilities
             weights: (2^num_inputs, num_outputs) - LUT weights after sigmoid
             x: (batch_size, num_inputs) - original inputs (saved for context)
+            binary_combinations: (2^num_inputs, num_inputs) - all binary patterns
             alpha: scalar - gradient stabilization strength
             num_inputs: int
             num_outputs: int
@@ -336,8 +353,8 @@ class CPUProbabilisticStableFunction(torch.autograd.Function):
         output = torch.matmul(probs, weights)
         
         # Save for backward
-        ctx.save_for_backward(probs, weights, torch.tensor(alpha), 
-                            torch.tensor(scale_min), torch.tensor(scale_max))
+        ctx.save_for_backward(probs, weights, x, binary_combinations, 
+                            torch.tensor(alpha), torch.tensor(scale_min), torch.tensor(scale_max))
         ctx.num_inputs = num_inputs
         ctx.num_outputs = num_outputs
         
@@ -346,27 +363,53 @@ class CPUProbabilisticStableFunction(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         """
-        Backward with gradient stabilization.
+        Backward with gradient stabilization and proper probability chain gradients.
         
         Args:
             grad_output: (batch_size, num_outputs)
         """
-        probs, weights, alpha, scale_min, scale_max = ctx.saved_tensors
+        probs, weights, x, binary_combinations, alpha, scale_min, scale_max = ctx.saved_tensors
         num_inputs = ctx.num_inputs
         num_outputs = ctx.num_outputs
         
+        batch_size = grad_output.shape[0]
+        
         # Standard gradients
+        # d(output)/d(probs) = weights^T
         grad_probs = torch.matmul(grad_output, weights.t())  # (batch_size, 2^num_inputs)
+        
+        # d(output)/d(weights) = probs^T
         grad_weights = torch.matmul(probs.t(), grad_output)  # (2^num_inputs, num_outputs)
         
-        # Gradient stabilization for input gradients
-        # Note: In CPU mode, we don't have direct access to x gradients here
-        # This is a simplified version - full stabilization requires modifying the entire chain
-        # For now, we apply stabilization to the output gradient
+        # Compute gradients w.r.t. inputs through probability chain
+        # For each sample and input: d(output)/d(x_i) = sum_a [d(output)/d(prob_a) * d(prob_a)/d(x_i)]
+        # where d(prob_a)/d(x_i) = prob_a * [a_i/x_i - (1-a_i)/(1-x_i)]
         
+        grad_x = torch.zeros_like(x)
+        
+        # Expand dimensions for broadcasting
+        x_expanded = x.unsqueeze(1)  # (batch_size, 1, num_inputs)
+        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
+        probs_expanded = probs.unsqueeze(2)  # (batch_size, 2^num_inputs, 1)
+        grad_probs_expanded = grad_probs.unsqueeze(2)  # (batch_size, 2^num_inputs, 1)
+        
+        # Compute d(prob_a)/d(x_i) for all a and i
+        # prob_a = prod_j [x_j^a_j * (1-x_j)^(1-a_j)]
+        # d(prob_a)/d(x_i) = prob_a * [a_i/x_i - (1-a_i)/(1-x_i)]
+        #                  = prob_a * [(a_i - x_i) / (x_i * (1-x_i))]
+        eps = 1e-8
+        x_safe = torch.clamp(x_expanded, eps, 1 - eps)
+        
+        # Derivative: (a_i - x_i) / (x_i * (1 - x_i))
+        deriv = (a_expanded - x_safe) / (x_safe * (1 - x_safe))  # (batch_size, 2^num_inputs, num_inputs)
+        
+        # Chain rule: d(output)/d(x_i) = sum_a [d(output)/d(prob_a) * prob_a * deriv]
+        grad_x = torch.sum(grad_probs_expanded * probs_expanded * deriv, dim=1)  # (batch_size, num_inputs)
+        
+        # Gradient stabilization for input gradients
         # Compute L1 norms per sample
         grad_out_l1 = grad_output.abs().sum(dim=1, keepdim=True)  # (batch_size, 1)
-        grad_in_raw_l1 = grad_probs.abs().sum(dim=1, keepdim=True)  # (batch_size, 1)
+        grad_in_raw_l1 = grad_x.abs().sum(dim=1, keepdim=True)  # (batch_size, 1)
         
         # Compute log ratio
         if num_outputs > 0:
@@ -381,7 +424,7 @@ class CPUProbabilisticStableFunction(torch.autograd.Function):
         scale = scale.clamp(min=scale_min.item(), max=scale_max.item())
         
         # Apply scaling
-        grad_probs_scaled = grad_probs * scale
+        grad_x_scaled = grad_x * scale
         
-        # Return gradients: (probs, weights, x, alpha, num_inputs, num_outputs, scale_min, scale_max)
-        return grad_probs_scaled, grad_weights, None, None, None, None, None, None
+        # Return gradients: (probs, weights, x, binary_combinations, alpha, num_inputs, num_outputs, scale_min, scale_max)
+        return None, grad_weights, grad_x_scaled, None, None, None, None, None, None
