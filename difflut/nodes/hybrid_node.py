@@ -107,6 +107,13 @@ class HybridFunctionCPU(torch.autograd.Function):
             num_inputs: Number of inputs
             output_dim: Number of output dimensions
         """
+        # Ensure x has correct shape
+        if x.shape[1] != num_inputs:
+            raise ValueError(
+                f"Input tensor has {x.shape[1]} features but node expects {num_inputs}. "
+                f"This might indicate a layer width mismatch. x.shape={x.shape}, num_inputs={num_inputs}"
+            )
+        
         # Save for backward
         ctx.save_for_backward(x, luts, binary_combinations)
         ctx.num_inputs = num_inputs
@@ -120,8 +127,10 @@ class HybridFunctionCPU(torch.autograd.Function):
         device = x.device
         indices = torch.zeros(batch_size, dtype=torch.long, device=device)
         
+        # Build index bit by bit (LSB first)
         for l in range(num_inputs):
-            indices = indices | (x_binary[:, l].long() << l)
+            bit_val = x_binary[:, l].long()  # Extract as 1D tensor of shape (batch_size,)
+            indices = indices | (bit_val << l)
         
         # Look up values
         if output_dim == 1:
@@ -145,6 +154,12 @@ class HybridFunctionCPU(torch.autograd.Function):
         num_inputs = ctx.num_inputs
         output_dim = ctx.output_dim
         
+        # Flatten grad_output to 2D if needed
+        if grad_output.dim() > 2:
+            grad_output = grad_output.view(x.shape[0], -1)
+        elif grad_output.dim() == 1:
+            grad_output = grad_output.unsqueeze(1)
+        
         batch_size = x.shape[0]
         
         # Input x is already in [0, 1] range, use directly for probabilistic computation
@@ -163,9 +178,6 @@ class HybridFunctionCPU(torch.autograd.Function):
         probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^num_inputs)
         
         # Gradient w.r.t. LUTs
-        if grad_output.dim() == 1:
-            grad_output = grad_output.unsqueeze(1)
-        
         # grad_luts = probs^T @ grad_output
         grad_luts = torch.matmul(probs.t(), grad_output)
         grad_luts = grad_luts.t()  # (output_dim, 2^num_inputs)
@@ -305,54 +317,75 @@ class HybridNode(BaseNode):
         """
         Forward pass during training with automatic CUDA/CPU dispatch.
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
         """
-        x = self._prepare_input(x)
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
         
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
+        # Ensure x is contiguous and float
+        x_flat = x_flat.contiguous().float()
+        
         # Use hybrid_forward which handles CUDA/CPU dispatch automatically
-        if self.use_cuda and x.is_cuda:
-            x = x.contiguous().float()
+        if self.use_cuda and x_flat.is_cuda:
             mapping = self.mapping.int()
         else:
             mapping = self.mapping
         
-        output = hybrid_forward(x, mapping, luts, self.binary_combinations)
-        return self._prepare_output(output)
+        output_flat = hybrid_forward(x_flat, mapping, luts, self.binary_combinations)
+        
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
+        return output
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using Heaviside at 0.5.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
         """
-        x = self._prepare_input(x)
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
         
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
         # Inputs are already binarized in {0, 1}, use directly
-        x_binary = x.long()
-        batch_size = x_binary.shape[0]
+        x_binary = x_flat.long()
+        flat_batch_size = x_binary.shape[0]
         device = x_binary.device
         
-        indices = torch.zeros(batch_size, dtype=torch.long, device=device)
+        indices = torch.zeros(flat_batch_size, dtype=torch.long, device=device)
         for l in range(self.num_inputs):
             indices = indices | (x_binary[:, l] << l)
         
         if self.num_outputs == 1:
-            output = luts[0, indices]
+            output_flat = luts[0, indices]
         else:
             outputs = []
             for dim in range(self.num_outputs):
                 outputs.append(luts[dim, indices])
-            output = torch.stack(outputs, dim=1)
+            output_flat = torch.stack(outputs, dim=1)
         
         # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
         # output >= 0.5 -> 1, output < 0.5 -> 0
-        output = (output >= 0.5).float()
+        output_flat = (output_flat >= 0.5).float()
         
-        return self._prepare_output(output)
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
+        return output
 
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization."""

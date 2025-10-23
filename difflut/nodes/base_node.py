@@ -170,7 +170,16 @@ class BaseNode(nn.Module, ABC):
     
     @abstractmethod
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during training mode."""
+        """
+        Forward pass during training mode.
+        
+        Args:
+            x: Tensor of shape (batch_size, layer_size, input_dim)
+               where layer_size is the number of independent node copies
+        
+        Returns:
+            Tensor of shape (batch_size, layer_size, output_dim)
+        """
         pass
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -178,12 +187,25 @@ class BaseNode(nn.Module, ABC):
         Forward pass during evaluation mode.
         Default: binarize output of forward_train at threshold 0.5
         Override this method if you need different evaluation behavior.
+        
+        Args:
+            x: Tensor of shape (batch_size, layer_size, input_dim)
+        
+        Returns:
+            Tensor of shape (batch_size, layer_size, output_dim)
         """
         return (self.forward_train(x) > 0.5).float()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Main forward pass that automatically dispatches to forward_train or forward_eval.
+        
+        Expects 3D batched input of multiple independent node copies:
+        - Input shape: (batch_size, layer_size, input_dim)
+          where layer_size is the number of independent node copies
+        - Output shape: (batch_size, layer_size, output_dim)
+        
+        This allows efficient batch processing across all node copies simultaneously.
         """
         if self.training:
             return self.forward_train(x)

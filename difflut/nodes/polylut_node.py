@@ -88,26 +88,50 @@ class PolyLUTNode(BaseNode):
         return monomials
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during training: polynomial transform + sigmoid activation."""
+        """
+        Forward pass during training: polynomial transform + sigmoid activation.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
         # Compute all monomials
-        monomials = self._compute_monomials(x)  # [batch, num_monomials]
+        monomials = self._compute_monomials(x_flat)  # (batch_size * layer_size, num_monomials)
         
         # Linear combination of monomials
-        z = torch.matmul(monomials, self.weights)  # [batch, num_outputs]
-        output = torch.sigmoid(z)
+        z = torch.matmul(monomials, self.weights)  # (batch_size * layer_size, num_outputs)
+        output_flat = torch.sigmoid(z)
         
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
-        """
-        # Compute same as forward_train (polynomial + sigmoid)
-        monomials = self._compute_monomials(x)
-        z = torch.matmul(monomials, self.weights)
-        output = (z >= 0.0).float()
         
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
+        # Compute same as forward_train (polynomial + sigmoid)
+        monomials = self._compute_monomials(x_flat)
+        z = torch.matmul(monomials, self.weights)
+        output_flat = (z >= 0.0).float()
+        
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
 
     def _builtin_regularization(self) -> torch.Tensor:

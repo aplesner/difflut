@@ -133,20 +133,25 @@ def fourier_forward(input, frequencies, amplitudes, phases, bias, max_amplitude,
         # Compute angles: 2π * <k, x>
         angles = 2 * np.pi * dot_products  # (batch_size, num_frequencies)
         
-        output = torch.zeros(batch_size, output_dim, device=input.device, dtype=input.dtype)
+        # Normalize amplitudes to ensure bounded output
+        # Σ|w_k| ≤ max_amplitude
+        normalized_amplitudes = amplitudes / (amplitudes.sum(dim=0, keepdim=True) + 1e-8) * max_amplitude
         
+        # Compute outputs for each dimension
+        outputs = []
         for dim in range(output_dim):
-            # Normalize amplitudes
-            amplitude_sum = amplitudes[:, dim].sum()
-            normalized_amplitudes = amplitudes[:, dim] / (amplitude_sum + 1e-8) * max_amplitude
+            # angles: (batch_size, num_frequencies)
+            # normalized_amplitudes: (num_frequencies, output_dim)
             
-            # Compute phase-shifted angles
-            phase_shifted_angles = angles + phases[:, dim].unsqueeze(0)
-            cosines = torch.cos(phase_shifted_angles)
+            phase_shifted_angles = angles + phases[:, dim].unsqueeze(0)  # (batch_size, num_frequencies)
+            cosines = torch.cos(phase_shifted_angles)  # (batch_size, num_frequencies)
             
-            # Weighted sum
-            weighted_sum = torch.matmul(cosines, normalized_amplitudes)
-            output[:, dim] = weighted_sum
+            # Weighted sum: (batch_size,)
+            weighted_sum = torch.matmul(cosines, normalized_amplitudes[:, dim])
+            outputs.append(weighted_sum)
+        
+        # Stack into (batch_size, output_dim)
+        output = torch.stack(outputs, dim=1)
         
         # Add bias and clamp
         output = output + bias
@@ -243,9 +248,10 @@ class FourierNode(BaseNode):
         Compute the Fourier sum.
         
         Args:
-            x: Input tensor (batch_size, num_inputs) in [0, 1]
+            x: Input tensor (batch_size, layer_size, num_inputs) in [0, 1]
+               or flattened (batch_size * layer_size, num_inputs)
         Returns:
-            Output tensor (batch_size, output_dim) in [0, 1]
+            Output tensor (batch_size, layer_size, output_dim) or (batch_size * layer_size, output_dim)
         """
         batch_size = x.shape[0]
         
@@ -298,20 +304,21 @@ class FourierNode(BaseNode):
         Uses CUDA kernel if available, otherwise falls back to Python.
         
         Args:
-            x: Input tensor (batch_size, num_inputs) or (batch_size, 1, num_inputs)
+            x: Input tensor (batch_size, layer_size, num_inputs)
         Returns:
-            Output tensor (batch_size, output_dim) or (batch_size,) if output_dim=1
+            Output tensor (batch_size, layer_size, output_dim)
         """
-        # Handle different input dimensions
-        x = self._prepare_input(x)
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
         
         # Use CUDA kernels if available and on GPU
-        if self.use_cuda and x.is_cuda:
+        if self.use_cuda and x_flat.is_cuda:
             # Ensure input is contiguous and float32
-            x_cont = x.contiguous().float()
+            x_cont = x_flat.contiguous().float()
             
             # Call fourier CUDA kernel
-            output = fourier_forward(
+            output_flat = fourier_forward(
                 x_cont,
                 self.frequencies,
                 self.amplitudes,
@@ -322,24 +329,32 @@ class FourierNode(BaseNode):
             )
         else:
             # Fallback to Python implementation
-            output = self._compute_output(x)
+            output_flat = self._compute_output(x_flat)
         
-        # Prepare output (squeeze if single output)
-        return self._prepare_output(output)
+        # Reshape back to (batch_size, layer_size, output_dim)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
+        return output
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, output_dim)
         """
-        x = self._prepare_input(x)
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
         
         # Compute same as forward_train (Fourier transform)
-        if self.use_cuda and x.is_cuda:
-            x_cont = x.contiguous().float()
+        if self.use_cuda and x_flat.is_cuda:
+            x_cont = x_flat.contiguous().float()
             
             # Call fourier CUDA kernel (same as training, use_eval=False)
-            output = fourier_forward(
+            output_flat = fourier_forward(
                 x_cont,
                 self.frequencies,
                 self.amplitudes,
@@ -349,12 +364,14 @@ class FourierNode(BaseNode):
                 use_eval=False
             )
         else:
-            output = self._compute_output(x)
+            output_flat = self._compute_output(x_flat)
         
         # Discretize: Heaviside at 0.5 since forward_train output is in [0,1]
-        output = (output >= 0.5).float()
+        output_flat = (output_flat >= 0.5).float()
         
-        return self._prepare_output(output)
+        # Reshape back to (batch_size, layer_size, output_dim)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
+        return output
     
     def _builtin_regularization(self) -> torch.Tensor:
         """

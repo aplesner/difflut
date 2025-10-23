@@ -154,29 +154,53 @@ class NeuralLUTNode(BaseNode):
 
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during training with binary rounding and STE."""
+        """
+        Forward pass during training with binary rounding and STE.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
         # MLP forward + sigmoid
-        logits = self._mlp_forward(x)
+        logits = self._mlp_forward(x_flat)
         
         u = torch.rand_like(logits)
         y_soft = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.tau)
-        output = self.ste_if(y_soft, u)
+        output_flat = self.ste_if(y_soft, u)
         
         # Apply gradient scaling using custom autograd function
         # This only affects gradients, not forward pass values
-        output = GradientScalingFunction.apply(output, torch.tensor(self.grad_factor, device=output.device))
+        output_flat = GradientScalingFunction.apply(output_flat, torch.tensor(self.grad_factor, device=output_flat.device))
         
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
-        """
-        # Compute same as forward_train (MLP + sigmoid)
-        output = self._mlp_forward(x)
-        output = (output >= 0.0).float()
         
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
+        # Compute same as forward_train (MLP + sigmoid)
+        output_flat = self._mlp_forward(x_flat)
+        output_flat = (output_flat >= 0.0).float()
+        
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
 
     def _precompute_lut(self):

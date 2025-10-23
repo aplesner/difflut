@@ -35,12 +35,21 @@ class LinearLUTNode(BaseNode):
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
         Training: Use sigmoid for differentiability.
+        
         Args:
-            x: Input tensor (batch_size, num_inputs)
+            x: Input tensor of shape (batch_size, layer_size, input_dim)
+        
+        Returns:
+            Output tensor of shape (batch_size, layer_size, output_dim)
         """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, input_dim)
+        x_flat = x.view(batch_size * layer_size, input_dim)
         # Linear transformation + sigmoid
-        z = torch.matmul(x, self.weights)  # (batch_size, num_outputs)
+        z = torch.matmul(x_flat, self.weights)  # (batch_size * layer_size, num_outputs)
         output = torch.sigmoid(z)
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output.view(batch_size, layer_size, self.num_outputs)
         
         return output
 
@@ -48,12 +57,22 @@ class LinearLUTNode(BaseNode):
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
-        """
-        # Compute same as forward_train (linear + sigmoid)
-        z = torch.matmul(x, self.weights)
         
-        # Discretize: Heaviside at 0.0 since forward_train output is in R
+        Args:
+            x: Input tensor of shape (batch_size, layer_size, input_dim)
+        
+        Returns:
+            Output tensor of shape (batch_size, layer_size, output_dim)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, input_dim)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        # Compute linear output
+        z = torch.matmul(x_flat, self.weights)
+        # Discretize: Heaviside at 0.0
         output = (z >= 0.0).float()
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output.view(batch_size, layer_size, self.num_outputs)
         
         return output
 

@@ -149,20 +149,20 @@ class ProbabilisticNode(BaseNode):
             )
         
         # Store raw weights (logits) that will be passed through sigmoid with default values, then apply init_fn if provided
-        self.raw_weights = nn.Parameter(torch.randn(2**self.num_inputs, self.num_outputs))
+        self.raw_weights = nn.Parameter(torch.randn(2**self.input_dim, self.output_dim))
         self._apply_init_fn(self.raw_weights, name="raw_weights")
         
         # Precompute all binary combinations (LSB-first order) - for CPU fallback
         binary_combinations = []
-        for i in range(2**self.num_inputs):
-            bits = [((i >> j) & 1) for j in range(self.num_inputs)]  # LSB first
+        for i in range(2**self.input_dim):
+            bits = [((i >> j) & 1) for j in range(self.input_dim)]  # LSB first
             binary_combinations.append(bits)
         self.register_buffer('binary_combinations',
                             torch.tensor(binary_combinations, dtype=torch.float32))
         
         # Create mapping tensor for CUDA (each LUT maps to all inputs in order)
         # Shape: (num_outputs, num_inputs)
-        self.register_buffer('mapping', torch.arange(self.num_inputs, dtype=torch.int32).unsqueeze(0).expand(self.num_outputs, -1))
+        self.register_buffer('mapping', torch.arange(self.input_dim, dtype=torch.int32).unsqueeze(0).expand(self.output_dim, -1))
 
     @property
     def weights(self) -> torch.Tensor:
@@ -171,7 +171,7 @@ class ProbabilisticNode(BaseNode):
 
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
         """Convert binary vector to LUT index (LSB-first order)"""
-        powers = 2 ** torch.arange(self.num_inputs, device=x_binary.device, dtype=torch.float32)
+        powers = 2 ** torch.arange(self.input_dim, device=x_binary.device, dtype=torch.float32)
         if x_binary.dim() == 1:
             return (x_binary * powers).sum().long()
         else:
@@ -196,29 +196,39 @@ class ProbabilisticNode(BaseNode):
         Forward pass during training: probabilistic expectation (vectorized)
         f(x) = Σ_a ω_δ(a) * Pr(a|x)
         Uses CUDA kernel if available, otherwise falls back to CPU.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, input_dim)
+        Returns:
+            Output tensor (batch_size, layer_size, output_dim)
         """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, input_dim)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
         # Try CUDA kernel first
-        if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
+        if self.use_cuda and x_flat.is_cuda and _CUDA_EXT_AVAILABLE:
             # Transpose raw_weights to match CUDA kernel expectations
             # raw_weights is (2^n, num_outputs), need (num_outputs, 2^n)
             luts = self.raw_weights.t().contiguous()
             mapping = self.mapping.int()
             
-            output = probabilistic_forward(x, mapping, luts, self.temperature)
-            return output
+            output_flat = probabilistic_forward(x_flat, mapping, luts, self.temperature)
+        else:
+            # CPU fallback - original vectorized implementation
+            flat_batch_size = x_flat.shape[0]
+            # Ensure binary_combinations is on the same device and dtype as x
+            binary_combinations = self.binary_combinations.to(device=x_flat.device, dtype=x_flat.dtype)
+            # Vectorized probability computation
+            x_expanded = x_flat.unsqueeze(1)  # (batch_size * layer_size, 1, num_inputs)
+            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
+            prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
+            probs = torch.prod(prob_terms, dim=-1)  # Product over input dimension: (batch_size * layer_size, 2^num_inputs)
+            weights = self.weights
+            output_flat = torch.matmul(probs, weights)
         
-        # CPU fallback - original vectorized implementation
-        batch_size = x.shape[0]
-        # Ensure binary_combinations is on the same device and dtype as x
-        binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
-        # Vectorized probability computation
-        x_expanded = x.unsqueeze(1)  # (batch_size, 1, num_inputs)
-        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
-        prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-        probs = torch.prod(prob_terms, dim=2)
-        weights = self.weights
-        output = torch.matmul(probs, weights)
-        
+        # Reshape back to (batch_size, layer_size, output_dim)
+        output = output_flat.view(batch_size, layer_size, self.output_dim)
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -226,20 +236,28 @@ class ProbabilisticNode(BaseNode):
         Evaluation: Direct LUT lookup simulating hardware behavior.
         Assumes inputs are already binary (0 or 1) from encoder or previous nodes.
         Returns binary outputs (0 or 1).
-        """
-        batch_size = x.shape[0]
         
-        # Convert binary inputs to LUT indices (MSB-first)
-        # For each sample, compute index = sum(x[i] * 2^(n-1-i))
-        indices = self._binary_to_index(x)  # (batch_size,)
+        Args:
+            x: Input tensor (batch_size, layer_size, input_dim)
+        Returns:
+            Output tensor (batch_size, layer_size, output_dim)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, input_dim)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
+        # Convert binary inputs to LUT indices (LSB-first)
+        indices = self._binary_to_index(x_flat)  # (batch_size * layer_size,)
         
         # Look up weights and threshold at 0.5 to get binary output
         weights = self.weights  # (2^num_inputs, num_outputs)
-        output = weights[indices]  # (batch_size, num_outputs)
+        output_flat = weights[indices]  # (batch_size * layer_size, num_outputs)
         
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
-        output = (output >= 0.5).float()
+        output_flat = (output_flat >= 0.5).float()
         
+        # Reshape back to (batch_size, layer_size, output_dim)
+        output = output_flat.view(batch_size, layer_size, self.output_dim)
         return output
 
     def _builtin_regularization(self) -> torch.Tensor:

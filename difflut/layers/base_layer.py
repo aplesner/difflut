@@ -41,22 +41,14 @@ class BaseLUTLayer(nn.Module, ABC):
         # Get mapped inputs: (batch_size, output_size, n)
         mapped_inputs = self.get_mapping(x)
         
-        # Process through nodes
-        outputs = []
-        for i, node in enumerate(self.nodes):
-            # Get inputs for this node
-            node_input = mapped_inputs[:, i, :]  # Shape: (batch_size, n)
-            # Add a dummy dimension if node expects it
-            if len(node_input.shape) == 2:
-                node_input = node_input.unsqueeze(1)  # Shape: (batch_size, 1, n)
-            output = node(node_input)
-            # Remove extra dimensions if present
-            if len(output.shape) > 2:
-                output = output.squeeze(1)
-            outputs.append(output)
+        # Send all mapped inputs as a 3D tensor directly to nodes
+        # Shape: (batch_size, layer_size, input_dim)
+        # where layer_size = output_size (number of independent node copies)
+        # and input_dim = n (inputs per node)
+        output = self.nodes[0](mapped_inputs) if len(self.nodes) > 0 else mapped_inputs
         
-        # Stack outputs
-        return torch.stack(outputs, dim=1).squeeze(-1) if outputs[0].dim() > 1 else torch.stack(outputs, dim=1)
+        # Output shape: (batch_size, layer_size, output_dim)
+        return output
     
     def regularization(self) -> torch.Tensor:
         """Compute regularization for all nodes"""

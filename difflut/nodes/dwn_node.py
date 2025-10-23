@@ -106,7 +106,10 @@ class EFDFunctionCPU(torch.autograd.Function):
                 # Compute address
                 addr = 0
                 for l in range(n):
-                    if x_binary[i, mapping[j, l]] > 0:
+                    # Extract the input index from mapping tensor
+                    input_idx = mapping[j, l].item()
+                    # Use .item() to convert tensor to scalar for comparison
+                    if x_binary[i, input_idx].item() >= 0.5:
                         addr |= (1 << l)
                 output[i, j] = luts[j, addr]
         
@@ -136,7 +139,9 @@ class EFDFunctionCPU(torch.autograd.Function):
                 # Compute current address (for LUT gradient)
                 addr = 0
                 for l in range(n):
-                    if input[i, mapping[j, l]] >= 0.5:
+                    # Extract the input index from mapping tensor and use it as scalar index
+                    input_idx = int(mapping[j, l].item())
+                    if input[i, input_idx].item() >= 0.5:
                         addr |= (1 << l)
                 
                 # LUT gradient
@@ -284,19 +289,25 @@ class DWNNode(BaseNode):
         """
         Forward pass during training with automatic CUDA/CPU dispatch.
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
-        Outputs are in [0, 1] (or binarized with STE if enabled).
+        Outputs are in [0, 1].
+        
+        Args:
+            x: Tensor of shape (batch_size, layer_size, input_dim)
+        
+        Returns:
+            Tensor of shape (batch_size, layer_size, output_dim)
         """
-        # Clamp LUT values to [-1, 1] if enabled
+        # Clamp LUT values to [0, 1] if enabled
         self._clamp_luts_if_needed()
         
-        # Use efd_forward which handles CUDA/CPU dispatch automatically
-        if self.use_cuda and x.is_cuda:
-            x = x.contiguous().float()
-            mapping = self.mapping.int()
-        else:
-            mapping = self.mapping
-        
-        output = efd_forward(x, mapping, self.luts, self.alpha, self.beta)
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, input_dim)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        # Process through node
+        output_flat = efd_forward(x_flat, self.mapping, self.luts, self.alpha, self.beta)
+        # output_flat shape: (batch_size * layer_size, num_outputs)
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         
         return output
     
@@ -304,21 +315,32 @@ class DWNNode(BaseNode):
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using threshold at 0.5.
+        
+        Args:
+            x: Tensor of shape (batch_size, layer_size, input_dim)
+        
+        Returns:
+            Tensor of shape (batch_size, layer_size, output_dim)
         """
-        # Inputs are already binarized in {0, 1}, convert to {0, 1} for indexing
-        x_binary = (x >= 0.5).float()
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, input_dim)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        # Process through node
+        x_binary = (x_flat >= 0.5).float()
         indices = self._binary_to_index(x_binary)
         
         if self.num_outputs == 1:
-            output = self.luts[0, indices]
+            output_flat = self.luts[0, indices]
         else:
             outputs = []
             for dim in range(self.num_outputs):
                 outputs.append(self.luts[dim, indices])
-            output = torch.stack(outputs, dim=1)
+            output_flat = torch.stack(outputs, dim=1)
         
         # Binarize output: [0, 1] -> {0, 1} using threshold at 0.5
-        output = torch.where(output >= 0.5, torch.ones_like(output), torch.zeros_like(output))
+        output_flat = torch.where(output_flat >= 0.5, torch.ones_like(output_flat), torch.zeros_like(output_flat))
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         
         return output
     

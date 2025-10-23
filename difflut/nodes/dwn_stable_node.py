@@ -107,7 +107,10 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
                 # Compute address
                 addr = 0
                 for l in range(n):
-                    if x_binary[i, mapping[j, l]] > 0:
+                    # Extract the input index from mapping tensor
+                    input_idx = mapping[j, l].item()
+                    # Use .item() to convert tensor to scalar for comparison
+                    if x_binary[i, input_idx].item() >= 0.5:
                         addr |= (1 << l)
                 output[i, j] = luts[j, addr]
         
@@ -137,7 +140,9 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
                 # Compute current address (for LUT gradient)
                 addr = 0
                 for l in range(n):
-                    if input[i, mapping[j, l]] >= 0.5:
+                    # Extract the input index from mapping tensor and use it as scalar index
+                    input_idx = int(mapping[j, l].item())
+                    if input[i, input_idx].item() >= 0.5:
                         addr |= (1 << l)
                 
                 # LUT gradient (with scaling)
@@ -276,46 +281,68 @@ class DWNStableNode(BaseNode):
         """
         Forward pass during training with automatic CUDA/CPU dispatch.
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
-        Outputs are in [0, 1] (or binarized with STE if enabled).
+        Outputs are in [0, 1].
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
         """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
         # Use dwn_stable_forward which handles CUDA/CPU dispatch automatically
-        if self.use_cuda and x.is_cuda:
-            x = x.contiguous().float()
+        if self.use_cuda and x_flat.is_cuda:
+            x_flat = x_flat.contiguous().float()
             mapping = self.mapping.int()
         else:
             mapping = self.mapping
         
-        output = dwn_stable_forward(x, mapping, luts, self.gradient_scale)
+        output_flat = dwn_stable_forward(x_flat, mapping, luts, self.gradient_scale)
         
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using Heaviside at 0.5.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
         """
+        batch_size, layer_size, input_dim = x.shape
+        # Reshape to (batch_size * layer_size, num_inputs)
+        x_flat = x.view(batch_size * layer_size, input_dim)
+        
         # Get actual LUT weights via sigmoid
         luts = self._get_luts()
         
         # Inputs are already binarized in {0, 1}, use directly
-        x_binary = x.float()
+        x_binary = x_flat.float()
         indices = self._binary_to_index(x_binary)
         
         if self.num_outputs == 1:
-            output = luts[0, indices]
+            output_flat = luts[0, indices]
         else:
             outputs = []
             for dim in range(self.num_outputs):
                 outputs.append(luts[dim, indices])
-            output = torch.stack(outputs, dim=1)
+            output_flat = torch.stack(outputs, dim=1)
         
         # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
         # output >= 0.5 -> 1, output < 0.5 -> 0
-        output = (output >= 0.5).float()
+        output_flat = (output_flat >= 0.5).float()
         
+        # Reshape back to (batch_size, layer_size, num_outputs)
+        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
     
     def _builtin_regularization(self) -> torch.Tensor:
