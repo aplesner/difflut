@@ -341,6 +341,10 @@ class HybridNode(BaseNode):
         
         output_flat = hybrid_forward(x_flat, mapping, luts, self.binary_combinations)
         
+        # Handle case when output_flat is 1D (can happen when num_outputs=1 with some CUDA versions)
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size,) -> (batch_size * layer_size, 1)
+        
         # Reshape back to (batch_size, layer_size, num_outputs)
         output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output

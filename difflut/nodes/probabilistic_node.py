@@ -227,6 +227,10 @@ class ProbabilisticNode(BaseNode):
             weights = self.weights
             output_flat = torch.matmul(probs, weights)
         
+        # Handle case when output_flat is 1D (can happen when num_outputs=1 with some CUDA versions)
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size,) -> (batch_size * layer_size, 1)
+        
         # Reshape back to (batch_size, layer_size, output_dim)
         output = output_flat.view(batch_size, layer_size, self.output_dim)
         return output

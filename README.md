@@ -42,23 +42,13 @@ difflut/                       # Top-level package directory
 ├── setup.py                   # Installation script
 ├── pyproject.toml             # Build system config
 ├── docs/                      # Documentation
-│   ├── INSTALLATION.md
-│   ├── QUICK_START.md
-│   ├── USER_GUIDE.md
-│   ├── USER_GUIDE/
-│   │   ├── components.md
-│   │   └── registry_pipeline.md
-│   ├── DEVELOPER_GUIDE.md
-│   └── DEVELOPER_GUIDE/
-│       ├── creating_components.md
-│       ├── packaging.md
-│       └── contributing.md
 ├── difflut/                   # Main library code
 │   ├── __init__.py
 │   ├── registry.py            # Component registration utilities
 │   ├── encoder/               # Input encoders
 │   ├── layers/                # Layer types
 │   ├── nodes/                 # LUT node implementations
+│   │   └── utils/             # initializers and regularizer
 │   └── utils/                 # Utility functions (FPGA export)
 ├── examples/                  # Example scripts and notebooks
 └── tests/                     # Test suite

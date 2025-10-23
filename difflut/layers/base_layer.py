@@ -46,6 +46,11 @@ class BaseLUTLayer(nn.Module, ABC):
         output = self.node(mapped_inputs)
         
         # Output shape: (batch_size, output_size, output_dim)
+        # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
+        # In most cases output_dim=1, so this just squeezes out the last dimension
+        batch_size = output.shape[0]
+        output = output.view(batch_size, -1)
+        
         return output
     
     def regularization(self) -> torch.Tensor:
