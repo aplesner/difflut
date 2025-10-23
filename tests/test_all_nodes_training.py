@@ -32,8 +32,9 @@ def generate_training_data(n_samples=1000, seed=42):
     np.random.seed(seed)
     X_np = np.random.rand(n_samples, 2)
     Y_np = xorc(X_np[:, 0], X_np[:, 1])
-    X_train = torch.tensor(X_np, dtype=torch.float32)
-    Y_train = torch.tensor(Y_np, dtype=torch.float32).unsqueeze(-1)
+    # Reshape to (batch_size, 1, input_dim) for 3D input
+    X_train = torch.tensor(X_np, dtype=torch.float32).unsqueeze(1)  # (n_samples, 1, 2)
+    Y_train = torch.tensor(Y_np, dtype=torch.float32).unsqueeze(-1)  # (n_samples, 1)
     return X_train, Y_train
 
 
@@ -49,7 +50,7 @@ def create_node_instance(node_class):
         Instance of the node
     """
     # All nodes accept input_dim and output_dim with defaults for other parameters
-    node_kwargs = dict(input_dim=[2], output_dim=[1])
+    node_kwargs = dict(input_dim=2, output_dim=1)
     
     return node_class(**node_kwargs)
 
@@ -60,8 +61,8 @@ def train_node_with_lr(node, X_train, Y_train, lr, epochs=10, verbose=False):
     
     Args:
         node: Node instance to train
-        X_train: Training inputs
-        Y_train: Training targets
+        X_train: Training inputs (batch_size, 1, input_dim)
+        Y_train: Training targets (batch_size, 1)
         lr: Learning rate
         epochs: Number of training epochs
         verbose: Print progress
@@ -76,9 +77,8 @@ def train_node_with_lr(node, X_train, Y_train, lr, epochs=10, verbose=False):
         optimizer.zero_grad()
         y_pred = node(X_train)
         
-        # Ensure correct shape
-        if y_pred.ndim == 1:
-            y_pred = y_pred.unsqueeze(-1)
+        # Flatten output to match target shape if needed
+        y_pred = y_pred.reshape(Y_train.shape)
         
         loss = torch.nn.functional.mse_loss(y_pred, Y_train)
         loss.backward()
@@ -218,13 +218,11 @@ def plot_node_surface(ax, node, node_name, lr, success=True, grid_size=20):
     xx, yy = np.meshgrid(x, y)
     inputs = np.stack([xx.flatten(), yy.flatten()], axis=1)
     
-    # Get predictions
+    # Get predictions with 3D input shape (batch_size, 1, input_dim)
     with torch.no_grad():
-        inp = torch.tensor(inputs, dtype=torch.float32)
+        inp = torch.tensor(inputs, dtype=torch.float32).unsqueeze(1)  # (grid_size^2, 1, 2)
         out = node(inp)
-        if out.ndim == 1:
-            out = out.unsqueeze(-1)
-        out = out.cpu().numpy().reshape(grid_size, grid_size)
+        out = out.reshape(-1).cpu().numpy().reshape(grid_size, grid_size)
     
     # Plot surface
     ax.plot_surface(xx, yy, out, cmap='viridis', edgecolor='k', 
