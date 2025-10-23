@@ -107,6 +107,10 @@ class PolyLUTNode(BaseNode):
         z = torch.matmul(monomials, self.weights)  # (batch_size * layer_size, num_outputs)
         output_flat = torch.sigmoid(z)
         
+        # Ensure output is always 2D
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
+        
         # Reshape back to (batch_size, layer_size, num_outputs)
         output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
@@ -129,6 +133,10 @@ class PolyLUTNode(BaseNode):
         monomials = self._compute_monomials(x_flat)
         z = torch.matmul(monomials, self.weights)
         output_flat = (z >= 0.0).float()
+        
+        # Ensure output is always 2D
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
         
         # Reshape back to (batch_size, layer_size, num_outputs)
         output = output_flat.view(batch_size, layer_size, self.num_outputs)

@@ -253,6 +253,10 @@ class ProbabilisticNode(BaseNode):
         weights = self.weights  # (2^num_inputs, num_outputs)
         output_flat = weights[indices]  # (batch_size * layer_size, num_outputs)
         
+        # Ensure output is always 2D
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
+        
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output_flat = (output_flat >= 0.5).float()
         

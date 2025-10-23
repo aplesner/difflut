@@ -177,6 +177,10 @@ class NeuralLUTNode(BaseNode):
         # This only affects gradients, not forward pass values
         output_flat = GradientScalingFunction.apply(output_flat, torch.tensor(self.grad_factor, device=output_flat.device))
         
+        # Ensure output is always 2D
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
+        
         # Reshape back to (batch_size, layer_size, num_outputs)
         output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
@@ -198,6 +202,10 @@ class NeuralLUTNode(BaseNode):
         # Compute same as forward_train (MLP + sigmoid)
         output_flat = self._mlp_forward(x_flat)
         output_flat = (output_flat >= 0.0).float()
+        
+        # Ensure output is always 2D
+        if output_flat.dim() == 1:
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
         
         # Reshape back to (batch_size, layer_size, num_outputs)
         output = output_flat.view(batch_size, layer_size, self.num_outputs)

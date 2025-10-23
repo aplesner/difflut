@@ -330,12 +330,13 @@ class DWNNode(BaseNode):
         indices = self._binary_to_index(x_binary)
         
         if self.num_outputs == 1:
-            output_flat = self.luts[0, indices]
+            output_flat = self.luts[0, indices]  # (batch_size * layer_size,)
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
         else:
             outputs = []
             for dim in range(self.num_outputs):
                 outputs.append(self.luts[dim, indices])
-            output_flat = torch.stack(outputs, dim=1)
+            output_flat = torch.stack(outputs, dim=1)  # (batch_size * layer_size, num_outputs)
         
         # Binarize output: [0, 1] -> {0, 1} using threshold at 0.5
         output_flat = torch.where(output_flat >= 0.5, torch.ones_like(output_flat), torch.zeros_like(output_flat))

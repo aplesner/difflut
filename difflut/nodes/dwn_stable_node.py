@@ -330,12 +330,13 @@ class DWNStableNode(BaseNode):
         indices = self._binary_to_index(x_binary)
         
         if self.num_outputs == 1:
-            output_flat = luts[0, indices]
+            output_flat = luts[0, indices]  # (batch_size * layer_size,)
+            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
         else:
             outputs = []
             for dim in range(self.num_outputs):
                 outputs.append(luts[dim, indices])
-            output_flat = torch.stack(outputs, dim=1)
+            output_flat = torch.stack(outputs, dim=1)  # (batch_size * layer_size, num_outputs)
         
         # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
         # output >= 0.5 -> 1, output < 0.5 -> 0

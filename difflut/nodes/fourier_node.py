@@ -292,6 +292,10 @@ class FourierNode(BaseNode):
         
         output = torch.stack(outputs, dim=1)  # (batch_size, num_outputs)
         
+        # Ensure output is always 2D
+        if output.dim() == 1:
+            output = output.unsqueeze(1)  # (batch_size, 1)
+        
         # Add bias and ensure output is in [0, 1]
         output = output + self.bias
         output = torch.clamp(output, 0.0, 1.0)

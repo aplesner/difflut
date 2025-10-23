@@ -48,7 +48,9 @@ class LinearLUTNode(BaseNode):
         # Linear transformation + sigmoid
         z = torch.matmul(x_flat, self.weights)  # (batch_size * layer_size, num_outputs)
         output = torch.sigmoid(z)
-        # Reshape back to (batch_size, layer_size, num_outputs)
+        # Ensure output is always 3D: (batch_size, layer_size, output_dim)
+        if output.dim() == 1:
+            output = output.unsqueeze(1)  # Handle case when num_outputs = 1
         output = output.view(batch_size, layer_size, self.num_outputs)
         
         return output
@@ -71,6 +73,9 @@ class LinearLUTNode(BaseNode):
         z = torch.matmul(x_flat, self.weights)
         # Discretize: Heaviside at 0.0
         output = (z >= 0.0).float()
+        # Ensure output is always 3D: (batch_size, layer_size, output_dim)
+        if output.dim() == 1:
+            output = output.unsqueeze(1)  # Handle case when num_outputs = 1
         # Reshape back to (batch_size, layer_size, num_outputs)
         output = output.view(batch_size, layer_size, self.num_outputs)
         
