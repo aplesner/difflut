@@ -196,15 +196,25 @@ class DiffLUTClassificationModel(nn.Module):
         """
         batch_size = x.shape[0]
         
-        # Encode
-        x_encoded = self.encoder.encode(x)  # (batch_size, encoded_dim)
+        # Flatten input if needed (for compatibility with different input shapes)
+        if x.dim() > 2:
+            x = x.view(batch_size, -1)
+        
+        # Move encoder to same device as input
+        self.encoder.to(x.device)
+        
+        # Encode - should return 2D (batch_size, num_features * num_bits)
+        x_encoded = self.encoder.encode(x)
+        
+        # Safety check: flatten if encoder somehow returns 3D
+        if x_encoded.dim() == 3:
+            x_encoded = x_encoded.reshape(batch_size, -1)
+        
+        # Clamp to valid range [0, 1]
+        x_encoded = torch.clamp(x_encoded, 0, 1)
         
         # Layer with nodes
-        x_nodes = self.layer(x_encoded)  # (batch_size, num_nodes, 1) or (batch_size, num_nodes)
-        
-        # Reshape if needed
-        if x_nodes.dim() == 3:
-            x_nodes = x_nodes.squeeze(-1)  # (batch_size, num_nodes)
+        x_nodes = self.layer(x_encoded)  # (batch_size, num_nodes)
         
         # GroupSum: (batch_size, num_nodes) -> (batch_size, 10)
         out = self.groupsum(x_nodes)  # (batch_size, 10)
@@ -476,7 +486,7 @@ def main():
         print("Creating thermometer encoder...")
         encoder_class = REGISTRY.get_encoder('distributive_thermometer')
         X_sample_torch = torch.tensor(X_train[:100], dtype=torch.float32)
-        encoder = encoder_class(num_bits=THERMOMETER_BITS, feature_wise=False)
+        encoder = encoder_class(num_bits=THERMOMETER_BITS)
         encoder.fit(X_sample_torch)
         encoded_dim = encoder.encode(X_sample_torch[:1]).shape[1]
         print(f"✓ Encoder created (output dim: {encoded_dim})\n")
@@ -503,6 +513,7 @@ def main():
                     node_class = REGISTRY.get_node(node_name)
                     
                     # Create layer with nodes
+                    # Note: node_kwargs should have input_dim as integer (not list)
                     layer = layer_class(
                         input_size=encoded_dim,
                         output_size=NUM_NODES,

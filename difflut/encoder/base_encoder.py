@@ -7,15 +7,24 @@ class BaseEncoder(ABC):
     """
     Abstract base class for all encoders.
     Encoders transform continuous values into binary representations.
+    
+    Supports both flattened and unflattened output formats:
+    - flatten=True (default): Returns 2D tensor (batch_size, input_dim * num_bits)
+    - flatten=False: Returns 3D tensor (batch_size, input_dim, num_bits)
     """
     
-    def __init__(self, num_bits: int = 1):
+    def __init__(self, num_bits: int = 1, flatten: bool = True):
         """
         Args:
             num_bits: Number of bits in the encoded representation
+            flatten: If True, flatten output to 2D (batch_size, input_dim * num_bits).
+                     If False, keep as 3D (batch_size, input_dim, num_bits).
+                     Default: True
         """
         assert num_bits > 0, "num_bits must be positive"
+        assert isinstance(flatten, bool), "flatten must be a boolean"
         self.num_bits = int(num_bits)
+        self.flatten = flatten
         self._is_fitted = False
     
     @abstractmethod
@@ -92,4 +101,4 @@ class BaseEncoder(ABC):
         return self
     
     def __repr__(self) -> str:
-        return f"{self.__class__.__name__}(num_bits={self.num_bits})"
+        return f"{self.__class__.__name__}(num_bits={self.num_bits}, flatten={self.flatten})"

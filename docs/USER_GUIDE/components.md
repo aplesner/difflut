@@ -8,13 +8,13 @@ A comprehensive reference for all DiffLUT components: encoders, nodes, and layer
 
 Quick reference for tensor dimensions through the DiffLUT pipeline:
 
-| Component | Input Shape | Output Shape | Notes |
-|-----------|-------------|--------------|-------|
-| **Encoder** | `(batch_size, input_dim)` | `(batch_size, input_dim * num_bits)` | Discretizes continuous inputs |
-| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size * output_dim)` | Routes inputs to nodes |
-| **Layer (internal)** | `(batch_size, input_size)` | `(batch_size, output_size, node_input_dim)` | Maps to node inputs |
-| **Nodes** | `(batch_size, output_size, node_input_dim)` | `(batch_size, output_size, node_output_dim)` | Parallel LUT evaluation |
-| **GroupSum** | `(batch_size, num_nodes)` | `(batch_size, k)` | Groups & sums features |
+| Component | Input Shape | Output Shape (flatten=True) | Output Shape (flatten=False) | Notes |
+|-----------|-------------|-----|-----|-------|
+| **Encoder** | `(batch_size, input_dim)` | `(batch_size, input_dim * num_bits)` | `(batch_size, input_dim, num_bits)` | Discretizes continuous inputs |
+| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size * output_dim)` | N/A | Routes inputs to nodes |
+| **Layer (internal)** | `(batch_size, input_size)` | `(batch_size, output_size, node_input_dim)` | N/A | Maps to node inputs |
+| **Nodes** | `(batch_size, output_size, node_input_dim)` | `(batch_size, output_size, node_output_dim)` | N/A | Parallel LUT evaluation |
+| **GroupSum** | `(batch_size, num_nodes)` | `(batch_size, k)` | N/A | Groups & sums features |
 
 
 
@@ -60,31 +60,44 @@ Unary encoding where each bit represents a threshold.
 ```python
 from difflut.encoder import ThermometerEncoder
 
-encoder = ThermometerEncoder(num_bits=8, feature_wise=True)
+# Default: flatten output to 2D
+encoder = ThermometerEncoder(num_bits=8)
 encoder.fit(train_data)
-encoded = encoder(data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = ThermometerEncoder(num_bits=8, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
 
 **Parameters**:
 - `num_bits`: Number of bits per feature
-- `feature_wise`: If True, fit each feature independently (recommended)
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: You want smooth, interpretable discretization.
 
 #### Gray Encoder
 Gray code encoding (minimal Hamming distance between consecutive values).
 
+
 ```python
 from difflut.encoder import GrayEncoder
 
-encoder = GrayEncoder(num_bits=8, feature_wise=True)
+# Default: flatten output to 2D
+encoder = GrayEncoder(num_bits=8)
 encoder.fit(train_data)
-encoded = encoder(data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = GrayEncoder(num_bits=8, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
 
 **Parameters**:
 - `num_bits`: Number of bits per feature
-- `feature_wise`: If True, fit each feature independently
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: You want to minimize bit flips during neighboring value transitions.
 
@@ -94,14 +107,20 @@ Standard binary encoding.
 ```python
 from difflut.encoder import BinaryEncoder
 
-encoder = BinaryEncoder(num_bits=8, feature_wise=True)
+# Default: flatten output to 2D
+encoder = BinaryEncoder(num_bits=8)
 encoder.fit(train_data)
-encoded = encoder(data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = BinaryEncoder(num_bits=8, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
 
 **Parameters**:
 - `num_bits`: Number of bits per feature
-- `feature_wise`: If True, fit each feature independently
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: You need standard binary representation.
 
@@ -111,15 +130,21 @@ Gaussian basis functions for smooth encoding.
 ```python
 from difflut.encoder import GaussianEncoder
 
-encoder = GaussianEncoder(num_bits=8, sigma=1.0, feature_wise=True)
+# Default: flatten output to 2D
+encoder = GaussianEncoder(num_bits=8, sigma=1.0)
 encoder.fit(train_data)
-encoded = encoder(data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = GaussianEncoder(num_bits=8, sigma=1.0, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
 
 **Parameters**:
 - `num_bits`: Number of Gaussian centers
 - `sigma`: Standard deviation of Gaussians
-- `feature_wise`: If True, fit each feature independently
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: You want smooth, continuous-like encoding with Gaussian basis functions.
 
@@ -129,10 +154,20 @@ One-hot encoding (sparse representation).
 ```python
 from difflut.encoder import OneHotEncoder
 
-encoder = OneHotEncoder(num_bits=8, feature_wise=True)
+# Default: flatten output to 2D
+encoder = OneHotEncoder(num_bits=8)
 encoder.fit(train_data)
-encoded = encoder(data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = OneHotEncoder(num_bits=8, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
+
+**Parameters**:
+- `num_bits`: Number of bins
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: You need sparse, interpretable representations.
 
@@ -142,10 +177,21 @@ Logarithmic scaling for handling large value ranges.
 ```python
 from difflut.encoder import LogarithmicEncoder
 
-encoder = LogarithmicEncoder(num_bits=8, feature_wise=True)
+# Default: flatten output to 2D
+encoder = LogarithmicEncoder(num_bits=8, base=2.0)
 encoder.fit(train_data)
-encoded = encoder(data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = LogarithmicEncoder(num_bits=8, base=2.0, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
+
+**Parameters**:
+- `num_bits`: Number of bits per feature
+- `base`: Base of logarithm
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: Data has exponential or logarithmic characteristics.
 
