@@ -2,6 +2,34 @@
 
 A comprehensive reference for all DiffLUT components: encoders, nodes, and layers.
 
+---
+
+## Dimension Reference
+
+Quick reference for tensor dimensions through the DiffLUT pipeline:
+
+| Component | Input Shape | Output Shape | Notes |
+|-----------|-------------|--------------|-------|
+| **Encoder** | `(batch_size, input_dim)` | `(batch_size, input_dim * num_bits)` | Discretizes continuous inputs |
+| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size * output_dim)` | Routes inputs to nodes |
+| **Layer (internal)** | `(batch_size, input_size)` | `(batch_size, output_size, node_input_dim)` | Maps to node inputs |
+| **Nodes** | `(batch_size, output_size, node_input_dim)` | `(batch_size, output_size, node_output_dim)` | Parallel LUT evaluation |
+| **GroupSum** | `(batch_size, num_nodes)` | `(batch_size, k)` | Groups & sums features |
+
+### Example Dimension Flow
+
+```
+Input:                      (32, 128)           # 32 images, 128 features
+    ↓
+Encoder (4 bits):           (32, 512)           # 128 * 4 = 512 encoded features
+    ↓
+Layer (1000 nodes):         (32, 1000)          # 1000 node outputs
+    ↓
+GroupSum (10 classes):      (32, 10)            # 10 class logits
+```
+
+---
+
 ## Encoders
 
 Encoders transform continuous input values into discrete representations suitable for LUT indexing.

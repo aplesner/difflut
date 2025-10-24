@@ -20,10 +20,12 @@ class RandomLayer(BaseLUTLayer):
                  seed: int = 42):
         """
         Args:
-            input_size: Size of input vector
-            output_size: Size of output vector  
+            input_size: Size of input vector (from encoder or previous layer)
+                       Should match: (batch_size, input_size)
+            output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class to use
             node_kwargs: Additional node arguments (should include input_dim and output_dim)
+                        Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
         """
         self.seed = seed

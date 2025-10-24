@@ -1,0 +1,259 @@
+============================================================
+DiffLUT Node Training Test Suite
+============================================================
+
+Output directory: /usr/itetnas04/data-scratch-01/sbuehrer/data/difflut/difflut/tests/test_outputs
+Log file: /usr/itetnas04/data-scratch-01/sbuehrer/data/difflut/difflut/tests/test_outputs/test_results_20251024_151252.txt
+
+Generating training data (2000 samples)...
+
+Found 8 registered nodes:
+  - dwn
+  - linear_lut
+  - probabilistic
+  - polylut
+  - neurallut
+  - hybrid
+  - fourier
+  - dwn_stable
+
+============================================================
+Testing: dwn
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.131681
+  Final loss:   0.012554
+  Decrease:     0.119126 (90.47% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.057993
+  Final loss:   0.012648
+  Decrease:     0.045345 (78.19% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.175673
+  Final loss:   0.145772
+  Decrease:     0.029902 (17.02% improvement)
+
+------------------------------------------------------------
+✓ dwn PASSED
+  Best LR: 0.1
+  Loss: 0.131681 → 0.012554
+  Decrease: 0.119126
+------------------------------------------------------------
+
+============================================================
+Testing: linear_lut
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.028623
+  Final loss:   0.028557
+  Decrease:     0.000066 (0.23% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.028562
+  Final loss:   0.028554
+  Decrease:     0.000007 (0.03% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.028568
+  Final loss:   0.028555
+  Decrease:     0.000014 (0.05% improvement)
+
+------------------------------------------------------------
+✓ linear_lut PASSED
+  Best LR: 0.1
+  Loss: 0.028623 → 0.028557
+  Decrease: 0.000066
+------------------------------------------------------------
+
+============================================================
+Testing: probabilistic
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.041638
+  Final loss:   0.000680
+  Decrease:     0.040959 (98.37% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.089669
+  Final loss:   0.049996
+  Decrease:     0.039673 (44.24% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.062718
+  Final loss:   0.058817
+  Decrease:     0.003901 (6.22% improvement)
+
+------------------------------------------------------------
+✓ probabilistic PASSED
+  Best LR: 0.1
+  Loss: 0.041638 → 0.000680
+  Decrease: 0.040959
+------------------------------------------------------------
+
+============================================================
+Testing: polylut
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.028754
+  Final loss:   0.008834
+  Decrease:     0.019919 (69.28% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.030418
+  Final loss:   0.025946
+  Decrease:     0.004471 (14.70% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.028761
+  Final loss:   0.028284
+  Decrease:     0.000477 (1.66% improvement)
+
+------------------------------------------------------------
+✓ polylut PASSED
+  Best LR: 0.1
+  Loss: 0.028754 → 0.008834
+  Decrease: 0.019919
+------------------------------------------------------------
+
+============================================================
+Testing: neurallut
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.117551
+  Final loss:   0.077024
+  Decrease:     0.040527 (34.48% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.113792
+  Final loss:   0.101574
+  Decrease:     0.012218 (10.74% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.113772
+  Final loss:   0.116216
+  Decrease:     -0.002444 (-2.15% improvement)
+
+------------------------------------------------------------
+✓ neurallut PASSED
+  Best LR: 0.1
+  Loss: 0.117551 → 0.077024
+  Decrease: 0.040527
+------------------------------------------------------------
+
+============================================================
+Testing: hybrid
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.026660
+  Final loss:   0.019851
+  Decrease:     0.006810 (25.54% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.026415
+  Final loss:   0.012730
+  Decrease:     0.013685 (51.81% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.028618
+  Final loss:   0.025673
+  Decrease:     0.002946 (10.29% improvement)
+
+------------------------------------------------------------
+✓ hybrid PASSED
+  Best LR: 0.01
+  Loss: 0.026415 → 0.012730
+  Decrease: 0.013685
+------------------------------------------------------------
+
+============================================================
+Testing: fourier
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.081050
+  Final loss:   0.005392
+  Decrease:     0.075657 (93.35% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.115484
+  Final loss:   0.006724
+  Decrease:     0.108759 (94.18% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.072280
+  Final loss:   0.027552
+  Decrease:     0.044728 (61.88% improvement)
+
+------------------------------------------------------------
+✓ fourier PASSED
+  Best LR: 0.01
+  Loss: 0.115484 → 0.006724
+  Decrease: 0.108759
+------------------------------------------------------------
+
+============================================================
+Testing: dwn_stable
+============================================================
+
+Trying learning rate: 0.1
+  Initial loss: 0.030538
+  Final loss:   0.012458
+  Decrease:     0.018080 (59.20% improvement)
+
+Trying learning rate: 0.01
+  Initial loss: 0.031133
+  Final loss:   0.014078
+  Decrease:     0.017055 (54.78% improvement)
+
+Trying learning rate: 0.001
+  Initial loss: 0.029751
+  Final loss:   0.026770
+  Decrease:     0.002981 (10.02% improvement)
+
+------------------------------------------------------------
+✓ dwn_stable PASSED
+  Best LR: 0.1
+  Loss: 0.030538 → 0.012458
+  Decrease: 0.018080
+------------------------------------------------------------
+
+Generating combined 3D surface plot...
+  Combined surface plot saved: /usr/itetnas04/data-scratch-01/sbuehrer/data/difflut/difflut/tests/test_outputs/all_nodes_surfaces.png
+
+Generating individual loss curves plot...
+  Individual loss curves saved: /usr/itetnas04/data-scratch-01/sbuehrer/data/difflut/difflut/tests/test_outputs/loss_curves_individual.png
+
+Generating combined loss comparison plot...
+  Combined loss comparison saved: /usr/itetnas04/data-scratch-01/sbuehrer/data/difflut/difflut/tests/test_outputs/loss_curves_combined.png
+
+============================================================
+FINAL SUMMARY
+============================================================
+
+✓ Passed: 8/8 nodes
+✗ Failed: 0/8 nodes
+
+Successful nodes:
+  ✓ dwn                            (LR=0.1, Loss: 0.1317→0.0126)
+  ✓ linear_lut                     (LR=0.1, Loss: 0.0286→0.0286)
+  ✓ probabilistic                  (LR=0.1, Loss: 0.0416→0.0007)
+  ✓ polylut                        (LR=0.1, Loss: 0.0288→0.0088)
+  ✓ neurallut                      (LR=0.1, Loss: 0.1176→0.0770)
+  ✓ hybrid                         (LR=0.01, Loss: 0.0264→0.0127)
+  ✓ fourier                        (LR=0.01, Loss: 0.1155→0.0067)
+  ✓ dwn_stable                     (LR=0.1, Loss: 0.0305→0.0125)
+
+============================================================
+All plots saved to: /usr/itetnas04/data-scratch-01/sbuehrer/data/difflut/difflut/tests/test_outputs
+  - Combined surfaces: all_nodes_surfaces.png
+  - Individual loss curves: loss_curves_individual.png
+  - Combined loss comparison: loss_curves_combined.png
+============================================================

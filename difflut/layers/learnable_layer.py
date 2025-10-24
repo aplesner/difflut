@@ -62,10 +62,12 @@ class LearnableLayer(BaseLUTLayer):
                  tau_decay_iters: float = 1000.0):
         """
         Args:
-            input_size: Size of input vector
-            output_size: Number of LUT nodes
+            input_size: Size of input vector (from encoder or previous layer)
+                       Should match: (batch_size, input_size)
+            output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class
             node_kwargs: Additional arguments for nodes (should include input_dim and output_dim)
+                        Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             tau: Initial temperature for softmax in learnable mapping
             tau_start: Starting value for tau (used for exponential decay)
             tau_min: Minimum value tau can decay to

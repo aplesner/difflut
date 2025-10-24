@@ -12,6 +12,31 @@ For detailed setup instructions, see [Installation Guide](INSTALLATION.md).
 
 ## Your First LUT Network
 
+### Understanding Dimensions
+
+Before building, let's understand how data flows through DiffLUT:
+
+```
+Raw Input:      (batch_size, features)
+    ↓
+Encoder:        (batch_size, features * num_bits)
+    ↓
+Layer:          (batch_size, num_nodes)
+    ↓
+Layer:          (batch_size, num_classes)
+```
+
+**Example with MNIST (784 features → 10 classes)**:
+```
+Input:          (32, 784)               # 32 images, 784 pixels
+    ↓
+Encoder (8 bits): (32, 6272)            # 784 * 8 = 6272 encoded values
+    ↓
+Hidden Layer:   (32, 128)               # 128 hidden nodes
+    ↓
+Output Layer:   (32, 10)                # 10 class predictions
+```
+
 ### Step 1: Import Dependencies
 
 ```python
@@ -30,35 +55,41 @@ class SimpleLUTNetwork(nn.Module):
         super().__init__()
         
         # Step 2a: Encoder transforms continuous inputs to discrete values for LUT indexing
+        # Input: (batch_size, 784) → Output: (batch_size, 784*8=6272)
         self.encoder = ThermometerEncoder(num_bits=8)
-        encoded_size = input_size * 8
+        encoded_size = input_size * 8  # 6272
         
         # Step 2b: Hidden layer with random connectivity
+        # Input: (batch_size, 6272) → Output: (batch_size, 128)
         self.hidden = RandomLayer(
-            input_size=encoded_size,
-            output_size=hidden_size,
+            input_size=encoded_size,        # 6272 input features
+            output_size=hidden_size,        # 128 output nodes
             node_type=LinearLUTNode,
             n=4,  # Each LUT has 4 inputs
             node_kwargs={'input_dim': [4], 'output_dim': [1]}
         )
         
         # Step 2c: Output layer
+        # Input: (batch_size, 128) → Output: (batch_size, 10)
         self.output = RandomLayer(
-            input_size=hidden_size,
-            output_size=num_classes,
+            input_size=hidden_size,         # 128 input features
+            output_size=num_classes,        # 10 output nodes
             node_type=LinearLUTNode,
-            n=4,
+            n=4,  # Each LUT has 4 inputs
             node_kwargs={'input_dim': [4], 'output_dim': [1]}
         )
     
     def forward(self, x):
+        # Input shape: (batch_size, 1, 28, 28) for MNIST
+        
         # Flatten images and encode
-        x = x.view(x.size(0), -1)
-        x = self.encoder(x)
+        x = x.view(x.size(0), -1)           # → (batch_size, 784)
+        x = self.encoder(x)                 # → (batch_size, 6272)
         
         # Pass through LUT layers with ReLU activation
-        x = torch.relu(self.hidden(x))
-        x = self.output(x)
+        x = torch.relu(self.hidden(x))      # → (batch_size, 128)
+        x = self.output(x)                  # → (batch_size, 10)
+        
         return x
 ```
 
@@ -69,16 +100,36 @@ class SimpleLUTNetwork(nn.Module):
 model = SimpleLUTNetwork()
 x = torch.randn(32, 1, 28, 28)  # Batch of 32 MNIST images
 
-# Forward pass
+# Forward pass - watch the dimensions
+print(f"Input shape:        {x.shape}")  # torch.Size([32, 1, 28, 28])
+
+# Manually trace through to see dimensions
+x_flat = x.view(x.size(0), -1)          # torch.Size([32, 784])
+x_encoded = model.encoder(x_flat)       # torch.Size([32, 6272])
+x_hidden = torch.relu(model.hidden(x_encoded))  # torch.Size([32, 128])
+output = model.output(x_hidden)         # torch.Size([32, 10])
+
+print(f"After encoder:      {x_encoded.shape}")  # torch.Size([32, 6272])
+print(f"After hidden:       {x_hidden.shape}")   # torch.Size([32, 128])
+print(f"Output shape:       {output.shape}")     # torch.Size([32, 10])
+
+# Or use forward pass directly
 output = model(x)
-print(f"Input shape:  {x.shape}")      # torch.Size([32, 1, 28, 28])
-print(f"Output shape: {output.shape}")  # torch.Size([32, 10])
 
 # Compute loss and backpropagate like normal
 criterion = nn.CrossEntropyLoss()
 loss = criterion(output, torch.randint(0, 10, (32,)))
 loss.backward()
 ```
+
+### Key Dimension Rules
+
+✓ **Encoder output** = input features × num_bits  
+✓ **Layer output** = output_size (number of nodes)  
+✓ **Next layer input** = previous layer output  
+❌ **Mismatch** = will raise clear error with expected/got dimensions
+
+
 
 ## Next Steps
 
