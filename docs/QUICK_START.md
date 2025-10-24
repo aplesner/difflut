@@ -16,25 +16,17 @@ For detailed setup instructions, see [Installation Guide](INSTALLATION.md).
 
 Before building, let's understand how data flows through DiffLUT:
 
-```
-Raw Input:      (batch_size, features)
-    ↓
-Encoder:        (batch_size, features * num_bits)
-    ↓
-Layer:          (batch_size, num_nodes)
-    ↓
-Layer:          (batch_size, num_classes)
-```
-
 **Example with MNIST (784 features → 10 classes)**:
 ```
 Input:          (32, 784)               # 32 images, 784 pixels
     ↓
 Encoder (8 bits): (32, 6272)            # 784 * 8 = 6272 encoded values
     ↓
-Hidden Layer:   (32, 128)               # 128 hidden nodes
+First Layer:   (32, 1000)               # 1000 nodes
     ↓
-Output Layer:   (32, 10)                # 10 class predictions
+Second Layer:   (32, 1000)               # 1000 nodes
+    ↓
+Group Sum:   (32, 10)                # 10 class predictions
 ```
 
 ### Step 1: Import Dependencies
