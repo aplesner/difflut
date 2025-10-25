@@ -209,7 +209,8 @@ class ProbabilisticNode(BaseNode):
         # Try CUDA kernel first (handles 3D tensors directly)
         if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
             # raw_weights is already (layer_size, 2^input_dim, output_dim)
-            output = probabilistic_forward(x, self.raw_weights, self.temperature.item())
+            # Pass temperature as tensor (CUDA extension expects torch.Tensor)
+            output = probabilistic_forward(x, self.raw_weights, self.temperature)
             if output is not None:
                 return output
         

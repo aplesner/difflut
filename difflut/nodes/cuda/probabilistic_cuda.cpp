@@ -5,13 +5,13 @@
 torch::Tensor probabilistic_cuda_forward(
   torch::Tensor input,
   torch::Tensor raw_weights,
-  float temperature
+  torch::Tensor temperature
 );
 
 std::vector<torch::Tensor> probabilistic_cuda_backward(
   torch::Tensor input,
   torch::Tensor raw_weights,
-  float temperature,
+  torch::Tensor temperature,
   torch::Tensor grad_output
 );
 
@@ -22,25 +22,26 @@ std::vector<torch::Tensor> probabilistic_cuda_backward(
 torch::Tensor probabilistic_forward(
   torch::Tensor input,
   torch::Tensor raw_weights,
-  float temperature) {
+  torch::Tensor temperature) {
     CHECK_INPUT(input);
     CHECK_INPUT(raw_weights);
+    // temperature can be CPU tensor
     return probabilistic_cuda_forward(input, raw_weights, temperature);
 };
 
 std::vector<torch::Tensor> probabilistic_backward(
   torch::Tensor input,
   torch::Tensor raw_weights,
-  float temperature,
+  torch::Tensor temperature,
   torch::Tensor grad_output) {
     CHECK_INPUT(input);
     CHECK_INPUT(raw_weights);
     CHECK_INPUT(grad_output);
+    // temperature can be CPU tensor
     return probabilistic_cuda_backward(input, raw_weights, temperature, grad_output);
 };
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
   m.def("forward", &probabilistic_forward, "Probabilistic CUDA forward");
   m.def("backward", &probabilistic_backward, "Probabilistic CUDA backward");
-}
 }

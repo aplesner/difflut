@@ -253,7 +253,7 @@ __global__ void probabilistic_cuda_backward_weights_kernel(
 std::vector<torch::Tensor> probabilistic_cuda_backward(
     torch::Tensor input,
     torch::Tensor raw_weights,
-    float temperature,
+    torch::Tensor temperature_tensor,
     torch::Tensor grad_output) {
   
     const int batch_size = input.size(0);
@@ -261,6 +261,8 @@ std::vector<torch::Tensor> probabilistic_cuda_backward(
     const int input_dim = input.size(2);
     const int output_dim = grad_output.size(2);
     const int lut_size = raw_weights.size(1);
+    
+    float temperature = temperature_tensor.item<float>();
     
     auto grad_input = torch::zeros_like(input);
     auto grad_weights = torch::zeros_like(raw_weights);
