@@ -37,12 +37,12 @@ from difflut.registry import REGISTRY
 from difflut.utils.modules import GroupSum
 
 # ==================== Constants (Configurable) ====================
-NUM_NODES = 1000            # Number of nodes in the layer
-NUM_NODE_INPUTS = 8         # Number of inputs per node (will select randomly from encoded_dim)
-LEARNING_RATE = 0.05        # Learning rate for Adam optimizer
-EPOCHS = 30                 # Training epochs
+NUM_NODES = 200            # Number of nodes in the layer
+NUM_NODE_INPUTS = 6         # Number of inputs per node (will select randomly from encoded_dim)
+LEARNING_RATE = 0.1        # Learning rate for Adam optimizer
+EPOCHS = 2                 # Training epochs
 BATCH_SIZE = 32             # Batch size for training
-THERMOMETER_BITS = 4        # Number of bits for thermometer encoding
+THERMOMETER_BITS = 3        # Number of bits for thermometer encoding
 N_TRAIN = 800               # Number of training samples
 RANDOM_SEED = 42            # Random seed for reproducibility
 # Note: NUM_CLASSES = 10 is fixed by the 10 function types in generate_highly_distinct_functions()
@@ -438,7 +438,7 @@ def main():
     
     # Setup logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = output_dir / f"test_layers_nodes_{timestamp}.txt"
+    log_file = output_dir / f"test_layers_nodes_{timestamp}.log"
     logger = TeeLogger(str(log_file))
     sys.stdout = logger
     

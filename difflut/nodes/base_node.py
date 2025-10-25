@@ -11,12 +11,15 @@ class BaseNode(nn.Module, ABC):
     """
     
     def __init__(self, input_dim: int = None, output_dim: int = None, 
+                 layer_size: int = None,
                  regularizers: dict = None,
                  init_fn: Optional[Callable] = None, init_kwargs: dict = None):
         """
         Args:
             input_dim: Number of inputs (e.g., 6 for 6 inputs)
             output_dim: Number of outputs (e.g., 1 for single output, 4 for 4 outputs)
+            layer_size: Number of parallel nodes in the layer (e.g., 128 for 128 parallel nodes)
+                       This controls weight sharing - each node in layer_size will have separate parameters.
             regularizers: Dict of regularization functions to apply.
                          Format: {"name": [reg_fn, weight, kwargs], ...}
                          where reg_fn is callable(node) -> scalar tensor,
@@ -31,12 +34,20 @@ class BaseNode(nn.Module, ABC):
         # Set defaults if not provided
         self.input_dim = input_dim if input_dim is not None else 6
         self.output_dim = output_dim if output_dim is not None else 1
+        self.layer_size = layer_size if layer_size is not None else 1
         
         # Validate input_dim
         if not isinstance(self.input_dim, int) or self.input_dim <= 0:
             raise ValueError(
                 f"input_dim must be a positive integer, but got {self.input_dim}. "
                 f"Example: input_dim=6"
+            )
+        
+        # Validate layer_size
+        if not isinstance(self.layer_size, int) or self.layer_size <= 0:
+            raise ValueError(
+                f"layer_size must be a positive integer, but got {self.layer_size}. "
+                f"Example: layer_size=128"
             )
         
         if self.input_dim > 10:
@@ -167,6 +178,49 @@ class BaseNode(nn.Module, ABC):
             validated[name] = [reg_fn, weight, kwargs]
         
         self.regularizers = validated
+    
+    def _select_independent_luts(self, output_flat: torch.Tensor, batch_size: int, layer_size: int) -> torch.Tensor:
+        """
+        Helper method to select independent LUT outputs when output_dim == layer_size.
+        
+        When a node has output_dim==layer_size, it means we have independent LUTs
+        (one for each position). This method selects the appropriate LUT output for each position.
+        
+        Args:
+            output_flat: Tensor of shape (batch*layer_size, output_dim) or (batch, layer_size, output_dim)
+            batch_size: Batch size
+            layer_size: Number of positions (nodes) in the layer
+        
+        Returns:
+            Tensor of shape (batch, layer_size, 1) with independent LUT outputs selected
+        """
+        has_independent_luts = (self.output_dim == layer_size)
+        
+        if not has_independent_luts or self.output_dim == 1:
+            # Standard case: all positions share same LUT or output_dim=1
+            if output_flat.dim() == 2:
+                return output_flat.view(batch_size, layer_size, self.output_dim)
+            else:
+                return output_flat
+        
+        # Independent LUTs case: select appropriate column for each position
+        if output_flat.dim() == 2:
+            # Shape: (batch*layer_size, output_dim)
+            output_3d = output_flat.view(batch_size, layer_size, self.output_dim)
+        else:
+            # Already 3D: (batch, layer_size, output_dim)
+            output_3d = output_flat
+        
+        # Select diagonal elements: output_3d[:, j, j] for each position j
+        indices = torch.arange(layer_size, device=output_flat.device)
+        output = output_3d[
+            torch.arange(batch_size, device=output_flat.device).unsqueeze(1),
+            torch.arange(layer_size, device=output_flat.device).unsqueeze(0),
+            indices.unsqueeze(0).expand(batch_size, -1)
+        ]
+        
+        # Add last dimension: (batch, layer_size) → (batch, layer_size, 1)
+        return output.unsqueeze(-1)
     
     @abstractmethod
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:

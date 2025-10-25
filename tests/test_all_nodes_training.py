@@ -401,7 +401,7 @@ def main():
     
     # Setup logging to file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = output_dir / f"test_results_{timestamp}.txt"
+    log_file = output_dir / f"test_results_{timestamp}.log"
     logger = TeeLogger(str(log_file))
     sys.stdout = logger
     
@@ -414,7 +414,7 @@ def main():
         
         # Configuration
         EPOCHS = 50
-        LEARNING_RATES = [0.1, 0.01, 0.001]
+        LEARNING_RATES = [0.1]
         N_SAMPLES = 2000
         
         print(f"\nOutput directory: {output_dir}")

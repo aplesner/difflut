@@ -13,7 +13,7 @@ class BaseEncoder(ABC):
     - flatten=False: Returns 3D tensor (batch_size, input_dim, num_bits)
     """
     
-    def __init__(self, num_bits: int = 1, flatten: bool = True):
+    def __init__(self, num_bits: int = 3, flatten: bool = True):
         """
         Args:
             num_bits: Number of bits in the encoded representation

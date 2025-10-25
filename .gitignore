@@ -43,6 +43,7 @@ data/
 *.out
 *.tmp
 *.bak
+*.txt
 
 # Installer logs
 pip-log.txt

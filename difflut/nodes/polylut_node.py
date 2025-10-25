@@ -10,11 +10,13 @@ class PolyLUTNode(BaseNode):
     """
     Polynomial LUT Node that computes multivariate polynomials up to degree D.
     Uses autograd for gradient computation.
+    Now supports per-layer-node coefficients for better memory access patterns.
     """
     
     def __init__(self, 
                  input_dim: int = None,
                  output_dim: int = None,
+                 layer_size: int = None,
                  degree: int = 2,
                  init_fn: Optional[Callable] = None,
                  init_kwargs: dict = None,
@@ -23,12 +25,14 @@ class PolyLUTNode(BaseNode):
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
+            layer_size: Number of parallel nodes in the layer (e.g., 128)
             degree: Maximum degree of polynomial terms
             init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
+                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.degree = degree
         
         # Generate all monomial combinations up to degree D
@@ -39,8 +43,9 @@ class PolyLUTNode(BaseNode):
         self.register_buffer('exponent_matrix', 
                            torch.tensor(self.monomial_combinations, dtype=torch.float32))
         
-        # Initialize weights for polynomial coefficients with default values, then apply init_fn if provided
-        self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
+        # Initialize weights for polynomial coefficients with per-layer-node parameters
+        # Shape: (layer_size, num_monomials, num_outputs)
+        self.weights = nn.Parameter(torch.randn(self.layer_size, self.num_monomials, self.num_outputs) * 0.1)
         self._apply_init_fn(self.weights, name="weights")
 
     def _generate_monomial_combinations(self, num_inputs: int, degree: int) -> list:
@@ -70,20 +75,20 @@ class PolyLUTNode(BaseNode):
         """
         Compute all monomial values for input x.
         Args:
-            x: shape [batch_size, num_inputs] with values in [0,1]
+            x: shape [batch_size, layer_size, num_inputs] with values in [0,1]
         Returns:
-            monomial matrix of shape [batch_size, num_monomials]
+            monomial matrix of shape [batch_size, layer_size, num_monomials]
         """
         # Vectorized monomial computation
-        x_expanded = x.unsqueeze(1)  # [batch, 1, num_inputs]
-        exponents = self.exponent_matrix.unsqueeze(0)  # [1, num_monomials, num_inputs]
+        x_expanded = x.unsqueeze(2)  # [batch, layer_size, 1, num_inputs]
+        exponents = self.exponent_matrix.unsqueeze(0).unsqueeze(0)  # [1, 1, num_monomials, num_inputs]
         
         # Handle zero exponents (avoid 0^0)
         mask = exponents > 0
         safe_x = torch.where(mask, x_expanded, torch.ones_like(x_expanded))
         
         # Compute x^exponents
-        monomials = (safe_x ** exponents).prod(dim=-1)  # [batch, num_monomials]
+        monomials = (safe_x ** exponents).prod(dim=-1)  # [batch, layer_size, num_monomials]
         
         return monomials
 
@@ -97,22 +102,23 @@ class PolyLUTNode(BaseNode):
             Output tensor (batch_size, layer_size, num_outputs)
         """
         batch_size, layer_size, input_dim = x.shape
-        # Reshape to (batch_size * layer_size, num_inputs)
-        x_flat = x.view(batch_size * layer_size, input_dim)
         
-        # Compute all monomials
-        monomials = self._compute_monomials(x_flat)  # (batch_size * layer_size, num_monomials)
+        # Verify layer_size matches
+        if layer_size != self.layer_size:
+            raise ValueError(
+                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
+            )
         
-        # Linear combination of monomials
-        z = torch.matmul(monomials, self.weights)  # (batch_size * layer_size, num_outputs)
-        output_flat = torch.sigmoid(z)
+        # Compute all monomials: (batch_size, layer_size, num_monomials)
+        monomials = self._compute_monomials(x)
         
-        # Ensure output is always 2D
-        if output_flat.dim() == 1:
-            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
+        # Linear combination of monomials with per-layer-node weights
+        # monomials: (batch_size, layer_size, num_monomials)
+        # weights: (layer_size, num_monomials, num_outputs)
+        # output: (batch_size, layer_size, num_outputs)
+        z = torch.einsum('blm,lmo->blo', monomials, self.weights)
+        output = torch.sigmoid(z)
         
-        # Reshape back to (batch_size, layer_size, num_outputs)
-        output = output_flat.view(batch_size, layer_size, self.num_outputs)
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -126,20 +132,22 @@ class PolyLUTNode(BaseNode):
             Output tensor (batch_size, layer_size, num_outputs)
         """
         batch_size, layer_size, input_dim = x.shape
-        # Reshape to (batch_size * layer_size, num_inputs)
-        x_flat = x.view(batch_size * layer_size, input_dim)
         
-        # Compute same as forward_train (polynomial + sigmoid)
-        monomials = self._compute_monomials(x_flat)
-        z = torch.matmul(monomials, self.weights)
-        output_flat = (z >= 0.0).float()
+        # Verify layer_size matches
+        if layer_size != self.layer_size:
+            raise ValueError(
+                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
+            )
         
-        # Ensure output is always 2D
-        if output_flat.dim() == 1:
-            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
+        # Compute all monomials: (batch_size, layer_size, num_monomials)
+        monomials = self._compute_monomials(x)
         
-        # Reshape back to (batch_size, layer_size, num_outputs)
-        output = output_flat.view(batch_size, layer_size, self.num_outputs)
+        # Linear combination with per-layer-node weights
+        z = torch.einsum('blm,lmo->blo', monomials, self.weights)
+        
+        # Discretize at 0.0
+        output = (z >= 0.0).float()
+        
         return output
 
     def _builtin_regularization(self) -> torch.Tensor:

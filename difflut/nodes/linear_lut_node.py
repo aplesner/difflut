@@ -10,11 +10,13 @@ class LinearLUTNode(BaseNode):
     """
     Linear LUT Node with differentiable training and hard decisions for eval.
     Uses autograd for gradient computation.
+    Now supports per-layer-node weights for better memory access patterns.
     """
     
     def __init__(self, 
                  input_dim: int = None,
                  output_dim: int = None,
+                 layer_size: int = None,
                  init_fn: Optional[Callable] = None,
                  init_kwargs: dict = None,
                  regularizers: dict = None):
@@ -22,14 +24,18 @@ class LinearLUTNode(BaseNode):
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
+            layer_size: Number of parallel nodes in the layer (e.g., 128)
             init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
+                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         
-        # Initialize weights with default values, then apply init_fn if provided
-        self.weights = nn.Parameter(torch.randn(self.num_inputs, self.num_outputs) * 0.1)
+        # Initialize weights with per-layer-node parameters
+        # Shape: (layer_size, input_dim, output_dim)
+        # Each of the layer_size nodes has its own (input_dim, output_dim) weight matrix
+        self.weights = nn.Parameter(torch.randn(self.layer_size, self.num_inputs, self.num_outputs) * 0.1)
         self._apply_init_fn(self.weights, name="weights")
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
@@ -43,15 +49,19 @@ class LinearLUTNode(BaseNode):
             Output tensor of shape (batch_size, layer_size, output_dim)
         """
         batch_size, layer_size, input_dim = x.shape
-        # Reshape to (batch_size * layer_size, input_dim)
-        x_flat = x.view(batch_size * layer_size, input_dim)
-        # Linear transformation + sigmoid
-        z = torch.matmul(x_flat, self.weights)  # (batch_size * layer_size, num_outputs)
+        
+        # Verify layer_size matches
+        if layer_size != self.layer_size:
+            raise ValueError(
+                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
+            )
+        
+        # Use einsum for efficient batched matrix multiplication
+        # x: (batch_size, layer_size, input_dim)
+        # weights: (layer_size, input_dim, output_dim)
+        # output: (batch_size, layer_size, output_dim)
+        z = torch.einsum('bli,lio->blo', x, self.weights)
         output = torch.sigmoid(z)
-        # Ensure output is always 3D: (batch_size, layer_size, output_dim)
-        if output.dim() == 1:
-            output = output.unsqueeze(1)  # Handle case when num_outputs = 1
-        output = output.view(batch_size, layer_size, self.num_outputs)
         
         return output
 
@@ -67,17 +77,21 @@ class LinearLUTNode(BaseNode):
             Output tensor of shape (batch_size, layer_size, output_dim)
         """
         batch_size, layer_size, input_dim = x.shape
-        # Reshape to (batch_size * layer_size, input_dim)
-        x_flat = x.view(batch_size * layer_size, input_dim)
-        # Compute linear output
-        z = torch.matmul(x_flat, self.weights)
+        
+        # Verify layer_size matches
+        if layer_size != self.layer_size:
+            raise ValueError(
+                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
+            )
+        
+        # Use einsum for efficient batched matrix multiplication
+        # x: (batch_size, layer_size, input_dim)
+        # weights: (layer_size, input_dim, output_dim)
+        # z: (batch_size, layer_size, output_dim)
+        z = torch.einsum('bli,lio->blo', x, self.weights)
+        
         # Discretize: Heaviside at 0.0
         output = (z >= 0.0).float()
-        # Ensure output is always 3D: (batch_size, layer_size, output_dim)
-        if output.dim() == 1:
-            output = output.unsqueeze(1)  # Handle case when num_outputs = 1
-        # Reshape back to (batch_size, layer_size, num_outputs)
-        output = output.view(batch_size, layer_size, self.num_outputs)
         
         return output
 

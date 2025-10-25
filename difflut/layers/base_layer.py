@@ -40,9 +40,10 @@ class BaseLUTLayer(nn.Module, ABC):
         self.input_size = input_size
         self.output_size = output_size
         
-        # Create a single node - it will handle parallelization via CUDA kernels
-        # treating output_size as an additional batch dimension
+        # Create nodes with layer_size parameter - each position gets its own parameters
+        # No weight sharing across layer dimension
         node_kwargs = node_kwargs or {}
+        node_kwargs['layer_size'] = output_size  # Pass layer_size to node
         self.node = node_type(**node_kwargs)
         
         # Extract n (number of inputs per node)

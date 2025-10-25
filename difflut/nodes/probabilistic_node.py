@@ -27,34 +27,34 @@ except ImportError:
 class ProbabilisticFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for Probabilistic CUDA kernels.
+    Handles 3D tensors with per-layer-node parameters.
     """
     @staticmethod
-    def forward(ctx, input, mapping, luts, temperature):
+    def forward(ctx, input, raw_weights, temperature):
         """
         Forward pass using CUDA kernel.
         
         Args:
-            input: (batch_size, input_length) float tensor in [0, 1]
-            mapping: (num_luts, n) int tensor - mapping of inputs to each LUT
-            luts: (num_luts, 2^n) float tensor - raw LUT weights (before sigmoid)
-            temperature: scalar tensor
+            input: (batch_size, layer_size, input_dim) float tensor in [0, 1]
+            raw_weights: (layer_size, 2^input_dim, output_dim) float tensor - raw LUT weights (before sigmoid)
+            temperature: scalar float
         
         Returns:
-            output: (batch_size, num_luts) float tensor
+            output: (batch_size, layer_size, output_dim) float tensor
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError("CUDA extension not available. Please compile probabilistic_cuda extension.")
         
         # Ensure correct dtypes and contiguity
         input = input.contiguous().float()
-        mapping = mapping.contiguous().int()
-        luts = luts.contiguous().float()
+        raw_weights = raw_weights.contiguous().float()
         
         # Call CUDA forward kernel
-        output = _probabilistic_cuda_module.forward(input, mapping, luts, temperature)
+        output = _probabilistic_cuda_module.forward(input, raw_weights, temperature)
         
         # Save for backward
-        ctx.save_for_backward(input, mapping, luts, temperature)
+        ctx.save_for_backward(input, raw_weights)
+        ctx.temperature = temperature
         
         return output
     
@@ -64,43 +64,43 @@ class ProbabilisticFunction(torch.autograd.Function):
         Backward pass using CUDA kernel.
         
         Args:
-            grad_output: (batch_size, num_luts) gradient tensor
+            grad_output: (batch_size, layer_size, output_dim) gradient tensor
         
         Returns:
-            Gradients for (input, mapping, luts, temperature)
+            Gradients for (input, raw_weights, temperature)
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError("CUDA extension not available. Please compile probabilistic_cuda extension.")
         
-        input, mapping, luts, temperature = ctx.saved_tensors
+        input, raw_weights = ctx.saved_tensors
+        temperature = ctx.temperature
         
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
         
         # Call CUDA backward kernel
-        grad_input, grad_luts = _probabilistic_cuda_module.backward(
-            input, mapping, luts, temperature, grad_output
+        grad_input, grad_weights = _probabilistic_cuda_module.backward(
+            input, raw_weights, temperature, grad_output
         )
         
-        # Return gradients (None for mapping and temperature as they don't need gradients)
-        return grad_input, None, grad_luts, None
+        # Return gradients (None for temperature as it doesn't need gradients)
+        return grad_input, grad_weights, None
 
 
-def probabilistic_forward(input, mapping, luts, temperature):
+def probabilistic_forward(input, raw_weights, temperature):
     """
     Probabilistic forward pass with automatic differentiation support.
     
     Args:
-        input: (batch_size, input_length) tensor in [0, 1]
-        mapping: (num_luts, n) int tensor
-        luts: (num_luts, 2^n) tensor - raw weights before sigmoid
-        temperature: scalar tensor
+        input: (batch_size, layer_size, input_dim) tensor in [0, 1]
+        raw_weights: (layer_size, 2^input_dim, output_dim) tensor - raw weights before sigmoid
+        temperature: scalar float
     
     Returns:
-        output: (batch_size, num_luts) tensor
+        output: (batch_size, layer_size, output_dim) tensor
     """
     if _CUDA_EXT_AVAILABLE and input.is_cuda:
-        return ProbabilisticFunction.apply(input, mapping, luts, temperature)
+        return ProbabilisticFunction.apply(input, raw_weights, temperature)
     else:
         # CPU fallback handled in forward_train
         return None
@@ -115,6 +115,7 @@ class ProbabilisticNode(BaseNode):
     def __init__(self, 
                  input_dim: int = None,
                  output_dim: int = None,
+                 layer_size: int = None,
                  init_fn: Optional[Callable] = None,
                  init_kwargs: dict = None,
                  regularizers: dict = None,
@@ -125,6 +126,7 @@ class ProbabilisticNode(BaseNode):
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
+            layer_size: Number of parallel nodes in the layer (for per-layer-node parameters)
             init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
@@ -132,7 +134,8 @@ class ProbabilisticNode(BaseNode):
             eval_mode: Evaluation mode
             use_cuda: Whether to use CUDA kernels (if available)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size, 
+                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.register_buffer('temperature', torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
@@ -148,8 +151,9 @@ class ProbabilisticNode(BaseNode):
                 stacklevel=2
             )
         
-        # Store raw weights (logits) that will be passed through sigmoid with default values, then apply init_fn if provided
-        self.raw_weights = nn.Parameter(torch.randn(2**self.input_dim, self.output_dim))
+        # Store raw weights (logits) with per-layer-node parameters
+        # Shape: (layer_size, 2**input_dim, output_dim)
+        self.raw_weights = nn.Parameter(torch.randn(self.layer_size, 2**self.input_dim, self.output_dim))
         self._apply_init_fn(self.raw_weights, name="raw_weights")
         
         # Precompute all binary combinations (LSB-first order) - for CPU fallback
@@ -160,9 +164,7 @@ class ProbabilisticNode(BaseNode):
         self.register_buffer('binary_combinations',
                             torch.tensor(binary_combinations, dtype=torch.float32))
         
-        # Create mapping tensor for CUDA (each LUT maps to all inputs in order)
-        # Shape: (num_outputs, num_inputs)
-        self.register_buffer('mapping', torch.arange(self.input_dim, dtype=torch.int32).unsqueeze(0).expand(self.output_dim, -1))
+        # Removed mapping tensor - now using dense connectivity with 3D tensors
 
     @property
     def weights(self) -> torch.Tensor:
@@ -203,36 +205,38 @@ class ProbabilisticNode(BaseNode):
             Output tensor (batch_size, layer_size, output_dim)
         """
         batch_size, layer_size, input_dim = x.shape
-        # Reshape to (batch_size * layer_size, input_dim)
-        x_flat = x.view(batch_size * layer_size, input_dim)
         
-        # Try CUDA kernel first
-        if self.use_cuda and x_flat.is_cuda and _CUDA_EXT_AVAILABLE:
-            # Transpose raw_weights to match CUDA kernel expectations
-            # raw_weights is (2^n, num_outputs), need (num_outputs, 2^n)
-            luts = self.raw_weights.t().contiguous()
-            mapping = self.mapping.int()
+        # Try CUDA kernel first (handles 3D tensors directly)
+        if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
+            # raw_weights is already (layer_size, 2^input_dim, output_dim)
+            output = probabilistic_forward(x, self.raw_weights, self.temperature.item())
+            if output is not None:
+                return output
+        
+        # CPU fallback - process layer by layer with per-layer-node weights
+        # weights shape: (layer_size, 2^input_dim, output_dim)
+        weights = self.weights
+        
+        # Ensure binary_combinations is on the same device and dtype as x
+        binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
+        
+        # Process each layer independently
+        outputs = []
+        for layer_idx in range(layer_size):
+            x_layer = x[:, layer_idx, :]  # (batch_size, input_dim)
             
-            output_flat = probabilistic_forward(x_flat, mapping, luts, self.temperature)
-        else:
-            # CPU fallback - original vectorized implementation
-            flat_batch_size = x_flat.shape[0]
-            # Ensure binary_combinations is on the same device and dtype as x
-            binary_combinations = self.binary_combinations.to(device=x_flat.device, dtype=x_flat.dtype)
-            # Vectorized probability computation
-            x_expanded = x_flat.unsqueeze(1)  # (batch_size * layer_size, 1, num_inputs)
-            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^num_inputs, num_inputs)
+            # Vectorized probability computation for this layer
+            x_expanded = x_layer.unsqueeze(1)  # (batch_size, 1, input_dim)
+            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
             prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-            probs = torch.prod(prob_terms, dim=-1)  # Product over input dimension: (batch_size * layer_size, 2^num_inputs)
-            weights = self.weights
-            output_flat = torch.matmul(probs, weights)
+            probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
+            
+            # Apply per-layer-node weights: (batch_size, 2^input_dim) @ (2^input_dim, output_dim) -> (batch_size, output_dim)
+            output_layer = torch.matmul(probs, weights[layer_idx])  # (batch_size, output_dim)
+            outputs.append(output_layer)
         
-        # Handle case when output_flat is 1D (can happen when num_outputs=1 with some CUDA versions)
-        if output_flat.dim() == 1:
-            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size,) -> (batch_size * layer_size, 1)
-        
-        # Reshape back to (batch_size, layer_size, output_dim)
-        output = output_flat.view(batch_size, layer_size, self.output_dim)
+        # Stack outputs: (batch_size, layer_size, output_dim)
+        output = torch.stack(outputs, dim=1)
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -247,25 +251,27 @@ class ProbabilisticNode(BaseNode):
             Output tensor (batch_size, layer_size, output_dim)
         """
         batch_size, layer_size, input_dim = x.shape
-        # Reshape to (batch_size * layer_size, input_dim)
-        x_flat = x.view(batch_size * layer_size, input_dim)
         
-        # Convert binary inputs to LUT indices (LSB-first)
-        indices = self._binary_to_index(x_flat)  # (batch_size * layer_size,)
+        # Convert binary inputs to LUT indices (LSB-first order)
+        powers = 2 ** torch.arange(input_dim, device=x.device, dtype=x.dtype)
+        indices = (x * powers).sum(dim=-1).long()  # (batch_size, layer_size)
         
-        # Look up weights and threshold at 0.5 to get binary output
-        weights = self.weights  # (2^num_inputs, num_outputs)
-        output_flat = weights[indices]  # (batch_size * layer_size, num_outputs)
+        # Look up per-layer-node weights and threshold at 0.5 to get binary output
+        weights = self.weights  # (layer_size, 2^input_dim, output_dim)
         
-        # Ensure output is always 2D
-        if output_flat.dim() == 1:
-            output_flat = output_flat.unsqueeze(1)  # (batch_size * layer_size, 1)
+        # Gather per-layer-node weights
+        outputs = []
+        for layer_idx in range(layer_size):
+            batch_indices = indices[:, layer_idx]  # (batch_size,)
+            output_layer = weights[layer_idx][batch_indices]  # (batch_size, output_dim)
+            outputs.append(output_layer)
+        
+        # Stack outputs: (batch_size, layer_size, output_dim)
+        output = torch.stack(outputs, dim=1)
         
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
-        output_flat = (output_flat >= 0.5).float()
+        output = (output >= 0.5).float()
         
-        # Reshape back to (batch_size, layer_size, output_dim)
-        output = output_flat.view(batch_size, layer_size, self.output_dim)
         return output
 
     def _builtin_regularization(self) -> torch.Tensor:
