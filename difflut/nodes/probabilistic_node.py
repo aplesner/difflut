@@ -83,7 +83,7 @@ class ProbabilisticFunction(torch.autograd.Function):
             input, raw_weights, temperature, grad_output
         )
         
-        # Return gradients (None for temperature as it doesn't need gradients)
+        # Return gradients (None for temperature as it doesn't need gradient)
         return grad_input, grad_weights, None
 
 
@@ -209,7 +209,7 @@ class ProbabilisticNode(BaseNode):
         # Try CUDA kernel first (handles 3D tensors directly)
         if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
             # raw_weights is already (layer_size, 2^input_dim, output_dim)
-            # Pass temperature as tensor (CUDA extension expects torch.Tensor)
+            # Pass temperature as tensor
             output = probabilistic_forward(x, self.raw_weights, self.temperature)
             if output is not None:
                 return output

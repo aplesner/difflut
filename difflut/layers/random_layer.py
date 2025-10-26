@@ -85,15 +85,23 @@ class RandomLayer(BaseLUTLayer):
         """
         batch_size = x.shape[0]
         
-        # Vectorized gathering - much faster than loop
-        # Shape of self._mapping: (output_size, n)
-        # Expand for batch dimension and gather
-        indices = self._mapping.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, output_size, n)
+        # MEMORY OPTIMIZATION: Avoid expanding (batch, output_size, input_size) tensor
+        # which would be massive for large output_size (e.g., 128 * 3578 * 4704 = 8.6 GB)
+        # Instead, use advanced indexing to gather directly from input without expansion
         
-        # Gather inputs using advanced indexing
-        # x[:, indices] doesn't work directly, so we use gather
-        x_expanded = x.unsqueeze(1).expand(-1, self.output_size, -1)  # (batch_size, output_size, input_size)
-        mapped_inputs = torch.gather(x_expanded, 2, indices)  # (batch_size, output_size, n)
+        # Shape of self._mapping: (output_size, n) containing indices into input
+        # We want: output[b, o, i] = x[b, mapping[o, i]]
+        
+        # Create batch indices for advanced indexing
+        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1)  # (batch, 1, 1)
+        batch_indices = batch_indices.expand(-1, self.output_size, self.n)  # (batch, output_size, n)
+        
+        # Expand mapping for batch dimension
+        mapping_indices = self._mapping.unsqueeze(0).expand(batch_size, -1, -1)  # (batch, output_size, n)
+        
+        # Advanced indexing: x[batch_indices, mapping_indices]
+        # This directly indexes into x without creating the huge expanded tensor
+        mapped_inputs = x[batch_indices, mapping_indices]  # (batch_size, output_size, n)
         
         return mapped_inputs
     
