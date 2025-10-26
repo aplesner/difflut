@@ -6,9 +6,6 @@
 // Simplified forward kernel - one block per (batch, layer) pair
 __global__ void
 probabilistic_cuda_forward_kernel(
-// Simplified forward kernel - one block per (batch, layer) pair
-__global__ void
-probabilistic_cuda_forward_kernel(
     const float* __restrict__ input,        // (batch_size, layer_size, input_dim)
     const float* __restrict__ raw_weights,  // (layer_size, 2^input_dim, output_dim)
     const float temperature,
