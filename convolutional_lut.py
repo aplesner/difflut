@@ -63,42 +63,39 @@ class ConvolutionalLUTLayer(nn.Module):
 
         batch_size = x.shape[0]
 
-        print("Input shape:", x.shape)
         # Extract patches: (batch, patch_size, num_patches)
         patches = self.unfold(x)
         num_patches = patches.shape[2]
-        print("Patches shape:", patches.shape)
         
         # Reshape to (batch*num_patches, patch_size)
         patches = patches.transpose(1, 2).contiguous()
-        print("Patches shape:", patches.shape)
         patches = patches.view(-1, self.input_size)
-        print("Patches shape:", patches.shape)
 
         # Process each patch through each tree
         output = [tree(patches) for tree in self.trees]
         output = torch.stack(output, dim=1)  # (batch*num_patches, out_channels)
-        print("Output shape:", output.shape)
 
         output = output.view(batch_size, num_patches, self.out_channels)
-        print("Output shape:", output.shape)
         output = output.transpose(1, 2)  # (batch, out_channels, num_patches)
-        print("Output shape:", output.shape)
         
         # Calculate output spatial dimensions
         out_h = (x.shape[2] + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
         out_w = (x.shape[3] + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
 
         output = output.view(batch_size, self.out_channels, out_h, out_w)
-        print("Output shape:", output.shape)
         
         return output
         
 
+batch_size = 128
+image_size = 28
+in_channels = 1
+out_channels = 128
+
 conv_lut_layer = ConvolutionalLUTLayer(
-    tree_depth=3,
-    in_channels=1,
-    out_channels=64,
+    tree_depth=2,
+    in_channels=in_channels,
+    out_channels=out_channels,
     receptive_field=5,
     stride=1,
     padding=0,
@@ -108,8 +105,6 @@ conv_lut_layer = ConvolutionalLUTLayer(
 )
     
 
-batch_size = 2
-image_size = 28
 # get some random binary input data
 input_data = torch.randint(0, 2, (batch_size, 1, image_size, image_size)).float()
 
@@ -117,10 +112,22 @@ if torch.cuda.is_available():
     conv_lut_layer = conv_lut_layer.cuda()
     input_data = input_data.cuda()
 
-start_time = time.time()
-output = conv_lut_layer(input_data)
-end_time = time.time()
-print(f"GPU utilization: {torch.cuda.utilization()}%")
+
+from torch.profiler import profile, ProfilerActivity, record_function
+
+activities = [ProfilerActivity.CPU]
+if torch.cuda.is_available():
+    device = "cuda"
+    activities += [ProfilerActivity.CUDA]
+
+with profile(
+        activities=activities, profile_memory=True, record_shapes=True
+    ) as prof:
+    start_time = time.time()
+    output = conv_lut_layer(input_data)
+    end_time = time.time()
+
+print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
 
 print("Output shape:", output.shape)
 print(f"Forward pass took {end_time - start_time:.2f} seconds")
