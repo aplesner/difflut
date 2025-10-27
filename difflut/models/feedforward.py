@@ -41,24 +41,17 @@ class feedforward_core(nn.Module):
         node_class: Type[BaseNode] = REGISTRY.get_node(node_type)
         layer_class: Type[BaseLUTLayer] = REGISTRY.get_layer(layer_type)
         
-        print(f"\nBuilding DiffLUT model:")
-        print(f"  Node type: {node_type}")
-        print(f"  Input size: {input_size}")
-        print(f"  Hidden layers: {hidden_sizes}")
+        # print(f"\nBuilding DiffLUT model:")
+        # print(f"  Node type: {node_type}")
+        # print(f"  Input size: {input_size}")
+        # print(f"  Hidden layers: {hidden_sizes}")
         
         # Build hidden layers
         self.hidden_layers = nn.ModuleList()
         current_size = input_size
         
         for i, hidden_size in enumerate(hidden_sizes):
-            # Calculate next layer width for potential initialization calculations
-            next_layer_width = hidden_sizes[i + 1] if i + 1 < len(hidden_sizes) else None
-            
-            # Build node kwargs - this is the key difference from old API
-            # node_kwargs should specify input_dim, output_dim, and layer_size
-            node_kwargs = {
-                'layer_size': hidden_size
-            }
+            node_kwargs = {}
             
             # Create layer with proper node_kwargs
             layer = layer_class(
@@ -69,7 +62,7 @@ class feedforward_core(nn.Module):
                 node_kwargs=node_kwargs,
             )
             self.hidden_layers.append(layer)
-            print(f"  Layer {i+1}: {current_size} → {hidden_size}")
+            # print(f"  Layer {i+1}: {current_size} → {hidden_size}")
             current_size = hidden_size
 
         self.output_size = current_size
