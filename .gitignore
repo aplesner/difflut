@@ -97,3 +97,11 @@ $RECYCLE.BIN/
 
 # Linux
 *~
+
+# Apptainer 
+*.sif
+
+# Ignore files used for development purposes
+helper_scripts/
+.ignore_for_code_sync
+
