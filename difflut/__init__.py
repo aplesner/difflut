@@ -70,6 +70,11 @@ from .encoder import (
     LogarithmicEncoder,
 )
 
+from .models import (
+    feedforward_core,
+    feedforward,
+)
+
 from .utils import (
     GroupSum,
     l_regularizer,
@@ -129,6 +134,10 @@ __all__ = [
     'BinaryEncoder',
     'SignMagnitudeEncoder',
     'LogarithmicEncoder',
+
+    # Models
+    'feedforward_core',
+    'feedforward',
     
     # Utils
     'GroupSum',
