@@ -58,6 +58,7 @@ Stage: build
         ipywidgets \
         notebook \
         ipykernel \
+        pynvml \
         pydantic 
         
     # Verify the hydra installation
