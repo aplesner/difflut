@@ -4,15 +4,13 @@
 
 torch::Tensor efd_cuda_forward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts
 );
 
 std::vector<torch::Tensor> efd_cuda_backward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts,
-  torch::Tensor output_grad,
+  torch::Tensor grad_output,
   float alpha,
   float beta
 );
@@ -23,26 +21,22 @@ std::vector<torch::Tensor> efd_cuda_backward(
 
 torch::Tensor efd_forward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts) {
     CHECK_INPUT(input);
-    CHECK_INPUT(mapping);
     CHECK_INPUT(luts);
-    return efd_cuda_forward(input, mapping, luts);
+    return efd_cuda_forward(input, luts);
 };
 
 std::vector<torch::Tensor> efd_backward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts,
-  torch::Tensor output_grad,
+  torch::Tensor grad_output,
   float alpha,
   float beta) {
     CHECK_INPUT(input);
-    CHECK_INPUT(mapping);
     CHECK_INPUT(luts);
-    CHECK_INPUT(output_grad);
-    return efd_cuda_backward(input, mapping, luts, output_grad, alpha, beta);
+    CHECK_INPUT(grad_output);
+    return efd_cuda_backward(input, luts, grad_output, alpha, beta);
 };
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

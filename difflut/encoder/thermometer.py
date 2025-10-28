@@ -12,44 +12,36 @@ class ThermometerEncoder(BaseEncoder):
     Example: value=0.6 with 3 bits and thresholds [0.25, 0.5, 0.75] -> [1, 1, 0]
     """
     
-    def __init__(self, num_bits: int = 1, feature_wise: bool = True):
+    def __init__(self, num_bits: int = 1, flatten: bool = True):
         """
         Args:
             num_bits: Number of threshold bits
-            feature_wise: If True, compute thresholds per feature; if False, global thresholds
+            flatten: If True, return 2D (batch_size, input_dim * num_bits);
+                     if False, return 3D (batch_size, input_dim, num_bits)
         """
-        super().__init__(num_bits=num_bits)
-        assert isinstance(feature_wise, bool), "feature_wise must be a boolean"
-        self.feature_wise = feature_wise
+        super().__init__(num_bits=num_bits, flatten=flatten)
         self.thresholds = None
     
     def _compute_thresholds(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute evenly spaced thresholds between min and max values.
+        Compute evenly spaced thresholds between min and max values per feature.
         
         Args:
             x: Input tensor
             
         Returns:
-            Threshold tensor
+            Threshold tensor with shape (num_features, num_bits)
         """
-        # Compute min/max per feature or globally
-        if self.feature_wise:
-            min_value = x.min(dim=0)[0]
-            max_value = x.max(dim=0)[0]
-        else:
-            min_value = x.min()
-            max_value = x.max()
+        # Compute min/max per feature
+        min_value = x.min(dim=0)[0]
+        max_value = x.max(dim=0)[0]
         
         # Create evenly spaced thresholds
-        # Shape: (num_features, num_bits) if feature_wise, else (1, num_bits)
         threshold_indices = torch.arange(1, self.num_bits + 1, device=x.device)
         step_size = (max_value - min_value) / (self.num_bits + 1)
         
-        if self.feature_wise:
-            thresholds = min_value.unsqueeze(-1) + threshold_indices.unsqueeze(0) * step_size.unsqueeze(-1)
-        else:
-            thresholds = min_value + threshold_indices * step_size
+        # Shape: (num_features, num_bits)
+        thresholds = min_value.unsqueeze(-1) + threshold_indices.unsqueeze(0) * step_size.unsqueeze(-1)
         
         return thresholds
     
@@ -87,8 +79,9 @@ class ThermometerEncoder(BaseEncoder):
             x: Input tensor to encode
             
         Returns:
-            Binary encoded tensor with shape (batch_size, num_features * num_bits)
-            For feature-wise encoding, the output is flattened so each feature's bits are consecutive.
+            Binary encoded tensor.
+            - If flatten=True: shape (batch_size, num_features * num_bits)
+            - If flatten=False: shape (batch_size, num_features, num_bits)
         """
         self._check_fitted()
         x = self._to_tensor(x)
@@ -97,13 +90,11 @@ class ThermometerEncoder(BaseEncoder):
         x_expanded = x.unsqueeze(-1)
         
         # Compare with thresholds to get binary encoding
-        # Shape: (batch_size, num_features, num_bits) for feature-wise
-        #    or: (batch_size, num_bits) for global
+        # Shape: (batch_size, num_features, num_bits)
         encoded = (x_expanded > self.thresholds).float()
         
-        # Flatten the last two dimensions for feature-wise encoding
-        # This converts (batch_size, num_features, num_bits) -> (batch_size, num_features * num_bits)
-        if self.feature_wise and encoded.dim() == 3:
+        # Flatten if requested
+        if self.flatten:
             batch_size = encoded.shape[0]
             encoded = encoded.reshape(batch_size, -1)
         
@@ -119,7 +110,7 @@ class ThermometerEncoder(BaseEncoder):
         return self._compute_thresholds(x)
     
     def __repr__(self) -> str:
-        return f"ThermometerEncoder(num_bits={self.num_bits}, feature_wise={self.feature_wise})"
+        return f"ThermometerEncoder(num_bits={self.num_bits}, flatten={self.flatten})"
 
 
 @register_encoder("gaussian_thermometer")
@@ -133,37 +124,30 @@ class GaussianThermometerEncoder(ThermometerEncoder):
     
     def _compute_thresholds(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute thresholds based on Gaussian quantiles.
+        Compute thresholds based on Gaussian quantiles per feature.
         
         Args:
             x: Input tensor
             
         Returns:
-            Threshold tensor
+            Threshold tensor with shape (num_features, num_bits)
         """
         # Compute quantiles for Gaussian distribution
         quantile_positions = torch.arange(1, self.num_bits + 1, device=x.device).float() / (self.num_bits + 1)
         std_skews = torch.distributions.Normal(0, 1).icdf(quantile_positions)
         
-        # Compute mean and std per feature or globally
-        if self.feature_wise:
-            mean = x.mean(dim=0)
-            std = x.std(dim=0)
-        else:
-            mean = x.mean()
-            std = x.std()
+        # Compute mean and std per feature
+        mean = x.mean(dim=0)
+        std = x.std(dim=0)
         
         # Compute thresholds: threshold = mean + std_skew * std
-        # Stack thresholds along last dimension
-        if self.feature_wise:
-            thresholds = torch.stack([std_skew * std + mean for std_skew in std_skews], dim=-1)
-        else:
-            thresholds = std_skews * std + mean
+        # Shape: (num_features, num_bits)
+        thresholds = torch.stack([std_skew * std + mean for std_skew in std_skews], dim=-1)
         
         return thresholds
     
     def __repr__(self) -> str:
-        return f"GaussianThermometerEncoder(num_bits={self.num_bits}, feature_wise={self.feature_wise})"
+        return f"GaussianThermometerEncoder(num_bits={self.num_bits}, flatten={self.flatten})"
 
 
 @register_encoder("distributive_thermometer")
@@ -177,47 +161,33 @@ class DistributiveThermometerEncoder(ThermometerEncoder):
     
     def _compute_thresholds(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute thresholds based on data quantiles.
+        Compute thresholds based on data distribution quantiles per feature.
         
         Args:
             x: Input tensor
             
         Returns:
-            Threshold tensor
+            Threshold tensor with shape (num_features, num_bits)
         """
-        if self.feature_wise:
-            # Sort along the sample dimension (dim=0)
-            data_sorted = torch.sort(x, dim=0)[0]
-            num_samples = data_sorted.shape[0]
-            
-            # Compute indices for quantiles
-            indices = torch.tensor(
-                [int(num_samples * i / (self.num_bits + 1)) for i in range(1, self.num_bits + 1)],
-                device=x.device
-            )
-            
-            # Get thresholds at quantile positions
-            thresholds = data_sorted[indices]  # Shape: (num_bits, num_features)
-            
-            # Permute to (num_features, num_bits)
-            thresholds = thresholds.permute(*list(range(1, thresholds.ndim)), 0)
-        else:
-            # Flatten and sort all data
-            data_sorted = torch.sort(x.flatten())[0]
-            num_samples = data_sorted.shape[0]
-            
-            # Compute indices for quantiles
-            indices = torch.tensor(
-                [int(num_samples * i / (self.num_bits + 1)) for i in range(1, self.num_bits + 1)],
-                device=x.device
-            )
-            
-            # Get thresholds at quantile positions
-            thresholds = data_sorted[indices]  # Shape: (num_bits,)
+        # Sort along the sample dimension (dim=0)
+        data_sorted = torch.sort(x, dim=0)[0]
+        num_samples = data_sorted.shape[0]
+        
+        # Compute indices for quantiles
+        indices = torch.tensor(
+            [int(num_samples * i / (self.num_bits + 1)) for i in range(1, self.num_bits + 1)],
+            device=x.device
+        )
+        
+        # Get thresholds at quantile positions
+        thresholds = data_sorted[indices]  # Shape: (num_bits, num_features)
+        
+        # Permute to (num_features, num_bits)
+        thresholds = thresholds.permute(*list(range(1, thresholds.ndim)), 0)
         
         return thresholds
     
     def __repr__(self) -> str:
-        return f"DistributiveThermometerEncoder(num_bits={self.num_bits}, feature_wise={self.feature_wise})"
+        return f"DistributiveThermometerEncoder(num_bits={self.num_bits}, flatten={self.flatten})"
 
 

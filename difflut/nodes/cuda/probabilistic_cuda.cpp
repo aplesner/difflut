@@ -4,17 +4,15 @@
 
 torch::Tensor probabilistic_cuda_forward(
   torch::Tensor input,
-  torch::Tensor mapping,
-  torch::Tensor luts,
+  torch::Tensor raw_weights,
   torch::Tensor temperature
 );
 
 std::vector<torch::Tensor> probabilistic_cuda_backward(
   torch::Tensor input,
-  torch::Tensor mapping,
-  torch::Tensor luts,
+  torch::Tensor raw_weights,
   torch::Tensor temperature,
-  torch::Tensor output_grad
+  torch::Tensor grad_output
 );
 
 #define CHECK_CUDA(x) TORCH_CHECK(x.device().is_cuda(), #x " must be a CUDA tensor")
@@ -23,29 +21,29 @@ std::vector<torch::Tensor> probabilistic_cuda_backward(
 
 torch::Tensor probabilistic_forward(
   torch::Tensor input,
-  torch::Tensor mapping,
-  torch::Tensor luts,
+  torch::Tensor raw_weights,
   torch::Tensor temperature) {
     CHECK_INPUT(input);
-    CHECK_INPUT(mapping);
-    CHECK_INPUT(luts);
-    return probabilistic_cuda_forward(input, mapping, luts, temperature);
-};
+    CHECK_INPUT(raw_weights);
+    // temperature can be CPU tensor
+    return probabilistic_cuda_forward(input, raw_weights, temperature);
+}
 
 std::vector<torch::Tensor> probabilistic_backward(
   torch::Tensor input,
-  torch::Tensor mapping,
-  torch::Tensor luts,
+  torch::Tensor raw_weights,
   torch::Tensor temperature,
-  torch::Tensor output_grad) {
+  torch::Tensor grad_output) {
     CHECK_INPUT(input);
-    CHECK_INPUT(mapping);
-    CHECK_INPUT(luts);
-    CHECK_INPUT(output_grad);
-    return probabilistic_cuda_backward(input, mapping, luts, temperature, output_grad);
-};
+    CHECK_INPUT(raw_weights);
+    CHECK_INPUT(grad_output);
+    // temperature can be CPU tensor
+    return probabilistic_cuda_backward(input, raw_weights, temperature, grad_output);
+}
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("forward", &probabilistic_forward, "Probabilistic CUDA forward");
-  m.def("backward", &probabilistic_backward, "Probabilistic CUDA backward");
+  m.def("forward", &probabilistic_forward, "Probabilistic CUDA forward", 
+        py::arg("input"), py::arg("raw_weights"), py::arg("temperature"));
+  m.def("backward", &probabilistic_backward, "Probabilistic CUDA backward",
+        py::arg("input"), py::arg("raw_weights"), py::arg("temperature"), py::arg("grad_output"));
 }

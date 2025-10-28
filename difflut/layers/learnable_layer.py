@@ -32,14 +32,20 @@ class LearnableMappingModule(nn.Module):
             weights = F.softmax(self.W / self.tau, dim=-1)
             output = torch.matmul(x, weights.t())
         else:
-            # Hard selection
-            hard_indices = torch.argmax(self.W, dim=-1)
-            # Gather from input
-            output = torch.gather(
-                x.unsqueeze(1).expand(-1, self.output_size, -1),
-                2,
-                hard_indices.unsqueeze(0).unsqueeze(2).expand(x.shape[0], -1, 1)
-            ).squeeze(2)
+            # Hard selection (evaluation mode)
+            # MEMORY OPTIMIZATION: Avoid expanding (batch, output_size, input_size) tensor
+            hard_indices = torch.argmax(self.W, dim=-1)  # (output_size,)
+            
+            # Use advanced indexing to gather without creating huge expanded tensor
+            batch_size = x.shape[0]
+            batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1)  # (batch, 1)
+            batch_indices = batch_indices.expand(-1, self.output_size)  # (batch, output_size)
+            
+            # Expand hard_indices for batch dimension
+            hard_indices_expanded = hard_indices.unsqueeze(0).expand(batch_size, -1)  # (batch, output_size)
+            
+            # Advanced indexing: x[batch_indices, hard_indices]
+            output = x[batch_indices, hard_indices_expanded]  # (batch, output_size)
         
         return output
 
@@ -55,7 +61,6 @@ class LearnableLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 n: int = 6,
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  tau: float = 0.001,
                  tau_start: float = 1.0,
@@ -63,26 +68,17 @@ class LearnableLayer(BaseLUTLayer):
                  tau_decay_iters: float = 1000.0):
         """
         Args:
-            input_size: Size of input vector
-            output_size: Number of LUT nodes
+            input_size: Size of input vector (from encoder or previous layer)
+                       Should match: (batch_size, input_size)
+            output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class
-            n: Number of inputs per LUT
-            node_kwargs: Additional arguments for nodes
+            node_kwargs: Additional arguments for nodes (should include input_dim and output_dim)
+                        Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             tau: Initial temperature for softmax in learnable mapping
             tau_start: Starting value for tau (used for exponential decay)
             tau_min: Minimum value tau can decay to
             tau_decay_iters: Number of iterations for tau to decay by factor of 10
         """
-        # Warn about parameter count
-        total_connections = output_size * n
-        if total_connections > input_size * 10:
-            warnings.warn(
-                f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
-                f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={n}).",
-                UserWarning,
-                stacklevel=2
-            )
-        
         # Warn if tau parameters seem unusual
         if tau_start < tau_min:
             warnings.warn(
@@ -92,8 +88,18 @@ class LearnableLayer(BaseLUTLayer):
                 stacklevel=2
             )
         
-        # Initialize parent with nodes
-        super().__init__(input_size, output_size, node_type, n, node_kwargs)
+        # Initialize parent with nodes (n will be extracted from created nodes)
+        super().__init__(input_size, output_size, node_type, node_kwargs)
+        
+        # Warn about parameter count after n is known
+        total_connections = output_size * self.n
+        if total_connections > input_size * 10:
+            warnings.warn(
+                f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
+                f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={self.n}).",
+                UserWarning,
+                stacklevel=2
+            )
         
         # Tau decay parameters
         self.tau_start = tau_start
@@ -102,7 +108,8 @@ class LearnableLayer(BaseLUTLayer):
         self.tau = tau_start  # Start with tau_start instead of tau
         
         # Create learnable mapping module (helper, not registered)
-        self.mapping = LearnableMappingModule(input_size, output_size * n, self.tau)
+        # Note: self.n is now available from parent's __init__
+        self.mapping = LearnableMappingModule(input_size, output_size * self.n, self.tau)
     
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
         """

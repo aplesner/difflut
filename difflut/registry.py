@@ -11,13 +11,15 @@ import warnings
 class Registry:
     """
     Global registry for DiffLUT components.
-    Manages registration and retrieval of nodes, layers, and encoders.
+    Manages registration and retrieval of nodes, layers, encoders, initializers, and regularizers.
     """
     
     def __init__(self):
         self._nodes: Dict[str, Type] = {}
         self._layers: Dict[str, Type] = {}
         self._encoders: Dict[str, Type] = {}
+        self._initializers: Dict[str, Callable] = {}
+        self._regularizers: Dict[str, Callable] = {}
     
     # ==================== Node Registration ====================
     
@@ -175,6 +177,148 @@ class Registry:
         """List all registered encoder names."""
         return list(self._encoders.keys())
     
+    # ==================== Initializer Registration ====================
+    
+    def register_initializer(self, name: Optional[str] = None) -> Callable:
+        """
+        Decorator to register an initializer function.
+        
+        Args:
+            name: Name to register the initializer under. If None, uses function name.
+            
+        Example:
+            @registry.register_initializer("xavier")
+            def xavier_uniform_init(node, gain=1.0, **kwargs):
+                # initialization logic
+                pass
+        """
+        def decorator(func: Callable) -> Callable:
+            init_name = name if name is not None else func.__name__
+            # Remove '_init' suffix if present for cleaner naming
+            if init_name.endswith('_init'):
+                init_name_clean = init_name[:-5]
+                # Register both with and without suffix
+                if init_name in self._initializers:
+                    warnings.warn(
+                        f"Initializer '{init_name}' is already registered and will be overwritten.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+                if init_name_clean in self._initializers:
+                    warnings.warn(
+                        f"Initializer '{init_name_clean}' is already registered and will be overwritten.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+                self._initializers[init_name] = func
+                self._initializers[init_name_clean] = func
+            else:
+                if init_name in self._initializers:
+                    warnings.warn(
+                        f"Initializer '{init_name}' is already registered and will be overwritten.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+                self._initializers[init_name] = func
+            return func
+        return decorator
+    
+    def get_initializer(self, name: str) -> Callable:
+        """
+        Get a registered initializer function by name.
+        
+        Args:
+            name: Name of the initializer (case-insensitive)
+            
+        Returns:
+            Initializer function
+            
+        Raises:
+            ValueError: If initializer not found
+        """
+        name_lower = name.lower()
+        if name_lower not in self._initializers:
+            raise ValueError(
+                f"Initializer '{name}' not found. "
+                f"Available initializers: {list(self._initializers.keys())}"
+            )
+        return self._initializers[name_lower]
+    
+    def list_initializers(self) -> list:
+        """List all registered initializer names."""
+        return sorted(list(self._initializers.keys()))
+    
+    # ==================== Regularizer Registration ====================
+    
+    def register_regularizer(self, name: Optional[str] = None) -> Callable:
+        """
+        Decorator to register a regularizer function.
+        
+        Args:
+            name: Name to register the regularizer under. If None, uses function name.
+            
+        Example:
+            @registry.register_regularizer("l1")
+            def l1_regularizer(node, num_samples=100):
+                # regularization logic
+                pass
+        """
+        def decorator(func: Callable) -> Callable:
+            reg_name = name if name is not None else func.__name__
+            # Remove '_regularizer' suffix if present for cleaner naming
+            if reg_name.endswith('_regularizer'):
+                reg_name_clean = reg_name[:-12]
+                # Register both with and without suffix
+                if reg_name in self._regularizers:
+                    warnings.warn(
+                        f"Regularizer '{reg_name}' is already registered and will be overwritten.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+                if reg_name_clean in self._regularizers:
+                    warnings.warn(
+                        f"Regularizer '{reg_name_clean}' is already registered and will be overwritten.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+                self._regularizers[reg_name] = func
+                self._regularizers[reg_name_clean] = func
+            else:
+                if reg_name in self._regularizers:
+                    warnings.warn(
+                        f"Regularizer '{reg_name}' is already registered and will be overwritten.",
+                        UserWarning,
+                        stacklevel=2
+                    )
+                self._regularizers[reg_name] = func
+            return func
+        return decorator
+    
+    def get_regularizer(self, name: str) -> Callable:
+        """
+        Get a registered regularizer function by name.
+        
+        Args:
+            name: Name of the regularizer (case-insensitive)
+            
+        Returns:
+            Regularizer function
+            
+        Raises:
+            ValueError: If regularizer not found
+        """
+        name_lower = name.lower()
+        if name_lower not in self._regularizers:
+            raise ValueError(
+                f"Regularizer '{name}' not found. "
+                f"Available regularizers: {list(self._regularizers.keys())}"
+            )
+        return self._regularizers[name_lower]
+    
+    def list_regularizers(self) -> list:
+        """List all registered regularizer names."""
+        return sorted(list(self._regularizers.keys()))
+    
     # ==================== Builder Methods ====================
     
     def build_node(self, name: str, **kwargs) -> Any:
@@ -227,6 +371,8 @@ class Registry:
             'nodes': self.list_nodes(),
             'layers': self.list_layers(),
             'encoders': self.list_encoders(),
+            'initializers': self.list_initializers(),
+            'regularizers': self.list_regularizers(),
         }
     
     def __repr__(self) -> str:
@@ -234,7 +380,9 @@ class Registry:
             f"Registry(\n"
             f"  nodes={len(self._nodes)},\n"
             f"  layers={len(self._layers)},\n"
-            f"  encoders={len(self._encoders)}\n"
+            f"  encoders={len(self._encoders)},\n"
+            f"  initializers={len(self._initializers)},\n"
+            f"  regularizers={len(self._regularizers)}\n"
             f")"
         )
 
@@ -246,3 +394,5 @@ REGISTRY = Registry()
 register_node = REGISTRY.register_node
 register_layer = REGISTRY.register_layer
 register_encoder = REGISTRY.register_encoder
+register_initializer = REGISTRY.register_initializer
+register_regularizer = REGISTRY.register_regularizer

@@ -1,101 +1,8 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Callable
 import warnings
-
-class CustomNodeFunction(torch.autograd.Function):
-    """
-    Custom autograd function that handles custom input gradients while preserving parameter gradients.
-    """
-    @staticmethod
-    def forward(ctx, x, node, *params):
-        """
-        Forward pass - save what we need for backward
-        Args:
-            x: Input tensor
-            node: The node instance
-            *params: All parameters of the node (to track gradients)
-        """
-        ctx.save_for_backward(x, *params)
-        ctx.node = node
-        ctx.num_params = len(params)
-        
-        # Execute forward pass
-        if node.training:
-            output = node.forward_train(x)
-        else:
-            output = node.forward_eval(x)
-        
-        return output
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        """
-        Backward pass - computes both input and parameter gradients.
-        Uses custom backward for input gradients if provided.
-        Parameter gradients are computed via autograd on the forward pass output.
-        """
-        saved_tensors = ctx.saved_tensors
-        x = saved_tensors[0]
-        params = saved_tensors[1:] if len(saved_tensors) > 1 else []
-        node = ctx.node
-        
-        grad_x = None
-        grad_params = [None] * len(params)
-        
-        # Step 1: Compute input gradients using custom backward if available
-        if ctx.needs_input_grad[0]:
-            try:
-                grad_x = node.backward(grad_output.contiguous(), x)
-            except (NotImplementedError, AttributeError):
-                grad_x = None
-            
-            # Fallback to autograd if custom backward not provided or returns None
-            if grad_x is None:
-                x_auto = x.detach().requires_grad_(True)
-                with torch.enable_grad():
-                    if node.training:
-                        output = node.forward_train(x_auto)
-                    else:
-                        output = node.forward_eval(x_auto)
-                    
-                    if output.requires_grad:
-                        grad_x = torch.autograd.grad(
-                            outputs=output,
-                            inputs=x_auto,
-                            grad_outputs=grad_output.contiguous(),
-                            retain_graph=False,
-                            create_graph=False
-                        )[0]
-                    else:
-                        grad_x = torch.zeros_like(x)
-        
-        # Step 2: Compute parameter gradients using autograd
-        # Recompute forward pass with gradients enabled for parameters
-        if len(params) > 0:
-            x_for_params = x.detach().requires_grad_(False)
-            with torch.enable_grad():
-                if node.training:
-                    output_for_params = node.forward_train(x_for_params)
-                else:
-                    output_for_params = node.forward_eval(x_for_params)
-                
-                # Backward pass for parameters
-                if output_for_params.requires_grad:
-                    grad_params = torch.autograd.grad(
-                        outputs=output_for_params,
-                        inputs=params,
-                        grad_outputs=grad_output.contiguous(),
-                        retain_graph=False,
-                        create_graph=False,
-                        allow_unused=True
-                    )
-                    # Convert None to zeros for unused parameters
-                    grad_params = [g if g is not None else torch.zeros_like(p) 
-                                   for g, p in zip(grad_params, params)]
-        
-        return (grad_x, None) + tuple(grad_params)
 
 
 class BaseNode(nn.Module, ABC):
@@ -103,57 +10,230 @@ class BaseNode(nn.Module, ABC):
     Abstract base class for all LUT nodes with automatic gradient handling
     """
     
-    def __init__(self, input_dim: list = None, output_dim: list = None, 
-                 use_surrogate: bool = True, regularizers: dict = None):
+    def __init__(self, input_dim: int = None, output_dim: int = None, 
+                 layer_size: int = None,
+                 regularizers: dict = None,
+                 init_fn: Optional[Callable] = None, init_kwargs: dict = None):
         """
         Args:
-            input_dim: Input dimensions as a list (e.g., [6] for 6 inputs, [6, 6] for 6x6 inputs)
-            output_dim: Output dimensions as a list (e.g., [1] for single output, [4] for 4 outputs)
-            use_surrogate: Whether to use surrogate gradients (if implemented)
+            input_dim: Number of inputs (e.g., 6 for 6 inputs)
+            output_dim: Number of outputs (e.g., 1 for single output, 4 for 4 outputs)
+            layer_size: Number of parallel nodes in the layer (e.g., 128 for 128 parallel nodes)
+                       This controls weight sharing - each node in layer_size will have separate parameters.
             regularizers: Dict of regularization functions to apply.
-                         Format: {"name": [reg_fn, weight], ...}
-                         where reg_fn is a callable that takes the node as input
-                         and returns a scalar tensor, and weight is a float.
+                         Format: {"name": [reg_fn, weight, kwargs], ...}
+                         where reg_fn is callable(node) -> scalar tensor,
+                               weight is float, and kwargs is dict.
+            init_fn: Optional initialization function for parameters.
+                    Should accept (parameter: torch.Tensor, **kwargs) and modify in-place.
+                    This is passed to subclasses for their use - BaseNode does NOT apply it.
+            init_kwargs: Optional dict of kwargs to pass to the initializer function
         """
         super().__init__()
         
         # Set defaults if not provided
-        self.input_dim = input_dim if input_dim is not None else [1]
-        self.output_dim = output_dim if output_dim is not None else [1]
+        self.input_dim = input_dim if input_dim is not None else 6
+        self.output_dim = output_dim if output_dim is not None else 1
+        self.layer_size = layer_size if layer_size is not None else 1
         
-        # For backward compatibility, compute num_inputs as the product of input dimensions
-        self.num_inputs = int(torch.prod(torch.tensor(self.input_dim)).item())
-        self.num_outputs = int(torch.prod(torch.tensor(self.output_dim)).item())
-        
-        # Warn about potentially large LUT sizes
-        lut_size = 2 ** self.num_inputs
-        if self.num_inputs > 10:
-            warnings.warn(
-                f"Node initialized with {self.num_inputs} inputs, resulting in a LUT size of {lut_size}. "
-                f"Large LUT sizes (>1024 entries) can cause memory issues and slow training. "
-                f"Consider using fewer inputs (n<=10) or using grouped/residual layers to reduce complexity.",
-                RuntimeWarning,
-                stacklevel=3
+        # Validate input_dim
+        if not isinstance(self.input_dim, int) or self.input_dim <= 0:
+            raise ValueError(
+                f"input_dim must be a positive integer, but got {self.input_dim}. "
+                f"Example: input_dim=6"
             )
         
-        self.use_surrogate = use_surrogate
+        # Validate layer_size
+        if not isinstance(self.layer_size, int) or self.layer_size <= 0:
+            raise ValueError(
+                f"layer_size must be a positive integer, but got {self.layer_size}. "
+                f"Example: layer_size=128"
+            )
+        
+        if self.input_dim > 10:
+            warnings.warn(
+                f"input_dim={self.input_dim} is quite large. "
+                f"LUT nodes with >10 inputs may have exponentially large memory requirements (2^{self.input_dim} entries). "
+                f"Consider using smaller input dimensions or splitting inputs across multiple layers.",
+                UserWarning,
+                stacklevel=2
+            )
+        
+        # Validate output_dim
+        if not isinstance(self.output_dim, int) or self.output_dim <= 0:
+            raise ValueError(
+                f"output_dim must be a positive integer, but got {self.output_dim}. "
+                f"Example: output_dim=1"
+            )
+        
+        if self.output_dim > 10:
+            warnings.warn(
+                f"output_dim={self.output_dim} is quite large. "
+                f"This may increase memory requirements significantly.",
+                UserWarning,
+                stacklevel=2
+            )
+        
+        # Validate and store regularizers
         self.regularizers = regularizers or {}
         
-        # Warn if regularizers are provided but not in expected format
-        if regularizers:
-            for name, value in regularizers.items():
-                if not isinstance(value, (list, tuple)) or len(value) != 2:
-                    warnings.warn(
-                        f"Regularizer '{name}' should be a list/tuple of [function, weight], "
-                        f"but got {type(value).__name__}. This regularizer may not work correctly. "
-                        f"Example: regularizers={{'l2': [l2_weights, 0.01]}}",
-                        UserWarning,
-                        stacklevel=3
-                    )
+        # Validate init_fn
+        if init_fn is not None:
+            if not callable(init_fn):
+                raise TypeError(
+                    f"init_fn must be callable, but got {type(init_fn).__name__}. "
+                    f"Signature should be: init_fn(parameter: torch.Tensor, **kwargs) -> None"
+                )
+        
+        self.init_fn = init_fn
+        self.init_kwargs = init_kwargs or {}
+        
+        # Validate init_kwargs
+        if not isinstance(self.init_kwargs, dict):
+            raise TypeError(
+                f"init_kwargs must be a dict, but got {type(self.init_kwargs).__name__}"
+            )
+        
+        # Validate and normalize regularizers format
+        self._validate_regularizers()
+    
+    @property
+    def num_inputs(self) -> int:
+        """Get number of inputs."""
+        return self.input_dim
+    
+    @property
+    def num_outputs(self) -> int:
+        """Get number of outputs."""
+        return self.output_dim
+    
+    def _apply_init_fn(self, param: torch.Tensor, name: str = "parameter") -> None:
+        """
+        Apply the node's init_fn to a specific parameter.
+        Helper method for subclasses to initialize parameters selectively.
+        
+        Args:
+            param: The parameter tensor to initialize
+            name: Name of the parameter (for error messages)
+            
+        Raises:
+            RuntimeError: If init_fn is set but fails during execution
+        """
+        if self.init_fn is None:
+            return
+        
+        try:
+            self.init_fn(param, **self.init_kwargs)
+        except Exception as e:
+            raise RuntimeError(
+                f"Initialization of '{name}' failed with error: {e}. "
+                f"Check that init_fn is compatible with the parameter and init_kwargs are correct."
+            )
+    
+    def _validate_regularizers(self):
+        """Validate regularizers format - only accepts [fn, weight, kwargs] format"""
+        if not self.regularizers:
+            return
+        
+        validated = {}
+        for name, value in self.regularizers.items():
+            # Check if it's a list/tuple
+            if not isinstance(value, (list, tuple)):
+                raise ValueError(
+                    f"Regularizer '{name}' must be a list/tuple of [function, weight, kwargs], "
+                    f"but got {type(value).__name__}. "
+                    f"Example: regularizers={{'l2': [l2_reg, 0.01, {{}}]}} or "
+                    f"{{'l2': [l2_reg, 0.01, {{'num_samples': 100}}]}}"
+                )
+            
+            # Check length
+            if len(value) != 3:
+                raise ValueError(
+                    f"Regularizer '{name}' must have exactly 3 elements [function, weight, kwargs], "
+                    f"but got {len(value)} elements. "
+                    f"Example: regularizers={{'l2': [l2_reg, 0.01, {{}}]}}"
+                )
+            
+            reg_fn, weight, kwargs = value
+            
+            # Validate function is callable
+            if not callable(reg_fn):
+                raise TypeError(
+                    f"Regularizer '{name}' function must be callable, but got {type(reg_fn).__name__}. "
+                    f"The function should take the node as input and return a scalar tensor."
+                )
+            
+            # Validate weight is numeric
+            if not isinstance(weight, (int, float)):
+                raise TypeError(
+                    f"Regularizer '{name}' weight must be numeric (int or float), but got {type(weight).__name__}."
+                )
+            
+            # Validate kwargs is dict
+            if not isinstance(kwargs, dict):
+                raise TypeError(
+                    f"Regularizer '{name}' kwargs must be a dict, but got {type(kwargs).__name__}."
+                )
+            
+            validated[name] = [reg_fn, weight, kwargs]
+        
+        self.regularizers = validated
+    
+    def _select_independent_luts(self, output_flat: torch.Tensor, batch_size: int, layer_size: int) -> torch.Tensor:
+        """
+        Helper method to select independent LUT outputs when output_dim == layer_size.
+        
+        When a node has output_dim==layer_size, it means we have independent LUTs
+        (one for each position). This method selects the appropriate LUT output for each position.
+        
+        Args:
+            output_flat: Tensor of shape (batch*layer_size, output_dim) or (batch, layer_size, output_dim)
+            batch_size: Batch size
+            layer_size: Number of positions (nodes) in the layer
+        
+        Returns:
+            Tensor of shape (batch, layer_size, 1) with independent LUT outputs selected
+        """
+        has_independent_luts = (self.output_dim == layer_size)
+        
+        if not has_independent_luts or self.output_dim == 1:
+            # Standard case: all positions share same LUT or output_dim=1
+            if output_flat.dim() == 2:
+                return output_flat.view(batch_size, layer_size, self.output_dim)
+            else:
+                return output_flat
+        
+        # Independent LUTs case: select appropriate column for each position
+        if output_flat.dim() == 2:
+            # Shape: (batch*layer_size, output_dim)
+            output_3d = output_flat.view(batch_size, layer_size, self.output_dim)
+        else:
+            # Already 3D: (batch, layer_size, output_dim)
+            output_3d = output_flat
+        
+        # Select diagonal elements: output_3d[:, j, j] for each position j
+        indices = torch.arange(layer_size, device=output_flat.device)
+        output = output_3d[
+            torch.arange(batch_size, device=output_flat.device).unsqueeze(1),
+            torch.arange(layer_size, device=output_flat.device).unsqueeze(0),
+            indices.unsqueeze(0).expand(batch_size, -1)
+        ]
+        
+        # Add last dimension: (batch, layer_size) → (batch, layer_size, 1)
+        return output.unsqueeze(-1)
     
     @abstractmethod
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during training mode."""
+        """
+        Forward pass during training mode.
+        
+        Args:
+            x: Tensor of shape (batch_size, layer_size, input_dim)
+               where layer_size is the number of independent node copies
+        
+        Returns:
+            Tensor of shape (batch_size, layer_size, output_dim)
+        """
         pass
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -161,52 +241,30 @@ class BaseNode(nn.Module, ABC):
         Forward pass during evaluation mode.
         Default: binarize output of forward_train at threshold 0.5
         Override this method if you need different evaluation behavior.
+        
+        Args:
+            x: Tensor of shape (batch_size, layer_size, input_dim)
+        
+        Returns:
+            Tensor of shape (batch_size, layer_size, output_dim)
         """
         return (self.forward_train(x) > 0.5).float()
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Main forward pass that uses custom autograd function.
-        Automatically detects if backward() is implemented, otherwise falls back to autograd.
-        """
-        # Check if node has a custom backward implementation
-        has_custom_backward = False
-        try:
-            # Check if backward method is overridden
-            backward_method = getattr(self.__class__, 'backward', None)
-            if backward_method is not None:
-                # Check if it's not just the base class version
-                base_backward = getattr(BaseNode, 'backward', None)
-                has_custom_backward = backward_method is not base_backward
-        except:
-            pass
+        Main forward pass that automatically dispatches to forward_train or forward_eval.
         
-        # If no custom backward, just use the forward_train/eval directly
-        # This allows autograd to work naturally with model parameters
-        if not has_custom_backward:
-            if self.training:
-                return self.forward_train(x)
-            else:
-                return self.forward_eval(x)
+        Expects 3D batched input of multiple independent node copies:
+        - Input shape: (batch_size, layer_size, input_dim)
+          where layer_size is the number of independent node copies
+        - Output shape: (batch_size, layer_size, output_dim)
+        
+        This allows efficient batch processing across all node copies simultaneously.
+        """
+        if self.training:
+            return self.forward_train(x)
         else:
-            # Only use custom autograd function if we have custom backward
-            # Pass all parameters explicitly to track gradients
-            params = list(self.parameters())
-            return CustomNodeFunction.apply(x, self, *params)
-    
-    def backward(self, grad_output: torch.Tensor, x: torch.Tensor) -> Optional[torch.Tensor]:
-        """
-        Compute custom gradient with respect to input.
-        Override this to provide custom gradients (e.g., surrogate gradients).
-        
-        Args:
-            grad_output: Gradient from downstream
-            x: Original input tensor
-            
-        Returns:
-            Gradient with respect to input (or None to use autograd)
-        """
-        return None  # Default: use autograd
+            return self.forward_eval(x)
     
     def regularization(self) -> torch.Tensor:
         """
@@ -220,12 +278,16 @@ class BaseNode(nn.Module, ABC):
         reg = self._builtin_regularization()
         
         # Add custom regularizers
-        for name, (reg_fn, weight) in self.regularizers.items():
+        for name, reg_config in self.regularizers.items():
             try:
-                reg_value = reg_fn(self)
+                reg_fn, weight, kwargs = reg_config
+                reg_value = reg_fn(self, **kwargs)
                 reg = reg + weight * reg_value
             except Exception as e:
-                print(f"Warning: Regularizer '{name}' failed with error: {e}")
+                raise RuntimeError(
+                    f"Regularizer '{name}' failed with error: {e}. "
+                    f"Check that the regularizer function is correct and compatible with the node."
+                )
         
         return reg
     
@@ -233,38 +295,12 @@ class BaseNode(nn.Module, ABC):
         """
         Built-in regularization for the node (default: none).
         Override this in subclasses to provide node-specific regularization.
+        
+        Returns:
+            Scalar tensor with regularization value (default: 0.0)
         """
         device = next(self.parameters()).device if list(self.parameters()) else 'cpu'
         return torch.tensor(0.0, device=device)
-    
-    def _prepare_input(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Prepare input tensor by handling different input dimensions.
-        Squeezes middle dimension if input is 3D.
-        
-        Args:
-            x: Input tensor of shape (batch_size, num_inputs) or (batch_size, 1, num_inputs)
-        
-        Returns:
-            Tensor of shape (batch_size, num_inputs)
-        """
-        if x.dim() == 3:
-            x = x.squeeze(1)
-        return x
-    
-    def _prepare_output(self, output: torch.Tensor) -> torch.Tensor:
-        """
-        Prepare output tensor by squeezing if single output dimension.
-        
-        Args:
-            output: Output tensor of shape (batch_size, num_outputs)
-        
-        Returns:
-            Tensor of shape (batch_size,) if num_outputs==1, else (batch_size, num_outputs)
-        """
-        if self.num_outputs == 1 and output.dim() > 1:
-            output = output.squeeze(-1)
-        return output
     
     def export_bitstream(self) -> list:
         """

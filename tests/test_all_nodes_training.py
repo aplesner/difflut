@@ -14,9 +14,29 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from pathlib import Path
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
+
+class TeeLogger:
+    """Logger that writes to both stdout and a file."""
+    def __init__(self, log_file):
+        self.log_file = open(log_file, 'w')
+        self.stdout = sys.stdout
+    
+    def write(self, message):
+        self.stdout.write(message)
+        self.log_file.write(message)
+        self.log_file.flush()
+    
+    def flush(self):
+        self.stdout.flush()
+        self.log_file.flush()
+    
+    def close(self):
+        self.log_file.close()
 
 from difflut.registry import REGISTRY
 
@@ -32,8 +52,9 @@ def generate_training_data(n_samples=1000, seed=42):
     np.random.seed(seed)
     X_np = np.random.rand(n_samples, 2)
     Y_np = xorc(X_np[:, 0], X_np[:, 1])
-    X_train = torch.tensor(X_np, dtype=torch.float32)
-    Y_train = torch.tensor(Y_np, dtype=torch.float32).unsqueeze(-1)
+    # Reshape to (batch_size, 1, input_dim) for 3D input
+    X_train = torch.tensor(X_np, dtype=torch.float32).unsqueeze(1)  # (n_samples, 1, 2)
+    Y_train = torch.tensor(Y_np, dtype=torch.float32).unsqueeze(-1)  # (n_samples, 1)
     return X_train, Y_train
 
 
@@ -49,7 +70,7 @@ def create_node_instance(node_class):
         Instance of the node
     """
     # All nodes accept input_dim and output_dim with defaults for other parameters
-    node_kwargs = dict(input_dim=[2], output_dim=[1])
+    node_kwargs = dict(input_dim=2, output_dim=1)
     
     return node_class(**node_kwargs)
 
@@ -60,8 +81,8 @@ def train_node_with_lr(node, X_train, Y_train, lr, epochs=10, verbose=False):
     
     Args:
         node: Node instance to train
-        X_train: Training inputs
-        Y_train: Training targets
+        X_train: Training inputs (batch_size, 1, input_dim)
+        Y_train: Training targets (batch_size, 1)
         lr: Learning rate
         epochs: Number of training epochs
         verbose: Print progress
@@ -76,9 +97,8 @@ def train_node_with_lr(node, X_train, Y_train, lr, epochs=10, verbose=False):
         optimizer.zero_grad()
         y_pred = node(X_train)
         
-        # Ensure correct shape
-        if y_pred.ndim == 1:
-            y_pred = y_pred.unsqueeze(-1)
+        # Flatten output to match target shape if needed
+        y_pred = y_pred.reshape(Y_train.shape)
         
         loss = torch.nn.functional.mse_loss(y_pred, Y_train)
         loss.backward()
@@ -218,13 +238,11 @@ def plot_node_surface(ax, node, node_name, lr, success=True, grid_size=20):
     xx, yy = np.meshgrid(x, y)
     inputs = np.stack([xx.flatten(), yy.flatten()], axis=1)
     
-    # Get predictions
+    # Get predictions with 3D input shape (batch_size, 1, input_dim)
     with torch.no_grad():
-        inp = torch.tensor(inputs, dtype=torch.float32)
+        inp = torch.tensor(inputs, dtype=torch.float32).unsqueeze(1)  # (grid_size^2, 1, 2)
         out = node(inp)
-        if out.ndim == 1:
-            out = out.unsqueeze(-1)
-        out = out.cpu().numpy().reshape(grid_size, grid_size)
+        out = out.reshape(-1).cpu().numpy().reshape(grid_size, grid_size)
     
     # Plot surface
     ax.plot_surface(xx, yy, out, cmap='viridis', edgecolor='k', 
@@ -377,100 +395,115 @@ def plot_combined_loss_curves(all_results, save_path):
 
 def main():
     """Main test function."""
-    print("="*60)
-    print("DiffLUT Node Training Test Suite")
-    print("="*60)
-    
-    # Configuration
-    EPOCHS = 50
-    LEARNING_RATES = [0.1, 0.01,0.001]
-    N_SAMPLES = 2000
-    
-    # Setup output directory
+    # Setup output directory first
     output_dir = Path(__file__).parent / "test_outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"\nOutput directory: {output_dir}")
-
+    # Setup logging to file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = output_dir / f"test_results_{timestamp}.log"
+    logger = TeeLogger(str(log_file))
+    sys.stdout = logger
     
-    # Generate training data
-    print(f"\nGenerating training data ({N_SAMPLES} samples)...")
-    X_train, Y_train = generate_training_data(N_SAMPLES)
-    
-    # Get all registered nodes
-    node_names = REGISTRY.list_nodes()
-    print(f"\nFound {len(node_names)} registered nodes:")
-    for name in node_names:
-        print(f"  - {name}")
-    
-    # Test all nodes
-    all_results = []
-    
-    for node_name in node_names:
-        try:
-            node_class = REGISTRY.get_node(node_name)
-            result = test_node(
-                node_name, node_class, X_train, Y_train, 
-                LEARNING_RATES, EPOCHS
-            )
-            all_results.append(result)
-                
-        except Exception as e:
-            print(f"\n✗ CRITICAL ERROR testing {node_name}: {e}")
-            import traceback
-            traceback.print_exc()
-            all_results.append({
-                'node_name': node_name,
-                'success': False,
-                'error': str(e)
-            })
-    
-    # Generate combined surface plot
-    print("\nGenerating combined 3D surface plot...")
-    surface_plot_path = output_dir / "all_nodes_surfaces.png"
-    plot_all_surfaces(all_results, surface_plot_path)
-    
-    # Generate individual loss curves plot
-    print("\nGenerating individual loss curves plot...")
-    loss_plot_path = output_dir / "loss_curves_individual.png"
-    plot_loss_curves(all_results, loss_plot_path)
-    
-    # Generate combined loss curves plot
-    print("\nGenerating combined loss comparison plot...")
-    combined_loss_plot_path = output_dir / "loss_curves_combined.png"
-    plot_combined_loss_curves(all_results, combined_loss_plot_path)
-    
-    # Print final summary
-    print("\n" + "="*60)
-    print("FINAL SUMMARY")
-    print("="*60)
-    
-    successful = [r for r in all_results if r['success']]
-    failed = [r for r in all_results if not r['success']]
-    
-    print(f"\n✓ Passed: {len(successful)}/{len(all_results)} nodes")
-    print(f"✗ Failed: {len(failed)}/{len(all_results)} nodes")
-    
-    if successful:
-        print("\nSuccessful nodes:")
-        for r in successful:
-            print(f"  ✓ {r['node_name']:30s} "
-                  f"(LR={r['best_lr']}, Loss: {r['initial_loss']:.4f}→{r['final_loss']:.4f})")
-    
-    if failed:
-        print("\nFailed nodes:")
-        for r in failed:
-            error_msg = r.get('error', 'No improvement with any learning rate')
-            print(f"  ✗ {r['node_name']:30s} ({error_msg})")
-    
-    print("\n" + "="*60)
-    print(f"All plots saved to: {output_dir}")
-    print(f"  - Combined surfaces: {surface_plot_path.name}")
-    print(f"  - Individual loss curves: {loss_plot_path.name}")
-    print(f"  - Combined loss comparison: {combined_loss_plot_path.name}")
-    print("="*60)
-    
-    # Return exit code
-    return 0 if len(failed) == 0 else 1
+    try:
+        from difflut.registry import REGISTRY
+        
+        print("="*60)
+        print("DiffLUT Node Training Test Suite")
+        print("="*60)
+        
+        # Configuration
+        EPOCHS = 50
+        LEARNING_RATES = [0.1]
+        N_SAMPLES = 2000
+        
+        print(f"\nOutput directory: {output_dir}")
+        print(f"Log file: {log_file}")
+        
+        # Generate training data
+        print(f"\nGenerating training data ({N_SAMPLES} samples)...")
+        X_train, Y_train = generate_training_data(N_SAMPLES)
+        
+        # Get all registered nodes
+        node_names = REGISTRY.list_nodes()
+        print(f"\nFound {len(node_names)} registered nodes:")
+        for name in node_names:
+            print(f"  - {name}")
+        
+        # Test all nodes
+        all_results = []
+        
+        for node_name in node_names:
+            try:
+                node_class = REGISTRY.get_node(node_name)
+                result = test_node(
+                    node_name, node_class, X_train, Y_train, 
+                    LEARNING_RATES, EPOCHS
+                )
+                all_results.append(result)
+                    
+            except Exception as e:
+                print(f"\n✗ CRITICAL ERROR testing {node_name}: {e}")
+                import traceback
+                traceback.print_exc()
+                all_results.append({
+                    'node_name': node_name,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        # Generate combined surface plot
+        print("\nGenerating combined 3D surface plot...")
+        surface_plot_path = output_dir / "all_nodes_surfaces.png"
+        plot_all_surfaces(all_results, surface_plot_path)
+        
+        # Generate individual loss curves plot
+        print("\nGenerating individual loss curves plot...")
+        loss_plot_path = output_dir / "loss_curves_individual.png"
+        plot_loss_curves(all_results, loss_plot_path)
+        
+        # Generate combined loss curves plot
+        print("\nGenerating combined loss comparison plot...")
+        combined_loss_plot_path = output_dir / "loss_curves_combined.png"
+        plot_combined_loss_curves(all_results, combined_loss_plot_path)
+        
+        # Print final summary
+        print("\n" + "="*60)
+        print("FINAL SUMMARY")
+        print("="*60)
+        
+        successful = [r for r in all_results if r['success']]
+        failed = [r for r in all_results if not r['success']]
+        
+        print(f"\n✓ Passed: {len(successful)}/{len(all_results)} nodes")
+        print(f"✗ Failed: {len(failed)}/{len(all_results)} nodes")
+        
+        if successful:
+            print("\nSuccessful nodes:")
+            for r in successful:
+                print(f"  ✓ {r['node_name']:30s} "
+                      f"(LR={r['best_lr']}, Loss: {r['initial_loss']:.4f}→{r['final_loss']:.4f})")
+        
+        if failed:
+            print("\nFailed nodes:")
+            for r in failed:
+                error_msg = r.get('error', 'No improvement with any learning rate')
+                print(f"  ✗ {r['node_name']:30s} ({error_msg})")
+        
+        print("\n" + "="*60)
+        print(f"All plots saved to: {output_dir}")
+        print(f"  - Combined surfaces: {surface_plot_path.name}")
+        print(f"  - Individual loss curves: {loss_plot_path.name}")
+        print(f"  - Combined loss comparison: {combined_loss_plot_path.name}")
+        print("="*60)
+        
+        # Return exit code
+        return 0 if len(failed) == 0 else 1
+        
+    finally:
+        # Close the logger
+        logger.close()
+        sys.stdout = sys.__stdout__
 
 
 if __name__ == "__main__":

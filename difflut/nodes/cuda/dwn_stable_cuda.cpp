@@ -4,15 +4,13 @@
 
 torch::Tensor dwn_stable_cuda_forward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts
 );
 
 std::vector<torch::Tensor> dwn_stable_cuda_backward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts,
-  torch::Tensor output_grad,
+  torch::Tensor grad_output,
   float gradient_scale
 );
 
@@ -22,25 +20,21 @@ std::vector<torch::Tensor> dwn_stable_cuda_backward(
 
 torch::Tensor dwn_stable_forward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts) {
     CHECK_INPUT(input);
-    CHECK_INPUT(mapping);
     CHECK_INPUT(luts);
-    return dwn_stable_cuda_forward(input, mapping, luts);
+    return dwn_stable_cuda_forward(input, luts);
 }
 
 std::vector<torch::Tensor> dwn_stable_backward(
   torch::Tensor input,
-  torch::Tensor mapping,
   torch::Tensor luts,
-  torch::Tensor output_grad,
+  torch::Tensor grad_output,
   float gradient_scale) {
     CHECK_INPUT(input);
-    CHECK_INPUT(mapping);
     CHECK_INPUT(luts);
-    CHECK_INPUT(output_grad);
-    return dwn_stable_cuda_backward(input, mapping, luts, output_grad, gradient_scale);
+    CHECK_INPUT(grad_output);
+    return dwn_stable_cuda_backward(input, luts, grad_output, gradient_scale);
 }
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {

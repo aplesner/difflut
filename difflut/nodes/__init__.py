@@ -7,7 +7,6 @@ from .base_node import BaseNode
 from .dwn_node import DWNNode
 from .linear_lut_node import LinearLUTNode
 from .probabilistic_node import ProbabilisticNode
-from .probabilistic_stable_node import ProbabilisticStableNode
 from .polylut_node import PolyLUTNode
 from .neurallut_node import NeuralLUTNode
 from .hybrid_node import HybridNode
@@ -19,7 +18,6 @@ __all__ = [
     'DWNNode', 
     'LinearLUTNode',
     'ProbabilisticNode',
-    'ProbabilisticStableNode',
     'PolyLUTNode',
     'NeuralLUTNode',
     'HybridNode',

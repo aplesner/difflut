@@ -25,15 +25,18 @@ class NeuralLUTNode(BaseNode):
     """
     NeuraLUT Node that encapsulates a small MLP inside a LUT.
     Uses autograd for gradient computation.
+    Now supports per-layer-node MLPs for better memory access patterns.
     """
     
     def __init__(self, 
-                 input_dim: list = None,
-                 output_dim: list = None,
+                 input_dim: int = None,
+                 output_dim: int = None,
+                 layer_size: int = None,
                  hidden_width: int = 8,
                  depth: int = 2,
                  skip_interval: int = 2,
                  init_fn: Optional[Callable] = None,
+                 init_kwargs: dict = None,
                  activation: str = 'relu',
                  regularizers: dict = None,
                  tau_start: float = 1.0,
@@ -43,12 +46,14 @@ class NeuralLUTNode(BaseNode):
                  grad_factor: float = 1.0):
         """
         Args:
-            input_dim: Input dimensions as list (e.g., [6])
-            output_dim: Output dimensions as list (e.g., [1])
+            input_dim: Number of inputs (e.g., 6)
+            output_dim: Number of outputs (e.g., 1)
+            layer_size: Number of parallel nodes in the layer (e.g., 128)
             hidden_width: Width of hidden layers
             depth: Number of layers in the MLP
             skip_interval: Interval for skip connections (0 = no skips)
-            init_fn: Optional initialization function
+            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            init_kwargs: Keyword arguments for init_fn
             activation: Activation function ('relu' or 'sigmoid')
             regularizers: Dict of custom regularization functions
             tau: Initial output scaling factor (division) for backward pass (default: 1.0)
@@ -58,7 +63,8 @@ class NeuralLUTNode(BaseNode):
             ste: Whether to use Straight-Through Estimator (default: False)
             grad_factor: Gradient scaling factor for backward pass (default: 1.0)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, regularizers=regularizers)
+        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
+                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.output_dim = output_dim
         self.hidden_width = hidden_width
         self.depth = depth
@@ -71,8 +77,8 @@ class NeuralLUTNode(BaseNode):
         self.tau_min = tau_min
         self.tau_decay_iters = tau_decay_iters
         self.tau = tau_start  # Start with tau_start instead of tau
-        # Build the MLP with skip connections
-        self._build_network(init_fn)
+        # Build the network with per-layer-node MLPs
+        self._build_network()
 
         self.ste_if = self.ste_forward if self.ste else lambda y_soft, u: y_soft
         
@@ -80,23 +86,25 @@ class NeuralLUTNode(BaseNode):
         self.register_buffer('lut_table', None)
         self._lut_computed = False
 
-    def _build_network(self, init_fn: Optional[Callable]):
-        """Build the MLP network with skip connections."""
+    def _build_network(self):
+        """Build the MLP network with skip connections for each layer node."""
+        # We'll use grouped linear layers to process all layer_size nodes in parallel
+        # Each layer node gets its own set of weights
         self.layers = nn.ModuleList()
         
         # Input layer
         in_features = self.num_inputs
         out_features = self.hidden_width if self.depth > 1 else self.num_outputs
-        self.layers.append(self._create_linear(in_features, out_features, init_fn))
+        self.layers.append(self._create_grouped_linear(in_features, out_features))
         
         # Hidden layers
         for i in range(1, self.depth - 1):
-            layer = self._create_linear(self.hidden_width, self.hidden_width, init_fn)
+            layer = self._create_grouped_linear(self.hidden_width, self.hidden_width)
             self.layers.append(layer)
         
         # Output layer
         if self.depth > 1:
-            self.layers.append(self._create_linear(self.hidden_width, self.num_outputs, init_fn))
+            self.layers.append(self._create_grouped_linear(self.hidden_width, self.num_outputs))
         
         # Skip connections
         self.skip_layers = nn.ModuleList()
@@ -104,24 +112,29 @@ class NeuralLUTNode(BaseNode):
             for i in range(self.depth):
                 if i > 0 and i % self.skip_interval == 0:
                     target_dim = self.hidden_width if i < self.depth - 1 else self.num_outputs
-                    skip = self._create_linear(self.num_inputs, target_dim, init_fn)
+                    skip = self._create_grouped_linear(self.num_inputs, target_dim)
                     self.skip_layers.append(skip)
                 else:
                     self.skip_layers.append(None)
 
-    def _create_linear(self, in_features: int, out_features: int, 
-                      init_fn: Optional[Callable]) -> nn.Linear:
-        """Create and initialize a linear layer."""
-        linear = nn.Linear(in_features, out_features, bias=True)
-        if init_fn:
-            init_fn(linear.weight)
-            if linear.bias is not None:
-                init_fn(linear.bias)
-        else:
-            nn.init.xavier_uniform_(linear.weight)
-            if linear.bias is not None:
-                nn.init.zeros_(linear.bias)
-        return linear
+    def _create_grouped_linear(self, in_features: int, out_features: int) -> nn.Module:
+        """Create a grouped linear layer with separate weights for each layer node."""
+        # Use manual parameter instead of nn.Linear to handle layer_size dimension
+        # Shape: (layer_size, out_features, in_features)
+        weight = nn.Parameter(torch.empty(self.layer_size, out_features, in_features))
+        bias = nn.Parameter(torch.empty(self.layer_size, out_features))
+        
+        # Initialize
+        nn.init.xavier_uniform_(weight)
+        nn.init.zeros_(bias)
+        
+        # Wrap in a module that stores weight and bias
+        module = nn.Module()
+        module.weight = weight
+        module.bias = bias
+        module.in_features = in_features
+        module.out_features = out_features
+        return module
 
     def _activation(self, x: torch.Tensor) -> torch.Tensor:
         """Apply activation function."""
@@ -133,17 +146,30 @@ class NeuralLUTNode(BaseNode):
             return F.relu(x)
 
     def _mlp_forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass through the MLP."""
+        """
+        Forward pass through the MLP with grouped operations.
+        
+        Args:
+            x: (batch_size, layer_size, num_inputs)
+        Returns:
+            output: (batch_size, layer_size, num_outputs)
+        """
         x_input = x
         h = x
         
         for i, layer in enumerate(self.layers):
-            h = layer(h)
+            # Grouped linear: h @ weight.T + bias
+            # h: (batch_size, layer_size, in_features)
+            # layer.weight: (layer_size, out_features, in_features)
+            # output: (batch_size, layer_size, out_features)
+            h = torch.einsum('bli,loi->blo', h, layer.weight) + layer.bias.unsqueeze(0)
             
             # Add skip connection if available
             if self.skip_interval > 0 and i < len(self.skip_layers):
                 if self.skip_layers[i] is not None:
-                    h = h + self.skip_layers[i](x_input)
+                    skip_layer = self.skip_layers[i]
+                    skip_out = torch.einsum('bli,loi->blo', x_input, skip_layer.weight) + skip_layer.bias.unsqueeze(0)
+                    h = h + skip_out
             
             # Apply activation (except for last layer)
             if i < len(self.layers) - 1:
@@ -158,11 +184,24 @@ class NeuralLUTNode(BaseNode):
 
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-        """Forward pass during training with binary rounding and STE."""
-        x = self._prepare_input(x)
+        """
+        Forward pass during training with binary rounding and STE.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
+        """
+        batch_size, layer_size, input_dim = x.shape
+        
+        # Verify layer_size matches
+        if layer_size != self.layer_size:
+            raise ValueError(
+                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
+            )
         
         # MLP forward + sigmoid
-        logits = self._mlp_forward(x)
+        logits = self._mlp_forward(x)  # (batch_size, layer_size, num_outputs)
         
         u = torch.rand_like(logits)
         y_soft = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.tau)
@@ -172,20 +211,31 @@ class NeuralLUTNode(BaseNode):
         # This only affects gradients, not forward pass values
         output = GradientScalingFunction.apply(output, torch.tensor(self.grad_factor, device=output.device))
         
-        return self._prepare_output(output)
+        return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Discretize by applying Heaviside at 0.5 to forward_train output.
         This makes it behave like a real LUT with binary outputs.
+        
+        Args:
+            x: Input tensor (batch_size, layer_size, num_inputs)
+        Returns:
+            Output tensor (batch_size, layer_size, num_outputs)
         """
-        x = self._prepare_input(x)
+        batch_size, layer_size, input_dim = x.shape
+        
+        # Verify layer_size matches
+        if layer_size != self.layer_size:
+            raise ValueError(
+                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
+            )
         
         # Compute same as forward_train (MLP + sigmoid)
         output = self._mlp_forward(x)
         output = (output >= 0.0).float()
         
-        return self._prepare_output(output)
+        return output
 
     def _precompute_lut(self):
         """Precompute the LUT for evaluation."""

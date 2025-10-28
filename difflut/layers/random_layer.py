@@ -16,22 +16,22 @@ class RandomLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 n: int = 6,
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  seed: int = 42):
         """
         Args:
-            input_size: Size of input vector
-            output_size: Size of output vector  
+            input_size: Size of input vector (from encoder or previous layer)
+                       Should match: (batch_size, input_size)
+            output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class to use
-            n: Number of inputs per LUT
-            node_kwargs: Additional node arguments
+            node_kwargs: Additional node arguments (should include input_dim and output_dim)
+                        Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
         """
         self.seed = seed
         
-        # Initialize parent
-        super().__init__(input_size, output_size, node_type, n, node_kwargs)
+        # Initialize parent (n will be extracted from created nodes)
+        super().__init__(input_size, output_size, node_type, node_kwargs)
         
         # Initialize the random mapping
         self._init_mapping()
@@ -85,15 +85,23 @@ class RandomLayer(BaseLUTLayer):
         """
         batch_size = x.shape[0]
         
-        # Vectorized gathering - much faster than loop
-        # Shape of self._mapping: (output_size, n)
-        # Expand for batch dimension and gather
-        indices = self._mapping.unsqueeze(0).expand(batch_size, -1, -1)  # (batch_size, output_size, n)
+        # MEMORY OPTIMIZATION: Avoid expanding (batch, output_size, input_size) tensor
+        # which would be massive for large output_size (e.g., 128 * 3578 * 4704 = 8.6 GB)
+        # Instead, use advanced indexing to gather directly from input without expansion
         
-        # Gather inputs using advanced indexing
-        # x[:, indices] doesn't work directly, so we use gather
-        x_expanded = x.unsqueeze(1).expand(-1, self.output_size, -1)  # (batch_size, output_size, input_size)
-        mapped_inputs = torch.gather(x_expanded, 2, indices)  # (batch_size, output_size, n)
+        # Shape of self._mapping: (output_size, n) containing indices into input
+        # We want: output[b, o, i] = x[b, mapping[o, i]]
+        
+        # Create batch indices for advanced indexing
+        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1)  # (batch, 1, 1)
+        batch_indices = batch_indices.expand(-1, self.output_size, self.n)  # (batch, output_size, n)
+        
+        # Expand mapping for batch dimension
+        mapping_indices = self._mapping.unsqueeze(0).expand(batch_size, -1, -1)  # (batch, output_size, n)
+        
+        # Advanced indexing: x[batch_indices, mapping_indices]
+        # This directly indexes into x without creating the huge expanded tensor
+        mapped_inputs = x[batch_indices, mapping_indices]  # (batch_size, output_size, n)
         
         return mapped_inputs
     
