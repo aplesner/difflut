@@ -51,13 +51,14 @@ class feedforward_core(nn.Module):
         current_size = input_size
         
         for i, hidden_size in enumerate(hidden_sizes):
-            node_kwargs = {}
+            node_kwargs = {
+                'input_dim': n_inputs,
+            }
             
             # Create layer with proper node_kwargs
             layer = layer_class(
                 input_size=current_size,
                 output_size=hidden_size,
-                n=n_inputs,
                 node_type=node_class,
                 node_kwargs=node_kwargs,
             )
