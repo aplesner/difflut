@@ -60,30 +60,38 @@ class ConvolutionalLUTLayer(nn.Module):
         return x
 
     def forward(self, x):
+        from torch.profiler import record_function
 
         batch_size = x.shape[0]
 
         # Extract patches: (batch, patch_size, num_patches)
-        patches = self.unfold(x)
-        num_patches = patches.shape[2]
-        
-        # Reshape to (batch*num_patches, patch_size)
-        patches = patches.transpose(1, 2).contiguous()
-        patches = patches.view(-1, self.input_size)
+        with record_function("unfold_operation"):
+            patches = self.unfold(x)
+            num_patches = patches.shape[2]
+
+            # Reshape to (batch*num_patches, patch_size)
+            patches = patches.transpose(1, 2).contiguous()
+            patches = patches.view(-1, self.input_size)
 
         # Process each patch through each tree
-        output = [tree(patches) for tree in self.trees]
-        output = torch.stack(output, dim=1)  # (batch*num_patches, out_channels)
+        with record_function("tree_processing"):
+            output_list = []
+            for i, tree in enumerate(self.trees):
+                with record_function(f"tree_{i}_forward"):
+                    tree_output = tree(patches)
+                    output_list.append(tree_output)
+            output = torch.stack(output_list, dim=1)  # (batch*num_patches, out_channels)
 
-        output = output.view(batch_size, num_patches, self.out_channels)
-        output = output.transpose(1, 2)  # (batch, out_channels, num_patches)
-        
-        # Calculate output spatial dimensions
-        out_h = (x.shape[2] + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
-        out_w = (x.shape[3] + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
+        with record_function("reshape_output"):
+            output = output.view(batch_size, num_patches, self.out_channels)
+            output = output.transpose(1, 2)  # (batch, out_channels, num_patches)
 
-        output = output.view(batch_size, self.out_channels, out_h, out_w)
-        
+            # Calculate output spatial dimensions
+            out_h = (x.shape[2] + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
+            out_w = (x.shape[3] + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
+
+            output = output.view(batch_size, self.out_channels, out_h, out_w)
+
         return output
         
 
@@ -127,7 +135,15 @@ with profile(
     output = conv_lut_layer(input_data)
     end_time = time.time()
 
-print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=10))
+print("\n" + "="*100)
+print("GPU Memory Usage by Operation")
+print("="*100)
+print(prof.key_averages().table(sort_by="cuda_memory_usage", row_limit=20))
+
+print("\n" + "="*100)
+print("Time and Memory by Operation")
+print("="*100)
+print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=20))
 
 print("Output shape:", output.shape)
 print(f"Forward pass took {end_time - start_time:.2f} seconds")
