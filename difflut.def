@@ -82,23 +82,15 @@ Stage: build
     # Install in regular mode (not editable) to avoid symlink issues
     pip3 install --no-cache-dir --no-build-isolation .
 
-    echo "=============================================="
     echo "DiffLUT installation complete"
-    echo "DEBUG: Installed package location:"
-    python3 -c "import difflut; print('Module location:', difflut.__file__)"
-    echo "DEBUG: Contents of installed __init__.py:"
-    python3 -c "import difflut; import os; print(open(difflut.__file__).read()[:500])"
     echo "Testing import:"
     python3 -c "import difflut; print('Version:', difflut.__version__); from difflut.nodes import LinearLUTNode; print('Import successful')"
-    echo "=============================================="
      
     ##################################################
     # Prepare artifacts
     ##################################################
     mkdir -p /opt/artifacts/lib/python3.11/site-packages
     cp -r /opt/conda/lib/python3.11/site-packages/* /opt/artifacts/lib/python3.11/site-packages/
-
-   echo "=============================================="
 
 %environment
     ##################################################
@@ -137,12 +129,8 @@ Stage: final
     # Verify DiffLUT installation
     echo "=============================================="
     echo "DiffLUT installation complete"
-    echo "DEBUG: Installed package location:"
-    python3 -c "import difflut; print('Module location:', difflut.__file__)"
-    echo "DEBUG: Contents of installed __init__.py:"
-    python3 -c "import difflut; import os; print(open(difflut.__file__).read()[:500])"
-    echo "Testing import:"
     python3 -c "import difflut; print('Version:', difflut.__version__); from difflut.nodes import LinearLUTNode; print('Import successful')"
+    # Check
     echo "=============================================="
     ldconfig  
 
