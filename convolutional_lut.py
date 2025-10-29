@@ -67,7 +67,7 @@ class ConvolutionalLUTLayer(nn.Module):
         self.unfold = nn.Unfold(kernel_size=receptive_field, padding=0, stride=1)
 
         # Print LUT parameter memory diagnostics
-        self._print_lut_memory_info()
+        # self._print_lut_memory_info()
 
     def _pair(self, x: int | tuple[int, int]) -> tuple[int, int]:
         if isinstance(x, int):
@@ -162,7 +162,7 @@ class ConvolutionalLUTLayer(nn.Module):
             before_trees = print_memory_stats("Before tree processing", baseline)
 
             # Print activation memory estimates
-            self._print_activation_memory_estimates(num_patches*batch_size)
+            # self._print_activation_memory_estimates(num_patches*batch_size)
 
             output_list = []
             for i, tree in enumerate(self.trees):
@@ -198,7 +198,7 @@ class ConvolutionalLUTLayer(nn.Module):
 batch_size = 128
 image_size = 28
 in_channels = 1
-out_channels = 256
+out_channels = 128
 
 conv_lut_layer = ConvolutionalLUTLayer(
     tree_depth=2,
