@@ -96,7 +96,7 @@ class RandomLayer(BaseLUTLayer):
         # expanding intermediate tensors.
         
         # Flatten mapping to (output_size * n,) for single index_select operation
-        mapping_flat = self._mapping.reshape(-1)  # (output_size * n,)
+        mapping_flat = self._mapping.reshape(-1)  # (output_size * n,)  # type: ignore
         
         # Index select along input dimension: x -> (batch_size, output_size * n)
         # x: (batch_size, input_size)
@@ -108,10 +108,20 @@ class RandomLayer(BaseLUTLayer):
         
         return mapped_inputs
     
+    def get_mapping_indices(self) -> torch.Tensor:
+        """
+        Return mapping indices for fused forward pass optimization.
+
+        Returns:
+            Tensor of shape (output_size, n) containing indices into input dimension.
+            This is self._mapping, which is already in the correct format.
+        """
+        return self._mapping  # type: ignore
+
     def get_mapping_matrix(self) -> torch.Tensor:
         """Get the random mapping matrix for inspection."""
-        return self._mapping.clone()
-    
+        return self._mapping.clone()  # type: ignore
+
     def extra_repr(self) -> str:
         """String representation for print(model)."""
         return f"input_size={self.input_size}, output_size={self.output_size}, " \

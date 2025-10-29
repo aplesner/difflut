@@ -127,20 +127,44 @@ class BaseLUTLayer(nn.Module, ABC):
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
         """Get mapped inputs for nodes"""
         pass
+
+    def get_mapping_indices(self) -> torch.Tensor | None:
+        """
+        Get mapping indices without materializing mapped values.
+
+        This is an optional optimization that allows nodes to perform fused
+        forward passes where indexing happens inside CUDA kernels, avoiding
+        materialization of large (batch, output_size, n) intermediate tensors.
+
+        Returns:
+            Tensor of shape (output_size, n) containing indices into input dimension,
+            or None if this layer doesn't support index-based mapping.
+
+            For RandomLayer: returns self._mapping
+            For LearnableLayer: returns argmax(W).reshape(output_size, n) during eval
+
+        Default: Returns None (fused path not supported, uses materialized path)
+        """
+        return None
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the layer.
-        
-        Accepts 2D input (batch_size, input_size) and maps it to 
+
+        Accepts 2D input (batch_size, input_size) and maps it to
         (batch_size, output_size, node.num_inputs) before passing to the single node.
         The node handles parallelization across output_size using CUDA kernels.
-        
+
+        Supports two paths:
+        1. Fused path: If layer provides mapping indices and node supports fused forward,
+           passes indices directly to node for on-the-fly indexing in CUDA kernel
+        2. Materialized path: Traditional approach of materializing mapped_inputs tensor
+
         Args:
             x: Input tensor of shape (batch_size, input_size)
                - From Encoder: (batch_size, encoded_dim)
                - From previous Layer: (batch_size, previous_output_size * previous_output_dim)
-        
+
         Returns:
             Output tensor of shape (batch_size, output_size * output_dim)
             - For next Layer: (batch_size, output_size * output_dim)
@@ -148,22 +172,30 @@ class BaseLUTLayer(nn.Module, ABC):
         """
         # Validate input dimensions
         self._validate_input_dims(x)
-        
-        # Get mapped inputs: (batch_size, output_size, n)
-        # where n = node.num_inputs
-        mapped_inputs = self.get_mapping(x)
-        
-        # Pass the 3D tensor to the single node
-        # Shape: (batch_size, output_size, n)
-        # The node treats output_size as an additional batch dimension for parallelization
-        output = self.node(mapped_inputs)
-        
+
+        # Try fused path first (memory-efficient)
+        mapping_indices = self.get_mapping_indices()
+        if mapping_indices is not None and hasattr(self.node, 'forward_with_mapping'):
+            # Fused path: pass raw input and mapping indices to node
+            # Node performs indexing inside CUDA kernel, avoiding materialized tensor
+            output = self.node.forward_with_mapping(x, mapping_indices)
+        else:
+            # Fallback to materialized path (current behavior)
+            # Get mapped inputs: (batch_size, output_size, n)
+            # where n = node.num_inputs
+            mapped_inputs = self.get_mapping(x)
+
+            # Pass the 3D tensor to the single node
+            # Shape: (batch_size, output_size, n)
+            # The node treats output_size as an additional batch dimension for parallelization
+            output = self.node(mapped_inputs)
+
         # Output shape: (batch_size, output_size, output_dim)
         # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
         # In most cases output_dim=1, so this just squeezes out the last dimension
         batch_size = output.shape[0]
         output = output.view(batch_size, -1)
-        
+
         return output
     
     def regularization(self) -> torch.Tensor:

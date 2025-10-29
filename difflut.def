@@ -13,7 +13,7 @@ Stage: build
 %setup
     # Copy entire difflut package (including nested structure and setup.py)
     mkdir -p ${APPTAINER_ROOTFS}/opt/difflut
-    cp setup.py pyproject.toml ${APPTAINER_ROOTFS}/opt/difflut/
+    cp setup.py pyproject.toml test_import.py ${APPTAINER_ROOTFS}/opt/difflut/
     cp -r difflut ${APPTAINER_ROOTFS}/opt/difflut/
 
 %post
@@ -82,9 +82,13 @@ Stage: build
     # Install in regular mode (not editable) to avoid symlink issues
     pip3 install --no-cache-dir --no-build-isolation .
 
-    echo "DiffLUT installation complete"
-    echo "Testing import:"
-    python3 -c "import difflut; print('Version:', difflut.__version__); from difflut.nodes import LinearLUTNode; print('Import successful')"
+    echo "DiffLUT installation complete. Running Import Test:"
+    python3 test_import.py
+    if [ $? -ne 0 ]; then
+        echo "ERROR: Import Test failed!"
+        exit 1
+    fi
+    echo "Import Test passed successfully"
      
     ##################################################
     # Prepare artifacts
@@ -128,9 +132,8 @@ Stage: final
     
     # Verify DiffLUT installation
     echo "=============================================="
-    echo "DiffLUT installation complete"
+    echo "DiffLUT installation complete - verifying imports"
     python3 -c "import difflut; print('Version:', difflut.__version__); from difflut.nodes import LinearLUTNode; print('Import successful')"
-    # Check
     echo "=============================================="
     ldconfig  
 

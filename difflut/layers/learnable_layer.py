@@ -112,22 +112,42 @@ class LearnableLayer(BaseLUTLayer):
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply learnable mapping and reshape for nodes.
-        
+
         Args:
             x: Input tensor of shape (batch_size, input_size)
         Returns:
             Mapped inputs of shape (batch_size, output_size, n)
         """
         batch_size = x.shape[0]
-        
+
         # Apply learnable mapping
         mapped_flat = self.mapping(x)  # (batch_size, output_size * n)
-        
+
         # Reshape for nodes
         mapped_inputs = mapped_flat.view(batch_size, self.output_size, self.n)
-        
+
         return mapped_inputs
-    
+
+    def get_mapping_indices(self) -> torch.Tensor:
+        """
+        Return mapping indices for fused forward pass optimization.
+
+        Returns:
+            Tensor of shape (output_size, n) containing hard mapping indices,
+            or None during training (uses soft selection, requires materialization).
+
+        During eval: returns argmax of weight matrix
+        During training: returns None to use soft selection path
+        """
+        if self.training:
+            # During training, we use soft selection which requires materialized path
+            return None
+
+        # During eval, use hard selection (argmax)
+        with torch.no_grad():
+            hard_indices = torch.argmax(self.mapping.W, dim=-1)  # (output_size * n,)
+            return hard_indices.view(self.output_size, self.n)
+
     def get_mapping_matrix(self) -> torch.Tensor:
         """Get current hard mapping (for inspection)."""
         with torch.no_grad():
