@@ -81,15 +81,21 @@ class LearnableMappingFunction(torch.autograd.Function):
         
         # Recompute mapped_inputs from saved mapped_flat
         mapped_inputs = mapped_flat.reshape(batch_size, output_size, n)
-        mapped_inputs.requires_grad = True
+        mapped_inputs.requires_grad_(True)
         
         # Recompute node forward
         with torch.enable_grad():
             output = node(mapped_inputs)
         
-        # Backward through node
-        torch.autograd.backward(output, grad_output)
-        grad_mapped_inputs = mapped_inputs.grad
+        # Compute gradient w.r.t. mapped_inputs using autograd.grad
+        # This properly handles the gradient flow through node parameters
+        grad_mapped_inputs, = torch.autograd.grad(
+            outputs=output,
+            inputs=mapped_inputs,
+            grad_outputs=grad_output,
+            retain_graph=False,
+            create_graph=False
+        )
         grad_mapped_flat = grad_mapped_inputs.reshape(batch_size, total_outputs)
         
         # Backward through mapping

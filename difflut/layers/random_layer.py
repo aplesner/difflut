@@ -69,24 +69,25 @@ class RandomMappingFunction(torch.autograd.Function):
         mapped_inputs = mapped_flat.reshape(batch_size, output_size, n)
         
         # Set up for backward through node
-        mapped_inputs.requires_grad = True
+        mapped_inputs.requires_grad_(True)
         
         # Recompute node forward to get intermediate values for backward
         with torch.enable_grad():
             output = node(mapped_inputs)
         
-        # Backward through node
-        torch.autograd.backward(output, grad_output)
-        
-        # Get gradient w.r.t. mapped_inputs from the node
-        grad_mapped_inputs = mapped_inputs.grad
+        # Compute gradient w.r.t. mapped_inputs using autograd.grad
+        # This properly handles the gradient flow through node parameters
+        grad_mapped_inputs, = torch.autograd.grad(
+            outputs=output,
+            inputs=mapped_inputs,
+            grad_outputs=grad_output,
+            retain_graph=False,
+            create_graph=False
+        )
         
         # Backward through mapping: (batch_size, output_size, n) -> (batch_size, input_size)
         # We need to scatter gradients back to the original input positions
         grad_x = torch.zeros_like(x)
-        
-        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1)
-        batch_indices = batch_indices.expand(-1, output_size, n)
         
         mapping_expanded = mapping.unsqueeze(0).expand(batch_size, -1, -1)
         
