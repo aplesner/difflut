@@ -85,23 +85,26 @@ class RandomLayer(BaseLUTLayer):
         """
         batch_size = x.shape[0]
         
-        # MEMORY OPTIMIZATION: Avoid expanding (batch, output_size, input_size) tensor
-        # which would be massive for large output_size (e.g., 128 * 3578 * 4704 = 8.6 GB)
-        # Instead, use advanced indexing to gather directly from input without expansion
-        
-        # Shape of self._mapping: (output_size, n) containing indices into input
+        # MEMORY OPTIMIZATION: Avoid expanding (batch_size, output_size, input_size) tensor
+        # which would be massive for large batches (e.g., batch=73728, output_size=3578, n=4704 = 8.6 GB)
+        # 
+        # Shape of self._mapping: (output_size, n) containing indices into input dimension
         # We want: output[b, o, i] = x[b, mapping[o, i]]
+        #
+        # The batch dimension is independent of the mapping - each sample uses the same mapping.
+        # Use torch.index_select to efficiently gather along the input dimension without 
+        # expanding intermediate tensors.
         
-        # Create batch indices for advanced indexing
-        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1)  # (batch, 1, 1)
-        batch_indices = batch_indices.expand(-1, self.output_size, self.n)  # (batch, output_size, n)
+        # Flatten mapping to (output_size * n,) for single index_select operation
+        mapping_flat = self._mapping.reshape(-1)  # (output_size * n,)
         
-        # Expand mapping for batch dimension
-        mapping_indices = self._mapping.unsqueeze(0).expand(batch_size, -1, -1)  # (batch, output_size, n)
+        # Index select along input dimension: x -> (batch_size, output_size * n)
+        # x: (batch_size, input_size)
+        # Select the indices from mapping_flat along dimension 1
+        mapped_flat = torch.index_select(x, 1, mapping_flat)  # (batch_size, output_size * n)
         
-        # Advanced indexing: x[batch_indices, mapping_indices]
-        # This directly indexes into x without creating the huge expanded tensor
-        mapped_inputs = x[batch_indices, mapping_indices]  # (batch_size, output_size, n)
+        # Reshape to (batch_size, output_size, n)
+        mapped_inputs = mapped_flat.reshape(batch_size, self.output_size, self.n)
         
         return mapped_inputs
     

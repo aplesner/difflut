@@ -33,19 +33,17 @@ class LearnableMappingModule(nn.Module):
             output = torch.matmul(x, weights.t())
         else:
             # Hard selection (evaluation mode)
-            # MEMORY OPTIMIZATION: Avoid expanding (batch, output_size, input_size) tensor
+            # MEMORY OPTIMIZATION: Avoid expanding (batch_size, output_size) tensor
+            # Use torch.index_select for efficient gathering without expansion
             hard_indices = torch.argmax(self.W, dim=-1)  # (output_size,)
             
-            # Use advanced indexing to gather without creating huge expanded tensor
-            batch_size = x.shape[0]
-            batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1)  # (batch, 1)
-            batch_indices = batch_indices.expand(-1, self.output_size)  # (batch, output_size)
-            
-            # Expand hard_indices for batch dimension
-            hard_indices_expanded = hard_indices.unsqueeze(0).expand(batch_size, -1)  # (batch, output_size)
-            
-            # Advanced indexing: x[batch_indices, hard_indices]
-            output = x[batch_indices, hard_indices_expanded]  # (batch, output_size)
+            # x: (batch_size, input_size)
+            # hard_indices: (output_size,) with values in range [0, input_size)
+            # We want: output[b, o] = x[b, hard_indices[o]]
+            #
+            # Use index_select to gather along the input_size dimension
+            # This avoids creating expanded intermediate tensors
+            output = torch.index_select(x, 1, hard_indices)  # (batch_size, output_size)
         
         return output
 
