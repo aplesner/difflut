@@ -21,7 +21,12 @@ class BaseLUTLayer(nn.Module, ABC):
                  input_size: int,
                  output_size: int,
                  node_type,
-                 node_kwargs=None):
+                 node_kwargs=None,
+                 flip_probability: float = 0.0,
+                 grad_stabilization: str = 'none',
+                 grad_target_std: float = 1.0,
+                 grad_subtract_mean: bool = False,
+                 grad_epsilon: float = 1e-8):
         super().__init__()
         
         # Validate parameters
@@ -37,8 +42,40 @@ class BaseLUTLayer(nn.Module, ABC):
                 f"This is the number of nodes in the layer."
             )
         
+        # Validate flip_probability
+        if not isinstance(flip_probability, (int, float)) or not (0.0 <= flip_probability <= 1.0):
+            raise ValueError(
+                f"flip_probability must be a float in [0, 1], got {flip_probability}. "
+                f"Example: flip_probability=0.1 for 10% bit flipping during training."
+            )
+        
+        # Validate gradient stabilization parameters
+        valid_grad_modes = ['none', 'layerwise', 'batchwise']
+        if grad_stabilization not in valid_grad_modes:
+            raise ValueError(
+                f"grad_stabilization must be one of {valid_grad_modes}, got '{grad_stabilization}'. "
+                f"'layerwise': normalize per layer, 'batchwise': normalize per batch sample, 'none': disabled"
+            )
+        
+        if not isinstance(grad_target_std, (int, float)) or grad_target_std <= 0:
+            raise ValueError(
+                f"grad_target_std must be a positive number, got {grad_target_std}. "
+                f"Example: grad_target_std=1.0 for unit variance"
+            )
+        
+        if not isinstance(grad_epsilon, (int, float)) or grad_epsilon <= 0:
+            raise ValueError(
+                f"grad_epsilon must be a positive number, got {grad_epsilon}. "
+                f"Used for numerical stability in variance calculation"
+            )
+        
         self.input_size = input_size
         self.output_size = output_size
+        self.flip_probability = flip_probability
+        self.grad_stabilization = grad_stabilization
+        self.grad_target_std = grad_target_std
+        self.grad_subtract_mean = grad_subtract_mean
+        self.grad_epsilon = grad_epsilon
         
         # Create nodes with layer_size parameter - each position gets its own parameters
         # No weight sharing across layer dimension
@@ -128,6 +165,91 @@ class BaseLUTLayer(nn.Module, ABC):
         """Get mapped inputs for nodes"""
         pass
     
+    def _apply_bit_flip(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Apply bit-flip augmentation during training.
+        Randomly flips flip_probability fraction of bits (x -> 1-x).
+        
+        Args:
+            x: Input tensor of shape (batch_size, input_size) with values in [0, 1]
+        
+        Returns:
+            Augmented tensor with same shape
+        """
+        if self.flip_probability <= 0.0 or not self.training:
+            return x
+        
+        # Create random mask: True where we should flip
+        flip_mask = torch.rand_like(x) < self.flip_probability
+        
+        # Flip selected bits: x -> 1 - x
+        x_flipped = torch.where(flip_mask, 1.0 - x, x)
+        
+        return x_flipped
+    
+    def _apply_gradient_stabilization(self, grad: torch.Tensor) -> torch.Tensor:
+        """
+        Apply gradient stabilization (rescaling) to normalize gradient variance.
+        
+        Implements layer-wise or batch-wise gradient rescaling as described in:
+        Definition [Layer-wise Gradient Rescaling]:
+        
+        For layer gradients ∇c^l, compute variance v_l and optionally mean μ_l,
+        then rescale: ∇c_i^l ← (∇c_i^l - μ_l) / √(v_l + ε) · √v_target
+        
+        Args:
+            grad: Gradient tensor of shape (batch_size, output_size)
+                 For layer output before it's reshaped
+        
+        Returns:
+            Rescaled gradient with same shape
+        """
+        if self.grad_stabilization == 'none' or not self.training:
+            return grad
+        
+        if grad is None:
+            return grad
+        
+        if self.grad_stabilization == 'layerwise':
+            # Layer-wise: normalize across all elements in the layer
+            # Shape: (batch_size, output_size) → treat as one layer
+            
+            # Compute mean (optional)
+            if self.grad_subtract_mean:
+                mu = grad.mean()
+                grad_centered = grad - mu
+            else:
+                grad_centered = grad
+            
+            # Compute variance
+            variance = (grad_centered ** 2).mean()
+            
+            # Rescale: normalize to unit variance, then scale to target
+            grad_rescaled = grad_centered / torch.sqrt(variance + self.grad_epsilon) * torch.sqrt(torch.tensor(self.grad_target_std))
+            
+            return grad_rescaled
+        
+        elif self.grad_stabilization == 'batchwise':
+            # Batch-wise: normalize per sample across the layer dimension
+            # Shape: (batch_size, output_size) → normalize each batch element independently
+            
+            # Compute mean per batch sample (optional)
+            if self.grad_subtract_mean:
+                mu = grad.mean(dim=1, keepdim=True)  # (batch_size, 1)
+                grad_centered = grad - mu
+            else:
+                grad_centered = grad
+            
+            # Compute variance per batch sample
+            variance = (grad_centered ** 2).mean(dim=1, keepdim=True)  # (batch_size, 1)
+            
+            # Rescale each batch sample independently
+            grad_rescaled = grad_centered / torch.sqrt(variance + self.grad_epsilon) * torch.sqrt(torch.tensor(self.grad_target_std))
+            
+            return grad_rescaled
+        
+        return grad
+    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the layer.
@@ -135,6 +257,8 @@ class BaseLUTLayer(nn.Module, ABC):
         Accepts 2D input (batch_size, input_size) and maps it to 
         (batch_size, output_size, node.num_inputs) before passing to the single node.
         The node handles parallelization across output_size using CUDA kernels.
+        
+        During training, applies bit-flip augmentation if flip_probability > 0.
         
         Args:
             x: Input tensor of shape (batch_size, input_size)
@@ -148,6 +272,10 @@ class BaseLUTLayer(nn.Module, ABC):
         """
         # Validate input dimensions
         self._validate_input_dims(x)
+        
+        # Apply bit-flip augmentation during training
+        if self.training and self.flip_probability > 0.0:
+            x = self._apply_bit_flip(x)
         
         # Get mapped inputs: (batch_size, output_size, n)
         # where n = node.num_inputs
@@ -163,6 +291,10 @@ class BaseLUTLayer(nn.Module, ABC):
         # In most cases output_dim=1, so this just squeezes out the last dimension
         batch_size = output.shape[0]
         output = output.view(batch_size, -1)
+        
+        # Register gradient stabilization hook if enabled
+        if self.grad_stabilization != 'none' and self.training and output.requires_grad:
+            output.register_hook(self._apply_gradient_stabilization)
         
         return output
     

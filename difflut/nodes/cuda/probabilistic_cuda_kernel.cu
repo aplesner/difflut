@@ -3,7 +3,7 @@
 #include <cuda_runtime.h>
 #include <vector>
 
-// Simplified forward kernel - one block per (batch, layer) pair
+// Optimized forward kernel - one block per (batch, layer) pair
 __global__ void
 probabilistic_cuda_forward_kernel(
     const float* __restrict__ input,        // (batch_size, layer_size, input_dim)
@@ -29,23 +29,27 @@ probabilistic_cuda_forward_kernel(
     
     const int tid = threadIdx.x;
     const int block_size = blockDim.x;
-    const float temp = fmaxf(temperature, 1e-6f);
+    const float temp_inv = 1.0f / fmaxf(temperature, 1e-6f);  // Precompute inverse
     
-    // Load inputs (clamp to [0,1])
+    // Load inputs (clamp to [0,1]) - coalesced access
     if (tid < input_dim) {
-        float val = input[batch_idx * layer_size * input_dim + layer_idx * input_dim + tid];
+        const int input_offset = batch_idx * layer_size * input_dim + layer_idx * input_dim + tid;
+        float val = input[input_offset];
         s_input[tid] = fmaxf(0.0f, fminf(1.0f, val));
     }
     
     __syncthreads();
     
     // Compute probabilities: Pr(a|x) = Π_j [x_j^a_j * (1-x_j)^(1-a_j)]
+    // Optimized with reduced branching
     for (int addr = tid; addr < lut_size; addr += block_size) {
         float prob = 1.0f;
+        #pragma unroll 4
         for (int l = 0; l < input_dim; ++l) {
-            int a_l = (addr >> l) & 1;  // LSB-first bit extraction
-            float x_l = s_input[l];
-            prob *= (a_l == 1) ? x_l : (1.0f - x_l);
+            const int a_l = (addr >> l) & 1;  // LSB-first bit extraction
+            const float x_l = s_input[l];
+            // Branchless: prob *= (a_l ? x_l : (1-x_l))
+            prob *= x_l * a_l + (1.0f - x_l) * (1 - a_l);
         }
         s_probs[addr] = prob;
     }
@@ -57,12 +61,16 @@ probabilistic_cuda_forward_kernel(
     
     for (int dim_idx = tid; dim_idx < output_dim; dim_idx += block_size) {
         float result = 0.0f;
+        // Sequential access pattern - better cache utilization
+        #pragma unroll 4
         for (int addr = 0; addr < lut_size; ++addr) {
-            float raw_weight = raw_weights[weights_base + addr * output_dim + dim_idx];
-            float lut_weight = 1.0f / (1.0f + expf(-raw_weight / temp));  // sigmoid
+            const float raw_weight = raw_weights[weights_base + addr * output_dim + dim_idx];
+            const float scaled_weight = raw_weight * temp_inv;  // Use precomputed inverse
+            const float lut_weight = 1.0f / (1.0f + expf(-scaled_weight));  // sigmoid
             result += lut_weight * s_probs[addr];
         }
-        output[batch_idx * layer_size * output_dim + layer_idx * output_dim + dim_idx] = result;
+        const int output_offset = batch_idx * layer_size * output_dim + layer_idx * output_dim + dim_idx;
+        output[output_offset] = result;
     }
 }
 
@@ -104,7 +112,7 @@ torch::Tensor probabilistic_cuda_forward(
 }
 
 
-// Simplified backward input kernel
+// Optimized backward input kernel
 __global__ void
 probabilistic_cuda_backward_input_kernel(
     const float* __restrict__ input,
@@ -130,28 +138,32 @@ probabilistic_cuda_backward_input_kernel(
     
     const int tid = threadIdx.x;
     const int block_size = blockDim.x;
-    const float temp = fmaxf(temperature, 1e-6f);
+    const float temp_inv = 1.0f / fmaxf(temperature, 1e-6f);  // Precompute inverse
     
-    // Load inputs (clamp to [0,1])
+    // Load inputs (clamp to [0,1]) - coalesced access
     if (tid < input_dim) {
-        float val = input[batch_idx * layer_size * input_dim + layer_idx * input_dim + tid];
+        const int input_offset = batch_idx * layer_size * input_dim + layer_idx * input_dim + tid;
+        float val = input[input_offset];
         s_input[tid] = fmaxf(0.0f, fminf(1.0f, val));
     }
     
-    // Load grad_output
+    // Load grad_output - coalesced access
     if (tid < output_dim) {
-        s_grad_output[tid] = grad_output[batch_idx * layer_size * output_dim + layer_idx * output_dim + tid];
+        const int grad_offset = batch_idx * layer_size * output_dim + layer_idx * output_dim + tid;
+        s_grad_output[tid] = grad_output[grad_offset];
     }
     
     __syncthreads();
     
-    // Compute and cache probabilities
+    // Compute and cache probabilities - optimized with reduced branching
     for (int addr = tid; addr < lut_size; addr += block_size) {
         float prob = 1.0f;
+        #pragma unroll 4
         for (int l = 0; l < input_dim; ++l) {
-            int a_l = (addr >> l) & 1;
-            float x_l = s_input[l];
-            prob *= (a_l == 1) ? x_l : (1.0f - x_l);
+            const int a_l = (addr >> l) & 1;
+            const float x_l = s_input[l];
+            // Branchless computation
+            prob *= x_l * a_l + (1.0f - x_l) * (1 - a_l);
         }
         s_probs[addr] = prob;
     }
@@ -164,36 +176,36 @@ probabilistic_cuda_backward_input_kernel(
     for (int input_idx = tid; input_idx < input_dim; input_idx += block_size) {
         float grad_sum = 0.0f;
         const float x_l = s_input[input_idx];
+        const float x_l_inv = (x_l > 1e-6f) ? (1.0f / x_l) : 0.0f;  // Precompute inverse
+        const float one_minus_x_inv = ((1.0f - x_l) > 1e-6f) ? (1.0f / (1.0f - x_l)) : 0.0f;
         
+        #pragma unroll 2
         for (int dim_idx = 0; dim_idx < output_dim; dim_idx++) {
             const float grad_out = s_grad_output[dim_idx];
             
+            #pragma unroll 4
             for (int addr = 0; addr < lut_size; ++addr) {
-                float prob = s_probs[addr];
+                const float prob = s_probs[addr];
                 
-                // Sigmoid
-                float raw_weight = raw_weights[weights_base + addr * output_dim + dim_idx];
-                float sigmoid_val = 1.0f / (1.0f + expf(-raw_weight / temp));
+                // Sigmoid - use precomputed inverse temperature
+                const float raw_weight = raw_weights[weights_base + addr * output_dim + dim_idx];
+                const float scaled_weight = raw_weight * temp_inv;
+                const float sigmoid_val = 1.0f / (1.0f + expf(-scaled_weight));
                 
-                // Derivative of probability w.r.t. this input
-                int a_l = (addr >> input_idx) & 1;
-                
-                float dprob_dx = 0.0f;
-                if (a_l == 1) {
-                    if (x_l > 1e-6f) dprob_dx = prob / x_l;
-                } else {
-                    if ((1.0f - x_l) > 1e-6f) dprob_dx = -prob / (1.0f - x_l);
-                }
+                // Derivative of probability w.r.t. this input - branchless
+                const int a_l = (addr >> input_idx) & 1;
+                const float dprob_dx = prob * (a_l * x_l_inv - (1 - a_l) * one_minus_x_inv);
                 
                 grad_sum += sigmoid_val * dprob_dx * grad_out;
             }
         }
         
-        grad_input[batch_idx * layer_size * input_dim + layer_idx * input_dim + input_idx] = grad_sum;
+        const int grad_input_offset = batch_idx * layer_size * input_dim + layer_idx * input_dim + input_idx;
+        grad_input[grad_input_offset] = grad_sum;
     }
 }
 
-// Simplified backward weights kernel
+// Optimized backward weights kernel
 __global__ void
 probabilistic_cuda_backward_weights_kernel(
     const float* __restrict__ input,
@@ -210,6 +222,7 @@ probabilistic_cuda_backward_weights_kernel(
     const int tid = threadIdx.x;
     const int block_size = blockDim.x;
     const float temp = fmaxf(temperature, 1e-6f);
+    const float temp_inv = 1.0f / temp;  // Precompute inverse
     
     // Each block handles one layer
     const int layer_idx = blockIdx.x;
@@ -223,29 +236,37 @@ probabilistic_cuda_backward_weights_kernel(
         const int addr = weight_idx / output_dim;
         const int dim_idx = weight_idx % output_dim;
         
-        float grad_sum = 0.0f;
+        // Compute sigmoid and its derivative once (hoisted out of loop)
+        const float raw_weight = raw_weights[weights_base + weight_idx];
+        const float scaled_weight = raw_weight * temp_inv;
+        const float exp_neg = expf(-scaled_weight);
+        const float sigmoid_val = 1.0f / (1.0f + exp_neg);
+        const float sigmoid_grad = sigmoid_val * (1.0f - sigmoid_val) * temp_inv;
         
-        // Compute sigmoid and its derivative
-        float raw_weight = raw_weights[weights_base + weight_idx];
-        float sigmoid_val = 1.0f / (1.0f + expf(-raw_weight / temp));
-        float sigmoid_grad = sigmoid_val * (1.0f - sigmoid_val) / temp;
+        float grad_sum = 0.0f;
         
         // Accumulate over batch
         for (int batch_idx = 0; batch_idx < batch_size; ++batch_idx) {
-            // Compute probability for this batch element
+            // Compute probability for this batch element - optimized
             float prob = 1.0f;
+            const int input_base = batch_idx * layer_size * input_dim + layer_idx * input_dim;
+            
+            #pragma unroll 4
             for (int l = 0; l < input_dim; ++l) {
-                int a_l = (addr >> l) & 1;
-                float x_l = input[batch_idx * layer_size * input_dim + layer_idx * input_dim + l];
+                const int a_l = (addr >> l) & 1;
+                float x_l = input[input_base + l];
                 x_l = fmaxf(0.0f, fminf(1.0f, x_l));
-                prob *= (a_l == 1) ? x_l : (1.0f - x_l);
+                // Branchless computation
+                prob *= x_l * a_l + (1.0f - x_l) * (1 - a_l);
             }
             
-            float grad_out = grad_output[batch_idx * layer_size * output_dim + layer_idx * output_dim + dim_idx];
-            grad_sum += prob * sigmoid_grad * grad_out;
+            const int grad_output_offset = batch_idx * layer_size * output_dim + layer_idx * output_dim + dim_idx;
+            const float grad_out = grad_output[grad_output_offset];
+            grad_sum += prob * grad_out;  // Multiply by sigmoid_grad outside loop
         }
         
-        grad_weights[weights_base + weight_idx] = grad_sum;
+        // Apply sigmoid gradient once to accumulated sum
+        grad_weights[weights_base + weight_idx] = grad_sum * sigmoid_grad;
     }
 }
 

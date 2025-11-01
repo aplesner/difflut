@@ -9,7 +9,7 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
 ## ✨ Features
 
 - **Modular Architecture**: Encoders, LUT nodes, and layers as composable building blocks
-- **Multiple Node Types**: LinearLUT, PolyLUT, NeuralLUT, DWN, Probabilistic, Fourier, Hybrid, Gradient-Stabilized
+- **Multiple Node Types**: LinearLUT, PolyLUT, NeuralLUT, DWN, Probabilistic, Fourier, Hybrid
 - **Input Encoders**: Thermometer, Gaussian, Gray, OneHot, Binary, Logarithmic, and more
 - **Flexible Layers**: Random, Learnable, Grouped, and Residual connectivity patterns
 - **CUDA Acceleration**: Optional GPU support for compute-intensive nodes

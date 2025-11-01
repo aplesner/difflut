@@ -5,99 +5,6 @@ from .base_layer import BaseLUTLayer
 from ..registry import register_layer
 
 
-class RandomMappingFunction(torch.autograd.Function):
-    """
-    Custom autograd function that fuses random mapping with node forward pass.
-    This avoids storing the intermediate mapped_inputs tensor for backward pass,
-    significantly reducing memory usage during backpropagation.
-    """
-    
-    @staticmethod
-    def forward(ctx, x, mapping, node, output_size, n):
-        """
-        Forward pass: map inputs and pass to node in one operation.
-        
-        Args:
-            x: Input tensor (batch_size, input_size)
-            mapping: Mapping buffer (output_size, n) with indices into input_size
-            node: The LUT node module
-            output_size: Number of nodes
-            n: Node input dimension
-        
-        Returns:
-            output: Result of node forward pass (batch_size, output_size, output_dim)
-        """
-        batch_size = x.shape[0]
-        
-        # Perform mapping: (batch_size, input_size) -> (batch_size, output_size, n)
-        mapping_flat = mapping.reshape(-1)
-        mapped_flat = torch.index_select(x, 1, mapping_flat)
-        mapped_inputs = mapped_flat.reshape(batch_size, output_size, n)
-        
-        # Forward through node
-        output = node(mapped_inputs)
-        
-        # Save for backward: save references to inputs and mapping info
-        # We save the mapping indices and x, but NOT the intermediate mapped_inputs
-        ctx.save_for_backward(x, mapping)
-        ctx.node = node
-        ctx.output_size = output_size
-        ctx.n = n
-        
-        return output
-    
-    @staticmethod
-    def backward(ctx, grad_output):
-        """
-        Backward pass: recompute mapping during backprop to avoid storing intermediate.
-        
-        Args:
-            grad_output: Gradient w.r.t. output (batch_size, output_size, output_dim)
-        
-        Returns:
-            Gradients for: x, mapping, node, output_size, n
-        """
-        x, mapping = ctx.saved_tensors
-        node = ctx.node
-        output_size = ctx.output_size
-        n = ctx.n
-        batch_size = x.shape[0]
-        
-        # Recompute mapping in backward pass
-        mapping_flat = mapping.reshape(-1)
-        mapped_flat = torch.index_select(x, 1, mapping_flat)
-        mapped_inputs = mapped_flat.reshape(batch_size, output_size, n)
-        
-        # Set up for backward through node
-        mapped_inputs.requires_grad_(True)
-        
-        # Recompute node forward to get intermediate values for backward
-        with torch.enable_grad():
-            output = node(mapped_inputs)
-        
-        # Compute gradient w.r.t. mapped_inputs using autograd.grad
-        # This properly handles the gradient flow through node parameters
-        grad_mapped_inputs, = torch.autograd.grad(
-            outputs=output,
-            inputs=mapped_inputs,
-            grad_outputs=grad_output,
-            retain_graph=False,
-            create_graph=False
-        )
-        
-        # Backward through mapping: (batch_size, output_size, n) -> (batch_size, input_size)
-        # We need to scatter gradients back to the original input positions
-        grad_x = torch.zeros_like(x)
-        
-        mapping_expanded = mapping.unsqueeze(0).expand(batch_size, -1, -1)
-        
-        # Scatter_add gradients back to input positions
-        grad_x.scatter_add_(1, mapping_expanded.reshape(batch_size, -1), 
-                            grad_mapped_inputs.reshape(batch_size, -1))
-        
-        # No gradients for other inputs
-        return grad_x, None, None, None, None
-
 @register_layer("random")
 class RandomLayer(BaseLUTLayer):
     """
@@ -105,9 +12,8 @@ class RandomLayer(BaseLUTLayer):
     Each input is used at least once per node before being reused.
     Connections are randomly initialized and remain fixed during training.
     
-    MEMORY OPTIMIZATION: Uses fused mapping+forward operation to avoid storing
-    intermediate activations (batch_size, output_size, n) during backward pass.
-    For large batch sizes, this can reduce memory by ~50-70%.
+    Uses efficient index_select operations to minimize memory during mapping,
+    avoiding large intermediate tensors.
     """
     
     def __init__(self, 
@@ -116,7 +22,11 @@ class RandomLayer(BaseLUTLayer):
                  node_type: Type[nn.Module],
                  node_kwargs: Optional[Dict[str, Any]] = None,
                  seed: int = 42,
-                 use_fused: bool = True):
+                 flip_probability: float = 0.0,
+                 grad_stabilization: str = 'none',
+                 grad_target_std: float = 1.0,
+                 grad_subtract_mean: bool = False,
+                 grad_epsilon: float = 1e-8):
         """
         Args:
             input_size: Size of input vector (from encoder or previous layer)
@@ -126,14 +36,17 @@ class RandomLayer(BaseLUTLayer):
             node_kwargs: Additional node arguments (should include input_dim and output_dim)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
-            use_fused: If True, use fused mapping+forward operation to save memory (default: True)
-                      If False, use standard get_mapping() approach (higher memory but simpler)
+            flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
+            grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
+            grad_target_std: Target standard deviation for gradient rescaling
+            grad_subtract_mean: Whether to subtract mean before rescaling
+            grad_epsilon: Small constant for numerical stability
         """
         self.seed = seed
-        self.use_fused = use_fused
         
         # Initialize parent (n will be extracted from created nodes)
-        super().__init__(input_size, output_size, node_type, node_kwargs)
+        super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
+                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
         
         # Initialize the random mapping
         self._init_mapping()
@@ -212,12 +125,7 @@ class RandomLayer(BaseLUTLayer):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass with optional memory optimization through fused operation.
-        
-        When use_fused=True (default), uses a custom autograd function that fuses
-        the mapping and node forward pass, avoiding storage of intermediate
-        (batch_size, output_size, n) activation tensor. This significantly reduces
-        memory usage during backpropagation for large batch sizes.
+        Forward pass through random mapping and node.
         
         Args:
             x: Input tensor of shape (batch_size, input_size)
@@ -228,16 +136,10 @@ class RandomLayer(BaseLUTLayer):
         # Validate input dimensions
         self._validate_input_dims(x)
         
-        if self.use_fused:
-            # Use fused mapping + node forward to avoid storing intermediate activations
-            # This is much more memory-efficient for large batches during backprop
-            output = RandomMappingFunction.apply(x, self._mapping, self.node, 
-                                                  self.output_size, self.n)
-        else:
-            # Standard approach: call get_mapping then node
-            # Higher memory usage but easier to debug
-            mapped_inputs = self.get_mapping(x)
-            output = self.node(mapped_inputs)
+        # Standard approach: get mapping then forward through node
+        # PyTorch handles gradients automatically
+        mapped_inputs = self.get_mapping(x)
+        output = self.node(mapped_inputs)
         
         # Output shape: (batch_size, output_size, output_dim)
         # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
@@ -252,6 +154,7 @@ class RandomLayer(BaseLUTLayer):
     
     def extra_repr(self) -> str:
         """String representation for print(model)."""
-        fused_str = "fused" if self.use_fused else "standard"
+        flip_str = f", flip_prob={self.flip_probability}" if self.flip_probability > 0 else ""
+        grad_str = f", grad_stab={self.grad_stabilization}" if self.grad_stabilization != 'none' else ""
         return f"input_size={self.input_size}, output_size={self.output_size}, " \
-               f"n={self.n}, seed={self.seed}, mapping=random, mode={fused_str}"
+               f"n={self.n}, seed={self.seed}, mapping=random{flip_str}{grad_str}"
