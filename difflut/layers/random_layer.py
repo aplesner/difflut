@@ -85,6 +85,10 @@ class RandomLayer(BaseLUTLayer):
         # Register as buffer (not a parameter, but saved with model)
         self.register_buffer('_mapping', mapping)
         
+        # OPTIMIZATION: Pre-compute flattened mapping for faster indexing
+        # This avoids repeated reshape operations during forward pass
+        self.register_buffer('_mapping_flat', mapping.reshape(-1))
+        
         # Restore original RNG state
         torch.set_rng_state(rng_state)
 
@@ -110,13 +114,11 @@ class RandomLayer(BaseLUTLayer):
         # Use torch.index_select to efficiently gather along the input dimension without 
         # expanding intermediate tensors.
         
-        # Flatten mapping to (output_size * n,) for single index_select operation
-        mapping_flat = self._mapping.reshape(-1)  # (output_size * n,)
-        
+        # OPTIMIZATION: Use pre-computed flattened mapping to avoid reshape during forward pass
         # Index select along input dimension: x -> (batch_size, output_size * n)
         # x: (batch_size, input_size)
-        # Select the indices from mapping_flat along dimension 1
-        mapped_flat = torch.index_select(x, 1, mapping_flat)  # (batch_size, output_size * n)
+        # Select the indices from pre-computed _mapping_flat along dimension 1
+        mapped_flat = torch.index_select(x, 1, self._mapping_flat)  # (batch_size, output_size * n)
         
         # Reshape to (batch_size, output_size, n)
         mapped_inputs = mapped_flat.reshape(batch_size, self.output_size, self.n)

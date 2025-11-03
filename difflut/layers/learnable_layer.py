@@ -22,28 +22,47 @@ class LearnableMappingModule(nn.Module):
         # Weight matrix
         self.W = nn.Parameter(torch.randn(output_size, input_size))
         nn.init.xavier_uniform_(self.W)
+        
+        # Cache for hard indices (computed once when switching to eval mode)
+        self.register_buffer('_cached_hard_indices', None)
+        self._cache_valid = False
+    
+    def train(self, mode: bool = True):
+        """Override train() to invalidate cache when switching modes."""
+        was_training = self.training
+        super().train(mode)
+        
+        # Invalidate cache when switching from eval to train
+        if mode and not was_training:
+            self._cache_valid = False
+        
+        return self
+    
+    def _compute_hard_indices(self) -> torch.Tensor:
+        """Compute hard indices from current weights."""
+        with torch.no_grad():
+            return torch.argmax(self.W, dim=-1)  # (output_size,)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Soft selection (training) or hard selection (eval).
         """
         if self.training:
-            # Soft selection
+            # Soft selection - no caching needed
             weights = F.softmax(self.W / self.tau, dim=-1)
             output = torch.matmul(x, weights.t())
         else:
             # Hard selection (evaluation mode)
-            # MEMORY OPTIMIZATION: Avoid expanding (batch_size, output_size) tensor
-            # Use torch.index_select for efficient gathering without expansion
-            hard_indices = torch.argmax(self.W, dim=-1)  # (output_size,)
+            # OPTIMIZATION: Cache hard indices to avoid repeated argmax computation
+            if not self._cache_valid or self._cached_hard_indices is None:
+                self._cached_hard_indices = self._compute_hard_indices()
+                self._cache_valid = True
             
+            # MEMORY OPTIMIZATION: Use torch.index_select for efficient gathering
             # x: (batch_size, input_size)
-            # hard_indices: (output_size,) with values in range [0, input_size)
-            # We want: output[b, o] = x[b, hard_indices[o]]
-            #
-            # Use index_select to gather along the input_size dimension
-            # This avoids creating expanded intermediate tensors
-            output = torch.index_select(x, 1, hard_indices)  # (batch_size, output_size)
+            # _cached_hard_indices: (output_size,) with values in range [0, input_size)
+            # We want: output[b, o] = x[b, _cached_hard_indices[o]]
+            output = torch.index_select(x, 1, self._cached_hard_indices)  # (batch_size, output_size)
         
         return output
 
@@ -187,6 +206,10 @@ class LearnableLayer(BaseLUTLayer):
         
         # Update the mapping module's tau
         self.mapping.tau = self.tau
+        
+        # Invalidate cache since tau change might affect hard selection
+        # (though in practice, argmax is deterministic regardless of tau)
+        self.mapping._cache_valid = False
 
     def extra_repr(self) -> str:
         """String representation for print(model)."""
