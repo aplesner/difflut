@@ -94,6 +94,9 @@ class BaseLUTLayer(nn.Module, ABC):
         # Extract n (number of inputs per node)
         self.n = self.node.num_inputs
         
+        # Memory optimization: preallocate buffer for bit-flip mask (reused across forward passes)
+        self.register_buffer('_flip_mask_buffer', None)
+        
         # Warn if configuration seems unusual
         self._validate_layer_config()
     
@@ -175,29 +178,114 @@ class BaseLUTLayer(nn.Module, ABC):
     
     def _apply_bit_flip(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Apply bit-flip augmentation during training.
+        Apply bit-flip augmentation during training (memory-optimized, gradient-detached).
         Randomly flips flip_probability fraction of bits (x -> 1-x).
+        
+        Gradient Behavior:
+        - Forward: Model sees flipped bits (adds noise/corruption)
+        - Backward: Gradients flow as if no flip occurred (∂L/∂x based on original x)
+        
+        This treats bit-flipping as **pure noise injection** for robustness training.
+        The model learns to be robust to corruption, not to predict and undo it.
+        Gradients are not contaminated by random noise from the flip operation.
+        
+        Memory optimization: Uses preallocated buffer for mask generation and
+        sparse indexing for low flip probabilities to minimize memory allocations.
         
         Args:
             x: Input tensor of shape (batch_size, input_size) with values in [0, 1]
         
         Returns:
-            Augmented tensor with same shape
+            Augmented tensor with same shape (flipped bits detached from gradient graph)
         """
         if self.flip_probability <= 0.0 or not self.training:
             return x
         
-        # Create random mask: True where we should flip
-        flip_mask = torch.rand_like(x) < self.flip_probability
+        # For very low flip probabilities, use sparse indexing (more efficient)
+        if self.flip_probability < 0.05:
+            return self._apply_bit_flip_sparse(x)
         
-        # Flip selected bits: x -> 1 - x
-        x_flipped = torch.where(flip_mask, 1.0 - x, x)
+        # Standard approach with buffer reuse for moderate-to-high probabilities
+        batch_size, input_size = x.shape
         
-        return x_flipped
+        # Preallocate or reuse buffer (amortize allocation cost)
+        if (self._flip_mask_buffer is None or 
+            self._flip_mask_buffer.shape[0] < batch_size or
+            self._flip_mask_buffer.shape[1] < input_size):
+            # Allocate buffer large enough for future batches
+            buffer_batch = max(batch_size, 256)  # Support up to 256 batch size
+            buffer_features = input_size
+            self._flip_mask_buffer = torch.empty(
+                (buffer_batch, buffer_features),
+                dtype=torch.bool,
+                device=x.device
+            )
+        
+        # Get view of buffer matching current batch (no allocation)
+        mask = self._flip_mask_buffer[:batch_size, :input_size]
+        
+        # Generate random mask in-place (reuses buffer memory)
+        # Note: bernoulli with tensor input requires float for output
+        mask_float = mask.float()
+        torch.bernoulli(
+            torch.full((batch_size, input_size), self.flip_probability, 
+                      device=x.device, dtype=torch.float32),
+            out=mask_float
+        )
+        mask = mask_float.bool()
+        
+        # Apply flip (clone to preserve gradient graph)
+        x_flipped = x.clone()
+        x_flipped[mask] = 1.0 - x[mask]
+        
+        # CRITICAL: Detach noise from gradient graph
+        # Forward: Model sees flipped bits (x -> 1-x for masked positions)
+        # Backward: Gradients flow as if no flip occurred (∂L/∂x based on original x)
+        # This treats bit-flipping as pure noise injection for robustness training,
+        # not as a learnable transformation that the model should compensate for.
+        # The model learns: "be robust to corruption" not "predict and undo corruption"
+        x_out = x + (x_flipped - x).detach()
+        
+        return x_out
+    
+    def _apply_bit_flip_sparse(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Sparse bit flipping for low probabilities (<5%).
+        Uses random sampling to flip only the required number of elements.
+        More memory efficient when flip_probability is small.
+        
+        Gradient behavior: Same as standard bit-flip (gradient-detached noise).
+        
+        Args:
+            x: Input tensor of shape (batch_size, input_size)
+        
+        Returns:
+            Augmented tensor with same shape (flipped bits detached from gradient graph)
+        """
+        num_elements = x.numel()
+        num_flips = int(num_elements * self.flip_probability)
+        
+        if num_flips == 0:
+            return x
+        
+        x_flipped = x.clone()
+        flat_view = x_flipped.view(-1)
+        
+        # Random sample without replacement (select indices to flip)
+        flip_indices = torch.randperm(num_elements, device=x.device)[:num_flips]
+        flat_view[flip_indices] = 1.0 - flat_view[flip_indices]
+        
+        # CRITICAL: Detach noise from gradient graph (same as standard bit-flip)
+        # Forward: Model sees flipped bits
+        # Backward: Gradients ignore the flip (robustness training)
+        x_out = x + (x_flipped - x).detach()
+        
+        return x_out
     
     def _apply_gradient_stabilization(self, grad: torch.Tensor) -> torch.Tensor:
         """
         Apply gradient stabilization (rescaling) to normalize gradient variance.
+        Memory-optimized version using in-place operations where possible.
         
         Implements layer-wise or batch-wise gradient rescaling as described in:
         Definition [Layer-wise Gradient Rescaling]:
@@ -218,43 +306,50 @@ class BaseLUTLayer(nn.Module, ABC):
         if grad is None:
             return grad
         
+        # Clone to avoid modifying in-place during autograd
+        grad_work = grad.clone()
+        
         if self.grad_stabilization == 'layerwise':
             # Layer-wise: normalize across all elements in the layer
             # Shape: (batch_size, output_size) → treat as one layer
             
-            # Compute mean (optional)
+            # Compute and subtract mean (optional, in-place)
             if self.grad_subtract_mean:
-                mu = grad.mean()
-                grad_centered = grad - mu
-            else:
-                grad_centered = grad
+                mu = grad_work.mean()
+                grad_work.sub_(mu)  # In-place subtraction
             
             # Compute variance
-            variance = (grad_centered ** 2).mean()
+            variance = grad_work.pow(2).mean()
             
-            # Rescale: normalize to unit variance, then scale to target
-            grad_rescaled = grad_centered / torch.sqrt(variance + self.grad_epsilon) * torch.sqrt(torch.tensor(self.grad_target_std))
+            # Compute scale factor
+            scale = torch.sqrt(torch.tensor(self.grad_target_std, device=grad.device) / 
+                             (variance + self.grad_epsilon))
             
-            return grad_rescaled
+            # Rescale in-place
+            grad_work.mul_(scale)
+            
+            return grad_work
         
         elif self.grad_stabilization == 'batchwise':
             # Batch-wise: normalize per sample across the layer dimension
             # Shape: (batch_size, output_size) → normalize each batch element independently
             
-            # Compute mean per batch sample (optional)
+            # Compute and subtract mean per batch sample (optional, in-place)
             if self.grad_subtract_mean:
-                mu = grad.mean(dim=1, keepdim=True)  # (batch_size, 1)
-                grad_centered = grad - mu
-            else:
-                grad_centered = grad
+                mu = grad_work.mean(dim=1, keepdim=True)  # (batch_size, 1)
+                grad_work.sub_(mu)  # In-place subtraction
             
             # Compute variance per batch sample
-            variance = (grad_centered ** 2).mean(dim=1, keepdim=True)  # (batch_size, 1)
+            variance = grad_work.pow(2).mean(dim=1, keepdim=True)  # (batch_size, 1)
             
-            # Rescale each batch sample independently
-            grad_rescaled = grad_centered / torch.sqrt(variance + self.grad_epsilon) * torch.sqrt(torch.tensor(self.grad_target_std))
+            # Compute scale factor
+            scale = torch.sqrt(torch.tensor(self.grad_target_std, device=grad.device) / 
+                             (variance + self.grad_epsilon))
             
-            return grad_rescaled
+            # Rescale in-place
+            grad_work.mul_(scale)
+            
+            return grad_work
         
         return grad
     

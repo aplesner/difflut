@@ -12,20 +12,24 @@ class LearnableMappingModule(nn.Module):
     """
     Helper module for learnable mapping (not registered, used internally).
     Provides soft selection during training and hard selection during evaluation.
+    Uses einsum-based approach for evaluation mode to match RandomLayer optimization.
+    
+    Note: output_size here is actually (layer_output_size * n) - the total number of
+    selections needed. This module doesn't know about the layer structure.
     """
     
     def __init__(self, input_size: int, output_size: int, tau: float = 0.001):
         super().__init__()
         self.input_size = input_size
-        self.output_size = output_size
+        self.output_size = output_size  # This is actually layer_output_size * n
         self.tau = tau
         
-        # Weight matrix
+        # Weight matrix: (output_size, input_size) where output_size = layer_output_size * n
         self.W = nn.Parameter(torch.randn(output_size, input_size))
         nn.init.xavier_uniform_(self.W)
         
-        # Cache for hard indices (computed once when switching to eval mode)
-        self.register_buffer('_cached_hard_indices', None)
+        # Cache for hard selection mask (computed once when switching to eval mode)
+        self.register_buffer('_cached_hard_mask', None)
         self._cache_valid = False
     
     def train(self, mode: bool = True):
@@ -39,31 +43,56 @@ class LearnableMappingModule(nn.Module):
         
         return self
     
-    def _compute_hard_indices(self) -> torch.Tensor:
-        """Compute hard indices from current weights."""
+    def _compute_hard_mask(self) -> torch.Tensor:
+        """
+        Compute hard selection mask from current weights.
+        Creates a binary mask for einsum-based gathering.
+        Returns: (input_size, output_size) mask where mask[i, o] = 1 if input i is selected for output o
+        Note: output_size here is actually layer_output_size * n
+        """
         with torch.no_grad():
-            return torch.argmax(self.W, dim=-1)  # (output_size,)
+            # Get hard indices: which input is selected for each output position
+            # W shape: (output_size, input_size) where output_size = layer_output_size * n
+            hard_indices = torch.argmax(self.W, dim=-1)  # (output_size,)
+            
+            # Convert to binary mask: (input_size, output_size)
+            mask = torch.zeros((self.input_size, self.output_size), dtype=torch.uint8, device=self.W.device)
+            
+            # Set mask[hard_indices[o], o] = 1 for each output o
+            output_indices = torch.arange(self.output_size, device=self.W.device)
+            mask[hard_indices, output_indices] = 1
+            
+            return mask
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Soft selection (training) or hard selection (eval).
+        Uses efficient operations for both modes.
+        Training: softmax + matmul (already efficient)
+        Eval: einsum with binary mask (matches RandomLayer optimization)
         """
         if self.training:
-            # Soft selection - no caching needed
+            # Soft selection - matrix multiplication is already efficient
             weights = F.softmax(self.W / self.tau, dim=-1)
             output = torch.matmul(x, weights.t())
         else:
             # Hard selection (evaluation mode)
-            # OPTIMIZATION: Cache hard indices to avoid repeated argmax computation
-            if not self._cache_valid or self._cached_hard_indices is None:
-                self._cached_hard_indices = self._compute_hard_indices()
+            # OPTIMIZATION: Cache hard mask to avoid repeated argmax computation
+            if not self._cache_valid or self._cached_hard_mask is None:
+                self._cached_hard_mask = self._compute_hard_mask()
                 self._cache_valid = True
             
-            # MEMORY OPTIMIZATION: Use torch.index_select for efficient gathering
-            # x: (batch_size, input_size)
-            # _cached_hard_indices: (output_size,) with values in range [0, input_size)
-            # We want: output[b, o] = x[b, _cached_hard_indices[o]]
-            output = torch.index_select(x, 1, self._cached_hard_indices)  # (batch_size, output_size)
+            # OPTIMIZATION: Use einsum with binary mask (same as RandomLayer)
+            # x: (batch_size, input_size) -> (b, i)
+            # _cached_hard_mask: (input_size, output_size) -> (i, o)
+            # Result: (batch_size, output_size) -> (b, o)
+            #
+            # einsum('bi,io->bo') means:
+            # - For each batch b, output o:
+            # - Sum over all inputs i: x[b, i] * mask[i, o]
+            # - Since mask is binary (only one i=1 per o), this selects the correct input
+            mask_float = self._cached_hard_mask.float()
+            output = torch.einsum('bi,io->bo', x, mask_float)
         
         return output
 
@@ -147,6 +176,8 @@ class LearnableLayer(BaseLUTLayer):
         """
         Apply learnable mapping and reshape for nodes.
         
+        Uses efficient matrix operations (training) or advanced indexing (eval).
+        
         Args:
             x: Input tensor of shape (batch_size, input_size)
         Returns:
@@ -154,7 +185,9 @@ class LearnableLayer(BaseLUTLayer):
         """
         batch_size = x.shape[0]
         
-        # Apply learnable mapping
+        # Apply learnable mapping (already optimized in LearnableMappingModule)
+        # Training: uses matmul (efficient)
+        # Eval: uses advanced indexing (efficient)
         mapped_flat = self.mapping(x)  # (batch_size, output_size * n)
         
         # Reshape for nodes
@@ -188,9 +221,10 @@ class LearnableLayer(BaseLUTLayer):
         return output
     
     def get_mapping_matrix(self) -> torch.Tensor:
-        """Get current hard mapping (for inspection)."""
+        """Get current hard mapping (for inspection) as indices."""
         with torch.no_grad():
-            hard_indices = torch.argmax(self.mapping.W, dim=-1)
+            # Get hard indices from weight matrix
+            hard_indices = torch.argmax(self.mapping.W, dim=-1)  # (output_size * n,)
             return hard_indices.view(self.output_size, self.n)
     
     def update_tau(self, iteration: int):

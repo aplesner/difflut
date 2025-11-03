@@ -221,8 +221,14 @@ class ProbabilisticNode(BaseNode):
         # Ensure binary_combinations is on the same device and dtype as x
         binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
         
+        # Memory optimization: Preallocate output tensor instead of list accumulation
+        output = torch.empty(
+            (batch_size, layer_size, self.output_dim),
+            device=x.device,
+            dtype=x.dtype
+        )
+        
         # Process each layer independently
-        outputs = []
         for layer_idx in range(layer_size):
             x_layer = x[:, layer_idx, :]  # (batch_size, input_dim)
             
@@ -233,11 +239,9 @@ class ProbabilisticNode(BaseNode):
             probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
             
             # Apply per-layer-node weights: (batch_size, 2^input_dim) @ (2^input_dim, output_dim) -> (batch_size, output_dim)
-            output_layer = torch.matmul(probs, weights[layer_idx])  # (batch_size, output_dim)
-            outputs.append(output_layer)
+            # Write directly to preallocated output (no list append)
+            output[:, layer_idx, :] = torch.matmul(probs, weights[layer_idx])
         
-        # Stack outputs: (batch_size, layer_size, output_dim)
-        output = torch.stack(outputs, dim=1)
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -260,15 +264,17 @@ class ProbabilisticNode(BaseNode):
         # Look up per-layer-node weights and threshold at 0.5 to get binary output
         weights = self.weights  # (layer_size, 2^input_dim, output_dim)
         
+        # Memory optimization: Preallocate output instead of list accumulation
+        output = torch.empty(
+            (batch_size, layer_size, self.output_dim),
+            device=x.device,
+            dtype=weights.dtype
+        )
+        
         # Gather per-layer-node weights
-        outputs = []
         for layer_idx in range(layer_size):
             batch_indices = indices[:, layer_idx]  # (batch_size,)
-            output_layer = weights[layer_idx][batch_indices]  # (batch_size, output_dim)
-            outputs.append(output_layer)
-        
-        # Stack outputs: (batch_size, layer_size, output_dim)
-        output = torch.stack(outputs, dim=1)
+            output[:, layer_idx, :] = weights[layer_idx][batch_indices]  # (batch_size, output_dim)
         
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output = (output >= 0.5).float()

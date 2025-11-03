@@ -157,11 +157,12 @@ class HybridFunctionCPU(torch.autograd.Function):
         # Compute probabilistic expectation for gradient
         # binary_combinations: (2^input_dim, input_dim)
         
-        # Gradient w.r.t. inputs
+        # Memory optimization: Preallocate gradient tensors
         grad_input = torch.zeros_like(x)
-        
-        # Gradient w.r.t. LUTs
         grad_luts = torch.zeros_like(luts)
+        
+        # Memory optimization: Preallocate reusable tensors outside loop
+        eps = 1e-8
         
         # Process each layer independently
         for l in range(layer_size):
@@ -180,24 +181,33 @@ class HybridFunctionCPU(torch.autograd.Function):
             grad_output_l = grad_output[:, l, :]  # (batch_size, output_dim)
             grad_luts[l] = torch.matmul(probs.t(), grad_output_l).t()  # (output_dim, 2^input_dim)
             
-            # Gradient w.r.t. inputs for this layer
-            for j in range(input_dim):
-                # Derivative of probability w.r.t. x_j
-                eps = 1e-8
-                a_j = binary_combinations[:, j].unsqueeze(0)  # (1, 2^input_dim)
-                x_j = x_l[:, j].unsqueeze(1)  # (batch_size, 1)
-                
-                # Compute derivative factor
-                deriv_factor = (a_j - x_j) / (x_j * (1 - x_j) + eps)
-                
-                # Weight by probability
-                prob_deriv = probs * deriv_factor  # (batch_size, 2^input_dim)
-                
-                # Sum over LUT entries weighted by LUT values and output gradient
-                for dim in range(output_dim):
-                    lut_weights = luts[l, dim, :].unsqueeze(0)  # (1, 2^input_dim)
-                    grad_j = torch.sum(prob_deriv * lut_weights, dim=1)  # (batch_size,)
-                    grad_input[:, l, j] += grad_j * grad_output_l[:, dim]
+            # Gradient w.r.t. inputs for this layer - vectorized version
+            # Memory optimization: Compute all input gradients at once instead of loop
+            # Derivative of probability w.r.t. all x_j simultaneously
+            # a_expanded: (1, 2^input_dim, input_dim)
+            # x_l: (batch_size, input_dim)
+            
+            # Compute derivative factors for all inputs
+            x_expanded_for_grad = x_l.unsqueeze(1)  # (batch_size, 1, input_dim)
+            deriv_factors = (binary_combinations.unsqueeze(0) - x_expanded_for_grad) / (
+                x_expanded_for_grad * (1 - x_expanded_for_grad) + eps
+            )  # (batch_size, 2^input_dim, input_dim)
+            
+            # Weight by probabilities: (batch_size, 2^input_dim) -> (batch_size, 2^input_dim, 1)
+            prob_weighted = probs.unsqueeze(-1) * deriv_factors  # (batch_size, 2^input_dim, input_dim)
+            
+            # Sum over LUT entries weighted by LUT values and output gradient
+            # luts[l]: (output_dim, 2^input_dim)
+            # grad_output_l: (batch_size, output_dim)
+            # Result should be: (batch_size, input_dim)
+            
+            # Compute contribution from each output dimension
+            # (batch_size, 2^input_dim, input_dim) x (output_dim, 2^input_dim) x (batch_size, output_dim)
+            for dim in range(output_dim):
+                lut_weights = luts[l, dim, :]  # (2^input_dim,)
+                weighted_grad = prob_weighted * lut_weights.view(1, -1, 1)  # (batch_size, 2^input_dim, input_dim)
+                grad_j = weighted_grad.sum(dim=1)  # (batch_size, input_dim)
+                grad_input[:, l, :] += grad_j * grad_output_l[:, dim:dim+1]
         
         return grad_input, grad_luts, None
 
