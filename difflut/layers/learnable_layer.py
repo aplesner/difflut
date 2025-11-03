@@ -1,10 +1,11 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Type, Dict, Any, Optional
+from typing import Type
 import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
+from ..nodes.node_config import NodeKwargs
 
 
 class LearnableMappingModule(nn.Module):
@@ -81,7 +82,7 @@ class LearnableLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 node_kwargs: Optional[Dict[str, Any]] = None,
+                 node_kwargs: NodeKwargs = None,
                  tau: float = 0.001,
                  tau_start: float = 1.0,
                  tau_min: float = 0.0001,
@@ -97,7 +98,7 @@ class LearnableLayer(BaseLUTLayer):
                        Should match: (batch_size, input_size)
             output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class
-            node_kwargs: Additional arguments for nodes (should include input_dim and output_dim)
+            node_kwargs: Node configuration (NodeConfig instance or dict with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             tau: Initial temperature for softmax in learnable mapping
             tau_start: Starting value for tau (used for exponential decay)

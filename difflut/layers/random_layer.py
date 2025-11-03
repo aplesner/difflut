@@ -1,8 +1,9 @@
 import torch
 import torch.nn as nn
-from typing import Type, Dict, Any, Optional
+from typing import Type
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
+from ..nodes.node_config import NodeKwargs
 
 
 @register_layer("random")
@@ -20,7 +21,7 @@ class RandomLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 node_kwargs: Optional[Dict[str, Any]] = None,
+                 node_kwargs: NodeKwargs = None,
                  seed: int = 42,
                  flip_probability: float = 0.0,
                  grad_stabilization: str = 'none',
@@ -33,7 +34,7 @@ class RandomLayer(BaseLUTLayer):
                        Should match: (batch_size, input_size)
             output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class to use
-            node_kwargs: Additional node arguments (should include input_dim and output_dim)
+            node_kwargs: Node configuration (NodeConfig instance or dict with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
             flip_probability: Probability of flipping each bit during training (0.0 to 1.0)

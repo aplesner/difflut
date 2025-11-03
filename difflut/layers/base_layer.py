@@ -1,12 +1,14 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
+from typing import Union, Dict, Any
 import warnings
 from ..constants import (
     LAYER_REUSE_WARNING_THRESHOLD,
     LAYER_UNDERUSE_WARNING_DIVISOR,
     LAYER_MAX_NODE_INPUT_DIM
 )
+from ..nodes.node_config import NodeConfig, NodeKwargs, normalize_node_kwargs
 
 
 class BaseLUTLayer(nn.Module, ABC):
@@ -26,7 +28,7 @@ class BaseLUTLayer(nn.Module, ABC):
                  input_size: int,
                  output_size: int,
                  node_type,
-                 node_kwargs=None,
+                 node_kwargs: NodeKwargs = None,
                  flip_probability: float = 0.0,
                  grad_stabilization: str = 'none',
                  grad_target_std: float = 1.0,
@@ -84,9 +86,10 @@ class BaseLUTLayer(nn.Module, ABC):
         
         # Create nodes with layer_size parameter - each position gets its own parameters
         # No weight sharing across layer dimension
-        node_kwargs = node_kwargs or {}
-        node_kwargs['layer_size'] = output_size  # Pass layer_size to node
-        self.node = node_type(**node_kwargs)
+        # Normalize node_kwargs to NodeConfig for type safety and maintainability
+        node_config = normalize_node_kwargs(node_kwargs)
+        node_config_with_layer = node_config.with_layer_size(output_size)
+        self.node = node_type(**node_config_with_layer.to_dict())
         
         # Extract n (number of inputs per node)
         self.n = self.node.num_inputs
