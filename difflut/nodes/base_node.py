@@ -39,29 +39,35 @@ class BaseNode(nn.Module, ABC):
         super().__init__()
         
         # Set defaults if not provided
-        self.input_dim = input_dim if input_dim is not None else DEFAULT_NODE_INPUT_DIM
         if input_dim is None:
+            self.input_dim = DEFAULT_NODE_INPUT_DIM
             warnings.warn(
                 f"input_dim was not provided, using default value: {self.input_dim}",
                 UserWarning,
                 stacklevel=2
             )
+        else:
+            self.input_dim = input_dim
         
-        self.output_dim = output_dim if output_dim is not None else DEFAULT_NODE_OUTPUT_DIM
         if output_dim is None:
+            self.output_dim = DEFAULT_NODE_OUTPUT_DIM
             warnings.warn(
                 f"output_dim was not provided, using default value: {self.output_dim}",
                 UserWarning,
                 stacklevel=2
             )
+        else:
+            self.output_dim = output_dim
         
-        self.layer_size = layer_size if layer_size is not None else DEFAULT_NODE_LAYER_SIZE
         if layer_size is None:
+            self.layer_size = DEFAULT_NODE_LAYER_SIZE
             warnings.warn(
                 f"layer_size was not provided, using default value: {self.layer_size}",
                 UserWarning,
                 stacklevel=2
             )
+        else:
+            self.layer_size = layer_size
         
         # Validate input_dim
         if not isinstance(self.input_dim, int) or self.input_dim <= 0:

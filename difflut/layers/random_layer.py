@@ -1,9 +1,105 @@
 import torch
 import torch.nn as nn
 from typing import Type
+import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
 from ..nodes.node_config import NodeKwargs
+
+# Try to import the compiled CUDA extension for mapping
+try:
+    import mapping_cuda as _mapping_cuda_module
+    _MAPPING_CUDA_AVAILABLE = True
+except ImportError:
+    _MAPPING_CUDA_AVAILABLE = False
+    _mapping_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'mapping_cuda' not available. RandomLayer will use slower PyTorch fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.layers.random_layer')",
+        RuntimeWarning,
+        stacklevel=2
+    )
+
+
+class MappingFunction(torch.autograd.Function):
+    """
+    Autograd function wrapper for mapping CUDA kernel.
+    Provides forward and backward passes with automatic differentiation.
+    """
+    @staticmethod
+    def forward(ctx, input, indices, input_size):
+        """
+        Forward pass using CUDA kernel.
+        
+        Args:
+            input: (batch_size, input_size) float tensor
+            indices: (output_size, n) int16/int32 tensor
+            input_size: int (needed for backward)
+        
+        Returns:
+            output: (batch_size, output_size, n) float tensor
+        """
+        if not _MAPPING_CUDA_AVAILABLE:
+            raise RuntimeError("CUDA extension not available. Use fallback implementation.")
+        
+        # Ensure correct dtypes and contiguity
+        input = input.contiguous().float()
+        indices = indices.contiguous()
+        
+        # Call CUDA forward kernel
+        output = _mapping_cuda_module.forward(input, indices)
+        
+        # Save for backward
+        ctx.save_for_backward(indices)
+        ctx.input_size = input_size
+        
+        return output
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass using CUDA kernel.
+        
+        Args:
+            grad_output: (batch_size, output_size, n) gradient tensor
+        
+        Returns:
+            Gradients for (input, indices, input_size)
+        """
+        if not _MAPPING_CUDA_AVAILABLE:
+            raise RuntimeError("CUDA extension not available.")
+        
+        indices, = ctx.saved_tensors
+        input_size = ctx.input_size
+        
+        # Ensure contiguity
+        grad_output = grad_output.contiguous().float()
+        
+        # Call CUDA backward kernel
+        grad_input = _mapping_cuda_module.backward(grad_output, indices, input_size)
+        
+        # Return gradients (None for indices and input_size as they don't need gradients)
+        return grad_input, None, None
+
+
+def mapping_forward_cuda(input, indices, input_size):
+    """
+    Mapping forward pass with automatic differentiation support.
+    
+    Args:
+        input: (batch_size, input_size) tensor
+        indices: (output_size, n) tensor
+        input_size: int
+    
+    Returns:
+        output: (batch_size, output_size, n) tensor
+    """
+    if _MAPPING_CUDA_AVAILABLE and input.is_cuda:
+        return MappingFunction.apply(input, indices, input_size)
+    else:
+        return None
 
 
 @register_layer("random")
@@ -23,11 +119,12 @@ class RandomLayer(BaseLUTLayer):
                  node_type: Type[nn.Module],
                  node_kwargs: NodeKwargs = None,
                  seed: int = 42,
-                 flip_probability: float = 0.0,
-                 grad_stabilization: str = 'none',
-                 grad_target_std: float = 1.0,
-                 grad_subtract_mean: bool = False,
-                 grad_epsilon: float = 1e-8):
+                 flip_probability: float = None,
+                 grad_stabilization: str = None,
+                 grad_target_std: float = None,
+                 grad_subtract_mean: bool = None,
+                 grad_epsilon: float = None,
+                 max_nodes_per_batch: int = None):
         """
         Args:
             input_size: Size of input vector (from encoder or previous layer)
@@ -42,12 +139,14 @@ class RandomLayer(BaseLUTLayer):
             grad_target_std: Target standard deviation for gradient rescaling
             grad_subtract_mean: Whether to subtract mean before rescaling
             grad_epsilon: Small constant for numerical stability
+            max_nodes_per_batch: Maximum nodes to process per batch (memory optimization)
         """
         self.seed = seed
         
         # Initialize parent (n will be extracted from created nodes)
         super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
-                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
+                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon,
+                        max_nodes_per_batch)
         
         # Initialize the random mapping
         self._init_mapping()
@@ -104,8 +203,8 @@ class RandomLayer(BaseLUTLayer):
         """
         Get mapped inputs using the fixed random mapping.
         
-        Memory-optimized version using advanced indexing with cached indices.
-        Avoids creating intermediate float tensors and directly gathers values.
+        Uses custom CUDA kernel when available for optimal performance.
+        Falls back to PyTorch gather operations on CPU or if CUDA extension unavailable.
         
         Args:
             x: Input tensor of shape (batch_size, input_size)
@@ -113,6 +212,13 @@ class RandomLayer(BaseLUTLayer):
         Returns:
             Mapped inputs of shape (batch_size, output_size, n)
         """
+        # Try CUDA kernel first (fastest, eliminates expand + gather overhead)
+        if _MAPPING_CUDA_AVAILABLE and x.is_cuda:
+            mapped_inputs = mapping_forward_cuda(x, self._mapping_indices, self.input_size)
+            if mapped_inputs is not None:
+                return mapped_inputs
+        
+        # PyTorch fallback - efficient gather-based implementation
         # MEMORY OPTIMIZATION: Use gather with index tensor
         # This is more memory efficient than einsum as it:
         # 1. Doesn't require float conversion of mask

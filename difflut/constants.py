@@ -23,6 +23,44 @@ LAYER_MAX_NODE_INPUT_DIM = 15
 
 
 # ============================================================================
+# Layer Default Values
+# ============================================================================
+
+# Default bit-flip probability for training augmentation
+# If flip_probability > 0, randomly flip this fraction of bits during training
+DEFAULT_LAYER_FLIP_PROBABILITY = 0.0
+
+# Default gradient stabilization mode
+# Options: 'none', 'layerwise', 'batchwise'
+DEFAULT_LAYER_GRAD_STABILIZATION = 'none'
+
+# Default target standard deviation for gradient stabilization
+# Used when grad_stabilization is not 'none'
+DEFAULT_LAYER_GRAD_TARGET_STD = 1.0
+
+# Default flag for whether to subtract mean during gradient stabilization
+DEFAULT_LAYER_GRAD_SUBTRACT_MEAN = False
+
+# Default epsilon for numerical stability in gradient stabilization
+DEFAULT_LAYER_GRAD_EPSILON = 1e-8
+
+# Maximum number of nodes to process in a single batch during forward/backward pass
+# Memory optimization: prevents OOM by processing large layers in chunks
+# Trade-off: Smaller values = less memory, slightly more kernel launches
+# Recommended values: 256 (memory-constrained), 512 (balanced), 1024 (high-memory GPUs)
+# Set to -1 to disable batching (process all nodes at once)
+DEFAULT_LAYER_MAX_NODES_PER_BATCH = 512
+
+
+# ============================================================================
+# Random Layer Specific Defaults
+# ============================================================================
+
+# Default random seed for reproducible random mapping
+DEFAULT_RANDOM_LAYER_SEED = 42
+
+
+# ============================================================================
 # Node Default Values
 # ============================================================================
 
@@ -42,6 +80,65 @@ NODE_INPUT_DIM_WARNING_THRESHOLD = 10
 # Threshold for warning about large output dimensions
 # If output_dim > NODE_OUTPUT_DIM_WARNING_THRESHOLD, warn about memory
 NODE_OUTPUT_DIM_WARNING_THRESHOLD = 10
+
+
+# ============================================================================
+# NeuralLUT Node Specific Defaults
+# ============================================================================
+
+# Default width of hidden layers in NeuralLUT MLP
+DEFAULT_NEURALLUT_HIDDEN_WIDTH = 8
+
+# Default number of layers in NeuralLUT MLP
+DEFAULT_NEURALLUT_DEPTH = 2
+
+# Default interval for skip connections in NeuralLUT (0 = no skips)
+DEFAULT_NEURALLUT_SKIP_INTERVAL = 2
+
+# Default activation function for NeuralLUT ('relu' or 'sigmoid')
+DEFAULT_NEURALLUT_ACTIVATION = 'relu'
+
+# Default starting temperature for NeuralLUT
+DEFAULT_NEURALLUT_TAU_START = 1.0
+
+# Default minimum temperature for NeuralLUT
+DEFAULT_NEURALLUT_TAU_MIN = 0.0001
+
+# Default temperature decay iterations for NeuralLUT
+DEFAULT_NEURALLUT_TAU_DECAY_ITERS = 1000.0
+
+# Default flag for using Straight-Through Estimator in NeuralLUT
+DEFAULT_NEURALLUT_STE = False
+
+# Default gradient scaling factor for NeuralLUT
+DEFAULT_NEURALLUT_GRAD_FACTOR = 1.0
+
+
+# ============================================================================
+# Learnable Layer Specific Defaults
+# ============================================================================
+
+# Default temperature for softmax in learnable mapping
+DEFAULT_LEARNABLE_LAYER_TAU = 0.001
+
+# Default starting value for tau (used for exponential decay)
+DEFAULT_LEARNABLE_LAYER_TAU_START = 1.0
+
+# Default minimum value tau can decay to
+DEFAULT_LEARNABLE_LAYER_TAU_MIN = 0.0001
+
+# Default number of iterations for tau to decay by factor of 10
+DEFAULT_LEARNABLE_LAYER_TAU_DECAY_ITERS = 1000.0
+
+# Threshold for warning about excessive learnable connections
+# If output_size * n > input_size * LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD, warn
+LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD = 10
+
+# Use CUDA kernel for soft selection (training mode)
+# If False, always use PyTorch's matmul (more stable, well-tested)
+# If True, use custom CUDA kernel (potentially faster for large matrices)
+# Note: Hard selection (eval mode) always uses CUDA kernel when available
+DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT = False
 
 
 # ============================================================================

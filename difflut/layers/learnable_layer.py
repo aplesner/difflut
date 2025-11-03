@@ -6,30 +6,156 @@ import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
 from ..nodes.node_config import NodeKwargs
+from ..constants import (
+    DEFAULT_LEARNABLE_LAYER_TAU,
+    DEFAULT_LEARNABLE_LAYER_TAU_START,
+    DEFAULT_LEARNABLE_LAYER_TAU_MIN,
+    DEFAULT_LEARNABLE_LAYER_TAU_DECAY_ITERS,
+    LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD,
+    DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT
+)
+
+# Try to import the compiled CUDA extension for learnable mapping
+try:
+    import learnable_mapping_cuda as _learnable_mapping_cuda_module
+    _LEARNABLE_MAPPING_CUDA_AVAILABLE = True
+except ImportError:
+    _LEARNABLE_MAPPING_CUDA_AVAILABLE = False
+    _learnable_mapping_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'learnable_mapping_cuda' not available. LearnableLayer will use PyTorch fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.layers.learnable_layer')",
+        RuntimeWarning,
+        stacklevel=2
+    )
+
+
+class LearnableMappingFunction(torch.autograd.Function):
+    """
+    Autograd function wrapper for learnable mapping CUDA kernel (hard selection).
+    """
+    @staticmethod
+    def forward(ctx, input, indices, input_size):
+        """
+        Forward pass using CUDA kernel for hard selection.
+        
+        Args:
+            input: (batch_size, input_size) float tensor
+            indices: (output_size,) int32 tensor - argmax results
+            input_size: int (needed for backward)
+        
+        Returns:
+            output: (batch_size, output_size) float tensor
+        """
+        if not _LEARNABLE_MAPPING_CUDA_AVAILABLE:
+            raise RuntimeError("CUDA extension not available. Use fallback implementation.")
+        
+        # Ensure correct dtypes and contiguity
+        input = input.contiguous().float()
+        indices = indices.contiguous().int()
+        
+        # Call CUDA forward kernel
+        output = _learnable_mapping_cuda_module.forward(input, indices)
+        
+        # Save for backward
+        ctx.save_for_backward(indices)
+        ctx.input_size = input_size
+        
+        return output
+    
+    @staticmethod
+    def backward(ctx, grad_output):
+        """
+        Backward pass using CUDA kernel.
+        
+        Args:
+            grad_output: (batch_size, output_size) gradient tensor
+        
+        Returns:
+            Gradients for (input, indices, input_size)
+        """
+        if not _LEARNABLE_MAPPING_CUDA_AVAILABLE:
+            raise RuntimeError("CUDA extension not available.")
+        
+        indices, = ctx.saved_tensors
+        input_size = ctx.input_size
+        
+        # Ensure contiguity
+        grad_output = grad_output.contiguous().float()
+        
+        # Call CUDA backward kernel
+        grad_input = _learnable_mapping_cuda_module.backward(grad_output, indices, input_size)
+        
+        # Return gradients (None for indices and input_size)
+        return grad_input, None, None
+
+
+def learnable_mapping_forward_cuda(input, indices, input_size):
+    """
+    Learnable mapping forward pass (hard selection) with CUDA.
+    
+    Args:
+        input: (batch_size, input_size) tensor
+        indices: (output_size,) tensor
+        input_size: int
+    
+    Returns:
+        output: (batch_size, output_size) tensor
+    """
+    if _LEARNABLE_MAPPING_CUDA_AVAILABLE and input.is_cuda:
+        return LearnableMappingFunction.apply(input, indices, input_size)
+    else:
+        return None
+
+
+def learnable_mapping_soft_forward_cuda(input, weights, tau):
+    """
+    Learnable mapping forward pass (soft selection) with CUDA.
+    
+    Args:
+        input: (batch_size, input_size) tensor
+        weights: (output_size, input_size) tensor
+        tau: float
+    
+    Returns:
+        output: (batch_size, output_size) tensor
+    """
+    if _LEARNABLE_MAPPING_CUDA_AVAILABLE and input.is_cuda:
+        try:
+            return _learnable_mapping_cuda_module.soft_forward(input, weights, tau)
+        except:
+            return None
+    else:
+        return None
 
 
 class LearnableMappingModule(nn.Module):
     """
     Helper module for learnable mapping (not registered, used internally).
     Provides soft selection during training and hard selection during evaluation.
-    Uses einsum-based approach for evaluation mode to match RandomLayer optimization.
+    Uses CUDA kernels when available for optimal performance.
     
     Note: output_size here is actually (layer_output_size * n) - the total number of
     selections needed. This module doesn't know about the layer structure.
     """
     
-    def __init__(self, input_size: int, output_size: int, tau: float = 0.001):
+    def __init__(self, input_size: int, output_size: int, tau: float = DEFAULT_LEARNABLE_LAYER_TAU, 
+                 use_cuda_soft: bool = DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT):
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size  # This is actually layer_output_size * n
         self.tau = tau
+        self.use_cuda_soft = use_cuda_soft
         
         # Weight matrix: (output_size, input_size) where output_size = layer_output_size * n
         self.W = nn.Parameter(torch.randn(output_size, input_size))
         nn.init.xavier_uniform_(self.W)
         
-        # Cache for hard selection mask (computed once when switching to eval mode)
-        self.register_buffer('_cached_hard_mask', None)
+        # Cache for hard selection (indices instead of mask for CUDA kernel)
+        self.register_buffer('_cached_hard_indices', None)
+        self.register_buffer('_cached_hard_mask', None)  # Keep for PyTorch fallback
         self._cache_valid = False
     
     def train(self, mode: bool = True):
@@ -43,54 +169,61 @@ class LearnableMappingModule(nn.Module):
         
         return self
     
-    def _compute_hard_mask(self) -> torch.Tensor:
+    def _compute_hard_selection(self):
         """
-        Compute hard selection mask from current weights.
-        Creates a binary mask for einsum-based gathering.
-        Returns: (input_size, output_size) mask where mask[i, o] = 1 if input i is selected for output o
-        Note: output_size here is actually layer_output_size * n
+        Compute hard selection from current weights.
+        Computes both indices (for CUDA kernel) and mask (for PyTorch fallback).
         """
         with torch.no_grad():
             # Get hard indices: which input is selected for each output position
             # W shape: (output_size, input_size) where output_size = layer_output_size * n
             hard_indices = torch.argmax(self.W, dim=-1)  # (output_size,)
             
-            # Convert to binary mask: (input_size, output_size)
-            mask = torch.zeros((self.input_size, self.output_size), dtype=torch.uint8, device=self.W.device)
+            # Store indices for CUDA kernel
+            self._cached_hard_indices = hard_indices.int()
             
-            # Set mask[hard_indices[o], o] = 1 for each output o
+            # Also create binary mask for PyTorch fallback
+            # mask: (input_size, output_size) where mask[i, o] = 1 if input i is selected for output o
+            mask = torch.zeros((self.input_size, self.output_size), dtype=torch.uint8, device=self.W.device)
             output_indices = torch.arange(self.output_size, device=self.W.device)
             mask[hard_indices, output_indices] = 1
-            
-            return mask
+            self._cached_hard_mask = mask
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Soft selection (training) or hard selection (eval).
-        Uses efficient operations for both modes.
-        Training: softmax + matmul (already efficient)
-        Eval: einsum with binary mask (matches RandomLayer optimization)
+        Uses CUDA kernels when available for optimal performance.
+        Training: softmax + matmul (PyTorch default, or optional CUDA kernel)
+        Eval: CUDA kernel for direct lookup (faster than einsum)
         """
         if self.training:
-            # Soft selection - matrix multiplication is already efficient
+            # Soft selection - training mode
+            # Try CUDA kernel first if enabled (can be faster for very large matrices)
+            if self.use_cuda_soft and _LEARNABLE_MAPPING_CUDA_AVAILABLE and x.is_cuda:
+                output = learnable_mapping_soft_forward_cuda(x, self.W, self.tau)
+                if output is not None:
+                    return output
+            
+            # PyTorch fallback - already well optimized
             weights = F.softmax(self.W / self.tau, dim=-1)
             output = torch.matmul(x, weights.t())
         else:
             # Hard selection (evaluation mode)
-            # OPTIMIZATION: Cache hard mask to avoid repeated argmax computation
-            if not self._cache_valid or self._cached_hard_mask is None:
-                self._cached_hard_mask = self._compute_hard_mask()
+            # OPTIMIZATION: Cache hard selection to avoid repeated argmax computation
+            if not self._cache_valid or self._cached_hard_indices is None:
+                self._compute_hard_selection()
                 self._cache_valid = True
             
-            # OPTIMIZATION: Use einsum with binary mask (same as RandomLayer)
+            # Try CUDA kernel first (fastest)
+            if _LEARNABLE_MAPPING_CUDA_AVAILABLE and x.is_cuda:
+                output = learnable_mapping_forward_cuda(x, self._cached_hard_indices, self.input_size)
+                if output is not None:
+                    return output
+            
+            # PyTorch fallback - use einsum with binary mask
             # x: (batch_size, input_size) -> (b, i)
             # _cached_hard_mask: (input_size, output_size) -> (i, o)
             # Result: (batch_size, output_size) -> (b, o)
-            #
-            # einsum('bi,io->bo') means:
-            # - For each batch b, output o:
-            # - Sum over all inputs i: x[b, i] * mask[i, o]
-            # - Since mask is binary (only one i=1 per o), this selects the correct input
             mask_float = self._cached_hard_mask.float()
             output = torch.einsum('bi,io->bo', x, mask_float)
         
@@ -112,15 +245,17 @@ class LearnableLayer(BaseLUTLayer):
                  output_size: int, 
                  node_type: Type[nn.Module],
                  node_kwargs: NodeKwargs = None,
-                 tau: float = 0.001,
-                 tau_start: float = 1.0,
-                 tau_min: float = 0.0001,
-                 tau_decay_iters: float = 1000.0,
-                 flip_probability: float = 0.0,
-                 grad_stabilization: str = 'none',
-                 grad_target_std: float = 1.0,
-                 grad_subtract_mean: bool = False,
-                 grad_epsilon: float = 1e-8):
+                 tau: float = None,
+                 tau_start: float = None,
+                 tau_min: float = None,
+                 tau_decay_iters: float = None,
+                 flip_probability: float = None,
+                 grad_stabilization: str = None,
+                 grad_target_std: float = None,
+                 grad_subtract_mean: bool = None,
+                 grad_epsilon: float = None,
+                 max_nodes_per_batch: int = None,
+                 use_cuda_soft: bool = None):
         """
         Args:
             input_size: Size of input vector (from encoder or previous layer)
@@ -138,7 +273,21 @@ class LearnableLayer(BaseLUTLayer):
             grad_target_std: Target standard deviation for gradient rescaling
             grad_subtract_mean: Whether to subtract mean before rescaling
             grad_epsilon: Small constant for numerical stability
+            max_nodes_per_batch: Maximum nodes to process per batch (memory optimization)
+            use_cuda_soft: Use CUDA kernel for soft selection (training mode)
         """
+        # Set defaults from constants
+        if tau is None:
+            tau = DEFAULT_LEARNABLE_LAYER_TAU
+        if tau_start is None:
+            tau_start = DEFAULT_LEARNABLE_LAYER_TAU_START
+        if tau_min is None:
+            tau_min = DEFAULT_LEARNABLE_LAYER_TAU_MIN
+        if tau_decay_iters is None:
+            tau_decay_iters = DEFAULT_LEARNABLE_LAYER_TAU_DECAY_ITERS
+        if use_cuda_soft is None:
+            use_cuda_soft = DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT
+        
         # Warn if tau parameters seem unusual
         if tau_start < tau_min:
             warnings.warn(
@@ -150,11 +299,12 @@ class LearnableLayer(BaseLUTLayer):
         
         # Initialize parent with nodes (n will be extracted from created nodes)
         super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
-                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
+                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon,
+                        max_nodes_per_batch)
         
         # Warn about parameter count after n is known
         total_connections = output_size * self.n
-        if total_connections > input_size * 10:
+        if total_connections > input_size * LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD:
             warnings.warn(
                 f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
                 f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={self.n}).",
@@ -167,10 +317,11 @@ class LearnableLayer(BaseLUTLayer):
         self.tau_min = tau_min
         self.tau_decay_iters = tau_decay_iters
         self.tau = tau_start  # Start with tau_start instead of tau
+        self.use_cuda_soft = use_cuda_soft
         
         # Create learnable mapping module (helper, not registered)
         # Note: self.n is now available from parent's __init__
-        self.mapping = LearnableMappingModule(input_size, output_size * self.n, self.tau)
+        self.mapping = LearnableMappingModule(input_size, output_size * self.n, self.tau, use_cuda_soft)
     
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
         """

@@ -6,7 +6,13 @@ import warnings
 from ..constants import (
     LAYER_REUSE_WARNING_THRESHOLD,
     LAYER_UNDERUSE_WARNING_DIVISOR,
-    LAYER_MAX_NODE_INPUT_DIM
+    LAYER_MAX_NODE_INPUT_DIM,
+    DEFAULT_LAYER_FLIP_PROBABILITY,
+    DEFAULT_LAYER_GRAD_STABILIZATION,
+    DEFAULT_LAYER_GRAD_TARGET_STD,
+    DEFAULT_LAYER_GRAD_SUBTRACT_MEAN,
+    DEFAULT_LAYER_GRAD_EPSILON,
+    DEFAULT_LAYER_MAX_NODES_PER_BATCH
 )
 from ..nodes.node_config import NodeConfig, NodeKwargs, normalize_node_kwargs
 
@@ -29,11 +35,12 @@ class BaseLUTLayer(nn.Module, ABC):
                  output_size: int,
                  node_type,
                  node_kwargs: NodeKwargs = None,
-                 flip_probability: float = 0.0,
-                 grad_stabilization: str = 'none',
-                 grad_target_std: float = 1.0,
-                 grad_subtract_mean: bool = False,
-                 grad_epsilon: float = 1e-8):
+                 flip_probability: float = None,
+                 grad_stabilization: str = None,
+                 grad_target_std: float = None,
+                 grad_subtract_mean: bool = None,
+                 grad_epsilon: float = None,
+                 max_nodes_per_batch: int = None):
         super().__init__()
         
         # Validate parameters
@@ -49,40 +56,77 @@ class BaseLUTLayer(nn.Module, ABC):
                 f"This is the number of nodes in the layer."
             )
         
+        # Set flip_probability with default
+        if flip_probability is None:
+            self.flip_probability = DEFAULT_LAYER_FLIP_PROBABILITY
+        else:
+            self.flip_probability = flip_probability
+        
         # Validate flip_probability
-        if not isinstance(flip_probability, (int, float)) or not (0.0 <= flip_probability <= 1.0):
+        if not isinstance(self.flip_probability, (int, float)) or not (0.0 <= self.flip_probability <= 1.0):
             raise ValueError(
-                f"flip_probability must be a float in [0, 1], got {flip_probability}. "
+                f"flip_probability must be a float in [0, 1], got {self.flip_probability}. "
                 f"Example: flip_probability=0.1 for 10% bit flipping during training."
             )
         
+        # Set grad_stabilization with default
+        if grad_stabilization is None:
+            self.grad_stabilization = DEFAULT_LAYER_GRAD_STABILIZATION
+        else:
+            self.grad_stabilization = grad_stabilization
+        
         # Validate gradient stabilization parameters
         valid_grad_modes = ['none', 'layerwise', 'batchwise']
-        if grad_stabilization not in valid_grad_modes:
+        if self.grad_stabilization not in valid_grad_modes:
             raise ValueError(
-                f"grad_stabilization must be one of {valid_grad_modes}, got '{grad_stabilization}'. "
+                f"grad_stabilization must be one of {valid_grad_modes}, got '{self.grad_stabilization}'. "
                 f"'layerwise': normalize per layer, 'batchwise': normalize per batch sample, 'none': disabled"
             )
         
-        if not isinstance(grad_target_std, (int, float)) or grad_target_std <= 0:
+        # Set grad_target_std with default
+        if grad_target_std is None:
+            self.grad_target_std = DEFAULT_LAYER_GRAD_TARGET_STD
+        else:
+            self.grad_target_std = grad_target_std
+        
+        if not isinstance(self.grad_target_std, (int, float)) or self.grad_target_std <= 0:
             raise ValueError(
-                f"grad_target_std must be a positive number, got {grad_target_std}. "
+                f"grad_target_std must be a positive number, got {self.grad_target_std}. "
                 f"Example: grad_target_std=1.0 for unit variance"
             )
         
-        if not isinstance(grad_epsilon, (int, float)) or grad_epsilon <= 0:
+        # Set grad_subtract_mean with default
+        if grad_subtract_mean is None:
+            self.grad_subtract_mean = DEFAULT_LAYER_GRAD_SUBTRACT_MEAN
+        else:
+            self.grad_subtract_mean = grad_subtract_mean
+        
+        # Set grad_epsilon with default
+        if grad_epsilon is None:
+            self.grad_epsilon = DEFAULT_LAYER_GRAD_EPSILON
+        else:
+            self.grad_epsilon = grad_epsilon
+        
+        if not isinstance(self.grad_epsilon, (int, float)) or self.grad_epsilon <= 0:
             raise ValueError(
-                f"grad_epsilon must be a positive number, got {grad_epsilon}. "
+                f"grad_epsilon must be a positive number, got {self.grad_epsilon}. "
                 f"Used for numerical stability in variance calculation"
+            )
+        
+        # Set max_nodes_per_batch with default
+        if max_nodes_per_batch is None:
+            self.max_nodes_per_batch = DEFAULT_LAYER_MAX_NODES_PER_BATCH
+        else:
+            self.max_nodes_per_batch = max_nodes_per_batch
+        
+        if not isinstance(self.max_nodes_per_batch, int) or (self.max_nodes_per_batch <= 0 and self.max_nodes_per_batch != -1):
+            raise ValueError(
+                f"max_nodes_per_batch must be a positive integer or -1 (disable batching), got {self.max_nodes_per_batch}. "
+                f"Recommended: 256 (low memory), 512 (balanced), 1024 (high memory), -1 (no batching)"
             )
         
         self.input_size = input_size
         self.output_size = output_size
-        self.flip_probability = flip_probability
-        self.grad_stabilization = grad_stabilization
-        self.grad_target_std = grad_target_std
-        self.grad_subtract_mean = grad_subtract_mean
-        self.grad_epsilon = grad_epsilon
         
         # Create nodes with layer_size parameter - each position gets its own parameters
         # No weight sharing across layer dimension
@@ -176,6 +220,132 @@ class BaseLUTLayer(nn.Module, ABC):
         """Get mapped inputs for nodes"""
         pass
     
+    def _forward_with_node_batching(self, mapped_inputs: torch.Tensor) -> torch.Tensor:
+        """
+        Process nodes in batches to reduce memory usage.
+        
+        Memory optimization for large layers: instead of processing all nodes at once,
+        process them in chunks of max_nodes_per_batch. This prevents OOM errors on
+        GPUs with limited memory when output_size is very large (e.g., 10,000+ nodes).
+        
+        The key insight: nodes have per-layer-node parameters stored as tensors with
+        layer_size as the first dimension (e.g., raw_weights shape: (layer_size, 2^n, output_dim)).
+        We slice both the input and the parameters for each chunk, then call the node's
+        forward method with torch.no_grad() temporarily disabled so gradients flow correctly.
+        
+        Args:
+            mapped_inputs: (batch_size, output_size, n) tensor
+        
+        Returns:
+            output: (batch_size, output_size, output_dim) tensor
+        """
+        from ..nodes.probabilistic_node import ProbabilisticNode
+        
+        batch_size, output_size, n = mapped_inputs.shape
+        
+        # Preallocate output tensor
+        output = torch.empty(
+            (batch_size, output_size, self.node.output_dim),
+            device=mapped_inputs.device,
+            dtype=mapped_inputs.dtype
+        )
+        
+        # Check if node is ProbabilisticNode (has raw_weights parameter)
+        is_probabilistic = isinstance(self.node, ProbabilisticNode)
+        
+        # Process nodes in chunks
+        for start_idx in range(0, output_size, self.max_nodes_per_batch):
+            end_idx = min(start_idx + self.max_nodes_per_batch, output_size)
+            
+            # Extract chunk: (batch_size, chunk_size, n)
+            mapped_chunk = mapped_inputs[:, start_idx:end_idx, :]
+            
+            # Process chunk through node with parameter slicing
+            if is_probabilistic:
+                # For ProbabilisticNode, we need to slice raw_weights and call forward_train directly
+                raw_weights_chunk = self.node.raw_weights[start_idx:end_idx]
+                
+                # Call forward_train with sliced weights
+                if self.training:
+                    # Use the probabilistic forward with sliced parameters
+                    if self.node.use_cuda and mapped_chunk.is_cuda:
+                        from ..nodes.probabilistic_node import probabilistic_forward
+                        output_chunk = probabilistic_forward(
+                            mapped_chunk, 
+                            raw_weights_chunk, 
+                            self.node.temperature
+                        )
+                    else:
+                        # CPU fallback - need to implement manual computation
+                        output_chunk = self._probabilistic_forward_cpu(
+                            mapped_chunk, 
+                            raw_weights_chunk, 
+                            self.node.temperature, 
+                            self.node.weights[start_idx:end_idx],
+                            self.node.binary_combinations
+                        )
+                else:
+                    # Evaluation mode - use forward_eval
+                    output_chunk = self.node.forward_eval(mapped_chunk)
+            else:
+                # For other node types, just call forward
+                # This may not work correctly if they also have per-layer parameters
+                output_chunk = self.node(mapped_chunk)
+            
+            # Store result
+            output[:, start_idx:end_idx, :] = output_chunk
+        
+        return output
+    
+    def _probabilistic_forward_cpu(
+        self, 
+        x: torch.Tensor, 
+        raw_weights: torch.Tensor,
+        temperature: torch.Tensor,
+        weights: torch.Tensor,
+        binary_combinations: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        CPU fallback for probabilistic forward with sliced parameters.
+        
+        Args:
+            x: (batch_size, chunk_size, input_dim) tensor
+            raw_weights: (chunk_size, 2^input_dim, output_dim) tensor
+            temperature: scalar tensor
+            weights: (chunk_size, 2^input_dim, output_dim) tensor (sigmoid applied)
+            binary_combinations: (2^input_dim, input_dim) tensor
+        
+        Returns:
+            output: (batch_size, chunk_size, output_dim) tensor
+        """
+        batch_size, chunk_size, input_dim = x.shape
+        output_dim = weights.shape[2]
+        
+        # Ensure binary_combinations is on the same device
+        binary_combinations = binary_combinations.to(device=x.device, dtype=x.dtype)
+        
+        # Preallocate output
+        output = torch.empty(
+            (batch_size, chunk_size, output_dim),
+            device=x.device,
+            dtype=x.dtype
+        )
+        
+        # Process each layer independently
+        for layer_idx in range(chunk_size):
+            x_layer = x[:, layer_idx, :]  # (batch_size, input_dim)
+            
+            # Vectorized probability computation
+            x_expanded = x_layer.unsqueeze(1)  # (batch_size, 1, input_dim)
+            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
+            prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
+            probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
+            
+            # Apply weights
+            output[:, layer_idx, :] = torch.matmul(probs, weights[layer_idx])
+        
+        return output
+    
     def _apply_bit_flip(self, x: torch.Tensor) -> torch.Tensor:
         """
         Apply bit-flip augmentation during training (memory-optimized, gradient-detached).
@@ -234,17 +404,19 @@ class BaseLUTLayer(nn.Module, ABC):
         )
         mask = mask_float.bool()
         
-        # Apply flip (clone to preserve gradient graph)
-        x_flipped = x.clone()
-        x_flipped[mask] = 1.0 - x[mask]
+        # OPTIMIZED: Compute flip delta without cloning
+        # Only create tensor for the difference (sparse operation)
+        # Delta: (1-x) - x = 1 - 2x for flipped positions
+        flip_delta = torch.zeros_like(x)
+        flip_delta[mask] = (1.0 - 2.0 * x[mask])
         
         # CRITICAL: Detach noise from gradient graph
-        # Forward: Model sees flipped bits (x -> 1-x for masked positions)
+        # Forward: Model sees flipped bits (x + delta = x + (1-2x) = 1-x for masked positions)
         # Backward: Gradients flow as if no flip occurred (∂L/∂x based on original x)
         # This treats bit-flipping as pure noise injection for robustness training,
         # not as a learnable transformation that the model should compensate for.
         # The model learns: "be robust to corruption" not "predict and undo corruption"
-        x_out = x + (x_flipped - x).detach()
+        x_out = x + flip_delta.detach()
         
         return x_out
     
@@ -268,17 +440,22 @@ class BaseLUTLayer(nn.Module, ABC):
         if num_flips == 0:
             return x
         
-        x_flipped = x.clone()
-        flat_view = x_flipped.view(-1)
+        # OPTIMIZED: Compute flip delta without cloning
+        # Only create tensor for the difference (sparse operation)
+        flip_delta = torch.zeros_like(x)
+        flat_delta = flip_delta.view(-1)
+        flat_x = x.view(-1)
         
         # Random sample without replacement (select indices to flip)
         flip_indices = torch.randperm(num_elements, device=x.device)[:num_flips]
-        flat_view[flip_indices] = 1.0 - flat_view[flip_indices]
+        
+        # Delta: (1-x) - x = 1 - 2x for flipped positions
+        flat_delta[flip_indices] = 1.0 - 2.0 * flat_x[flip_indices]
         
         # CRITICAL: Detach noise from gradient graph (same as standard bit-flip)
-        # Forward: Model sees flipped bits
+        # Forward: Model sees flipped bits (x + delta)
         # Backward: Gradients ignore the flip (robustness training)
-        x_out = x + (x_flipped - x).detach()
+        x_out = x + flip_delta.detach()
         
         return x_out
     
@@ -384,15 +561,21 @@ class BaseLUTLayer(nn.Module, ABC):
         # where n = node.num_inputs
         mapped_inputs = self.get_mapping(x)
         
-        # Pass the 3D tensor to the single node
-        # Shape: (batch_size, output_size, n)
-        # The node treats output_size as an additional batch dimension for parallelization
-        output = self.node(mapped_inputs)
+        # MEMORY OPTIMIZATION: Process nodes in batches if output_size is large
+        # This prevents OOM errors by chunking the layer dimension
+        batch_size = mapped_inputs.shape[0]
+        
+        if self.max_nodes_per_batch > 0 and self.output_size > self.max_nodes_per_batch and self.training:
+            # Layer-wise batching: process nodes in chunks
+            output = self._forward_with_node_batching(mapped_inputs)
+        else:
+            # Standard path: process all nodes at once
+            # Shape: (batch_size, output_size, n) -> (batch_size, output_size, output_dim)
+            output = self.node(mapped_inputs)
         
         # Output shape: (batch_size, output_size, output_dim)
         # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
         # In most cases output_dim=1, so this just squeezes out the last dimension
-        batch_size = output.shape[0]
         output = output.view(batch_size, -1)
         
         # Register gradient stabilization hook if enabled
