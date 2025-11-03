@@ -1,10 +1,14 @@
 import torch
 import torch.nn as nn
-from typing import Type
+from typing import Type, Optional, Dict, Any, Tuple, Callable, List
 import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
-from ..nodes.node_config import NodeKwargs
+from ..nodes.node_config import NodeConfig
+
+# Default random seed for reproducible random mapping
+DEFAULT_RANDOM_LAYER_SEED: int = 42
+
 
 # Try to import the compiled CUDA extension for mapping
 try:
@@ -29,7 +33,7 @@ class MappingFunction(torch.autograd.Function):
     Provides forward and backward passes with automatic differentiation.
     """
     @staticmethod
-    def forward(ctx, input, indices, input_size):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, indices: torch.Tensor, input_size: int) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
         
@@ -58,7 +62,7 @@ class MappingFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, None, None]:
         """
         Backward pass using CUDA kernel.
         
@@ -84,7 +88,7 @@ class MappingFunction(torch.autograd.Function):
         return grad_input, None, None
 
 
-def mapping_forward_cuda(input, indices, input_size):
+def mapping_forward_cuda(input: torch.Tensor, indices: torch.Tensor, input_size: int) -> Optional[torch.Tensor]:
     """
     Mapping forward pass with automatic differentiation support.
     
@@ -113,25 +117,27 @@ class RandomLayer(BaseLUTLayer):
     avoiding large intermediate tensors.
     """
     
-    def __init__(self, 
-                 input_size: int,
-                 output_size: int, 
-                 node_type: Type[nn.Module],
-                 node_kwargs: NodeKwargs = None,
-                 seed: int = 42,
-                 flip_probability: float = None,
-                 grad_stabilization: str = None,
-                 grad_target_std: float = None,
-                 grad_subtract_mean: bool = None,
-                 grad_epsilon: float = None,
-                 max_nodes_per_batch: int = None):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        node_type: Type[nn.Module],
+        node_kwargs: NodeConfig,
+        seed: Optional[int] = DEFAULT_RANDOM_LAYER_SEED,
+        flip_probability: Optional[float] = None,
+        grad_stabilization: Optional[str] = None,
+        grad_target_std: Optional[float] = None,
+        grad_subtract_mean: Optional[bool] = None,
+        grad_epsilon: Optional[float] = None,
+        max_nodes_per_batch: Optional[int] = None
+    ) -> None:
         """
         Args:
             input_size: Size of input vector (from encoder or previous layer)
                        Should match: (batch_size, input_size)
             output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class to use
-            node_kwargs: Node configuration (NodeConfig instance or dict with input_dim, output_dim, etc.)
+            node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
             flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
@@ -151,7 +157,7 @@ class RandomLayer(BaseLUTLayer):
         # Initialize the random mapping
         self._init_mapping()
     
-    def _init_mapping(self):
+    def _init_mapping(self) -> None:
         """
         Initialize random mapping matrix.
         Ensures each input is used at least once per node before any reuse.

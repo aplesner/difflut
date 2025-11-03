@@ -1,20 +1,30 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional, Type, Tuple, Callable, List
 import warnings
-from ..constants import (
-    LAYER_REUSE_WARNING_THRESHOLD,
-    LAYER_UNDERUSE_WARNING_DIVISOR,
-    LAYER_MAX_NODE_INPUT_DIM,
-    DEFAULT_LAYER_FLIP_PROBABILITY,
-    DEFAULT_LAYER_GRAD_STABILIZATION,
-    DEFAULT_LAYER_GRAD_TARGET_STD,
-    DEFAULT_LAYER_GRAD_SUBTRACT_MEAN,
-    DEFAULT_LAYER_GRAD_EPSILON,
-    DEFAULT_LAYER_MAX_NODES_PER_BATCH
-)
-from ..nodes.node_config import NodeConfig, NodeKwargs, normalize_node_kwargs
+from ..nodes.node_config import NodeConfig
+
+# Default bit-flip probability for training augmentation
+# If flip_probability > 0, randomly flip this fraction of bits during training
+DEFAULT_LAYER_FLIP_PROBABILITY: float = 0.0
+# Default gradient stabilization mode
+# Options: 'none', 'layerwise', 'batchwise'
+DEFAULT_LAYER_GRAD_STABILIZATION: str = 'none'
+# Default target standard deviation for gradient stabilization
+# Used when grad_stabilization is not 'none'
+DEFAULT_LAYER_GRAD_TARGET_STD: float = 1.0
+# Default flag for whether to subtract mean during gradient stabilization
+DEFAULT_LAYER_GRAD_SUBTRACT_MEAN: bool = False
+# Default epsilon for numerical stability in gradient stabilization
+DEFAULT_LAYER_GRAD_EPSILON: float = 1e-8
+# Maximum number of nodes to process in a single batch during forward/backward pass
+# Memory optimization: prevents OOM by processing large layers in chunks
+# Trade-off: Smaller values = less memory, slightly more kernel launches
+# Recommended values: 256 (memory-constrained), 512 (balanced), 1024 (high-memory GPUs)
+# Set to -1 to disable batching (process all nodes at once)
+DEFAULT_LAYER_MAX_NODES_PER_BATCH: int = 512
+
 
 
 class BaseLUTLayer(nn.Module, ABC):
@@ -30,17 +40,19 @@ class BaseLUTLayer(nn.Module, ABC):
     and reshapes back to 2D output for the next layer.
     """
     
-    def __init__(self, 
-                 input_size: int,
-                 output_size: int,
-                 node_type,
-                 node_kwargs: NodeKwargs = None,
-                 flip_probability: float = None,
-                 grad_stabilization: str = None,
-                 grad_target_std: float = None,
-                 grad_subtract_mean: bool = None,
-                 grad_epsilon: float = None,
-                 max_nodes_per_batch: int = None):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        node_type: Type[nn.Module],
+        node_kwargs: NodeConfig,
+        flip_probability: Optional[float] = None,
+        grad_stabilization: Optional[str] = None,
+        grad_target_std: Optional[float] = None,
+        grad_subtract_mean: Optional[bool] = None,
+        grad_epsilon: Optional[float] = None,
+        max_nodes_per_batch: Optional[int] = None
+    ) -> None:
         super().__init__()
         
         # Validate parameters
@@ -130,9 +142,7 @@ class BaseLUTLayer(nn.Module, ABC):
         
         # Create nodes with layer_size parameter - each position gets its own parameters
         # No weight sharing across layer dimension
-        # Normalize node_kwargs to NodeConfig for type safety and maintainability
-        node_config = normalize_node_kwargs(node_kwargs)
-        node_config_with_layer = node_config.with_layer_size(output_size)
+        node_config_with_layer = node_kwargs.with_layer_size(output_size)
         self.node = node_type(**node_config_with_layer.to_dict())
         
         # Extract n (number of inputs per node)
@@ -144,7 +154,7 @@ class BaseLUTLayer(nn.Module, ABC):
         # Warn if configuration seems unusual
         self._validate_layer_config()
     
-    def _validate_layer_config(self):
+    def _validate_layer_config(self) -> None:
         """
         Validate that layer configuration makes sense.
         Generate warnings for unusual but valid configurations.
@@ -182,7 +192,7 @@ class BaseLUTLayer(nn.Module, ABC):
                 stacklevel=2
             )
     
-    def _validate_input_dims(self, x: torch.Tensor):
+    def _validate_input_dims(self, x: torch.Tensor) -> None:
         """
         Validate that input has expected dimensions.
         

@@ -1,10 +1,14 @@
-
-
 import torch
 import torch.nn as nn
 from typing import Optional
 from ...registry import register_regularizer
 
+# Default parameters for regularizers
+
+# Default norm parameter for functional regularization (1 for L1, 2 for L2)
+DEFAULT_REGULARIZER_P_NORM: int = 2
+# Default number of random binary samples for regularization
+DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
 
 # Helper function (not registered)
 def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
@@ -30,7 +34,7 @@ def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
 
 @register_regularizer("l")
 @register_regularizer("functional")
-def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.Tensor:
+def l_regularizer(node: nn.Module, p: int = DEFAULT_REGULARIZER_P_NORM, num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES) -> torch.Tensor:
     """
     Functional L-regularization for DiffLUT nodes.
     
@@ -109,7 +113,7 @@ def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.
 
 @register_regularizer("l1")
 @register_regularizer("l1_functional")
-def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
+def l1_regularizer(node: nn.Module, num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES) -> torch.Tensor:
     """
     L1 functional regularization (convenience wrapper for l_regularizer with p=1).
     
@@ -125,7 +129,7 @@ def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
 
 @register_regularizer("l2")
 @register_regularizer("l2_functional")
-def l2_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
+def l2_regularizer(node: nn.Module, num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES) -> torch.Tensor:
     """
     L2 functional regularization (convenience wrapper for l_regularizer with p=2).
     

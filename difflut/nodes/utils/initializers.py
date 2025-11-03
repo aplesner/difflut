@@ -1,10 +1,33 @@
-
-
 import torch
 import torch.nn as nn
 import math
 from typing import Optional, Dict, Any
 from ...registry import register_initializer
+
+# Default parameters for initializers
+
+# Default mean for normal initialization
+DEFAULT_NORMAL_INIT_MEAN: float = 0.0
+# Default standard deviation for normal initialization
+DEFAULT_NORMAL_INIT_STD: float = 1.0
+# Default lower bound for uniform initialization
+DEFAULT_UNIFORM_INIT_A: float = -1.0
+# Default upper bound for uniform initialization
+DEFAULT_UNIFORM_INIT_B: float = 1.0
+# Default gain factor for Xavier/Glorot initialization
+DEFAULT_XAVIER_GAIN: float = 1.0
+# Default gain factor for Kaiming/He initialization
+DEFAULT_KAIMING_GAIN: float = 1.0
+# Default negative slope for Kaiming/He (leaky_relu parameter)
+DEFAULT_KAIMING_A: float = 0.0
+# Default mode for Kaiming/He initialization ('fan_in' or 'fan_out')
+DEFAULT_KAIMING_MODE: str = 'fan_in'
+# Default nonlinearity for Kaiming/He ('relu', 'leaky_relu', 'tanh', 'sigmoid')
+DEFAULT_KAIMING_NONLINEARITY: str = 'leaky_relu'
+# Default target variance for variance-stabilized initialization
+DEFAULT_VARIANCE_STABILIZED_V_TARGET: float = 1.0
+# Default number of samples for regularization computations
+DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
 
 
 @register_initializer("zeros")
@@ -34,7 +57,7 @@ def ones_init(param: torch.Tensor, **kwargs) -> None:
 
 
 @register_initializer("normal")
-def normal_init(param: torch.Tensor, mean: float = 0.0, std: float = 1.0, **kwargs) -> None:
+def normal_init(param: torch.Tensor, mean: float = DEFAULT_NORMAL_INIT_MEAN, std: float = DEFAULT_NORMAL_INIT_STD, **kwargs) -> None:
     """
     Initialize a parameter from a normal distribution.
     
@@ -49,7 +72,7 @@ def normal_init(param: torch.Tensor, mean: float = 0.0, std: float = 1.0, **kwar
 
 
 @register_initializer("uniform")
-def uniform_init(param: torch.Tensor, a: float = -1.0, b: float = 1.0, **kwargs) -> None:
+def uniform_init(param: torch.Tensor, a: float = DEFAULT_UNIFORM_INIT_A, b: float = DEFAULT_UNIFORM_INIT_B, **kwargs) -> None:
     """
     Initialize a parameter from a uniform distribution.
     
@@ -66,7 +89,7 @@ def uniform_init(param: torch.Tensor, a: float = -1.0, b: float = 1.0, **kwargs)
 @register_initializer("xavier_uniform")
 @register_initializer("glorot_uniform")
 @register_initializer("xavier")
-def xavier_uniform_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None:
+def xavier_uniform_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, **kwargs) -> None:
     """
     Initialize a parameter using Xavier/Glorot uniform initialization.
     
@@ -92,7 +115,7 @@ def xavier_uniform_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> Non
 @register_initializer("xavier_normal")
 @register_initializer("glorot_normal")
 @register_initializer("glorot")
-def xavier_normal_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None:
+def xavier_normal_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, **kwargs) -> None:
     """
     Initialize a parameter using Xavier/Glorot normal initialization.
     
@@ -116,8 +139,8 @@ def xavier_normal_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None
 
 @register_initializer("kaiming_uniform")
 @register_initializer("he_uniform")
-def kaiming_uniform_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in', 
-                         nonlinearity: str = 'leaky_relu', **kwargs) -> None:
+def kaiming_uniform_init(param: torch.Tensor, a: float = DEFAULT_KAIMING_A, mode: str = DEFAULT_KAIMING_MODE, 
+                         nonlinearity: str = DEFAULT_KAIMING_NONLINEARITY, **kwargs) -> None:
     """
     Initialize a parameter using Kaiming/He uniform initialization.
     
@@ -149,8 +172,8 @@ def kaiming_uniform_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in'
 @register_initializer("he_normal")
 @register_initializer("kaiming")
 @register_initializer("he")
-def kaiming_normal_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in', 
-                        nonlinearity: str = 'leaky_relu', **kwargs) -> None:
+def kaiming_normal_init(param: torch.Tensor, a: float = DEFAULT_KAIMING_A, mode: str = DEFAULT_KAIMING_MODE, 
+                        nonlinearity: str = DEFAULT_KAIMING_NONLINEARITY, **kwargs) -> None:
     """
     Initialize a parameter using Kaiming/He normal initialization.
     
@@ -179,7 +202,7 @@ def kaiming_normal_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in',
 
 @register_initializer("probabilistic_init")
 @register_initializer("variance_stabilized")
-def variance_stabilized_init(param: torch.Tensor, v_target: float = 1.0, 
+def variance_stabilized_init(param: torch.Tensor, v_target: float = DEFAULT_VARIANCE_STABILIZED_V_TARGET, 
                              fan_in: Optional[int] = None, 
                              fan_out: Optional[int] = None,
                              **kwargs) -> None:

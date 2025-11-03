@@ -2,21 +2,39 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import itertools
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, Tuple
 from .base_node import BaseNode
 from ..registry import register_node
 
+# Default width of hidden layers in NeuralLUT MLP
+DEFAULT_NEURALLUT_HIDDEN_WIDTH: int = 8
+# Default number of layers in NeuralLUT MLP
+DEFAULT_NEURALLUT_DEPTH: int = 2
+# Default interval for skip connections in NeuralLUT (0 = no skips)
+DEFAULT_NEURALLUT_SKIP_INTERVAL: int = 2
+# Default activation function for NeuralLUT ('relu', 'sigmoid', or 'leakyrelu')
+DEFAULT_NEURALLUT_ACTIVATION: str = 'relu'
+# Default starting temperature for NeuralLUT
+DEFAULT_NEURALLUT_TAU_START: float = 1.0
+# Default minimum temperature for NeuralLUT
+DEFAULT_NEURALLUT_TAU_MIN: float = 0.0001
+# Default temperature decay iterations for NeuralLUT
+DEFAULT_NEURALLUT_TAU_DECAY_ITERS: float = 1000.0
+# Default flag for using Straight-Through Estimator in NeuralLUT
+DEFAULT_NEURALLUT_STE: bool = False
+# Default gradient scaling factor for NeuralLUT
+DEFAULT_NEURALLUT_GRAD_FACTOR: float = 1.0
 
 class GradientScalingFunction(torch.autograd.Function):
     """Custom autograd function that scales gradients during backward pass only."""
     
     @staticmethod
-    def forward(ctx, input, grad_factor):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, grad_factor: float) -> torch.Tensor:
         ctx.grad_factor = grad_factor
         return input
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, None]:
         return grad_output * ctx.grad_factor, None
 
 
@@ -28,22 +46,24 @@ class NeuralLUTNode(BaseNode):
     Now supports per-layer-node MLPs for better memory access patterns.
     """
     
-    def __init__(self, 
-                 input_dim: int | None = None,
-                 output_dim: int | None = None,
-                 layer_size: int | None = None,
-                 hidden_width: int = 8,
-                 depth: int = 2,
-                 skip_interval: int = 2,
-                 init_fn: Optional[Callable] = None,
-                 init_kwargs: dict | None = None,
-                 activation: str = 'relu',
-                 regularizers: dict | None = None,
-                 tau_start: float = 1.0,
-                 tau_min: float = 0.0001,
-                 tau_decay_iters: float = 1000.0,
-                 ste: bool = False,
-                 grad_factor: float = 1.0):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        layer_size: Optional[int] = None,
+        hidden_width: int = DEFAULT_NEURALLUT_HIDDEN_WIDTH,
+        depth: int = DEFAULT_NEURALLUT_DEPTH,
+        skip_interval: int = DEFAULT_NEURALLUT_SKIP_INTERVAL,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        activation: str = DEFAULT_NEURALLUT_ACTIVATION,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        tau_start: float = DEFAULT_NEURALLUT_TAU_START,
+        tau_min: float = DEFAULT_NEURALLUT_TAU_MIN,
+        tau_decay_iters: float = DEFAULT_NEURALLUT_TAU_DECAY_ITERS,
+        ste: bool = DEFAULT_NEURALLUT_STE,
+        grad_factor: float = DEFAULT_NEURALLUT_GRAD_FACTOR
+    ) -> None:
         """
         Args:
             input_dim: Number of inputs (e.g., 6)
@@ -86,7 +106,7 @@ class NeuralLUTNode(BaseNode):
         self.register_buffer('lut_table', None)
         self._lut_computed = False
 
-    def _build_network(self):
+    def _build_network(self) -> None:
         """Build the MLP network with skip connections for each layer node."""
         # We'll use grouped linear layers to process all layer_size nodes in parallel
         # Each layer node gets its own set of weights
@@ -237,7 +257,7 @@ class NeuralLUTNode(BaseNode):
         
         return output
 
-    def _precompute_lut(self):
+    def _precompute_lut(self) -> None:
         """Precompute the LUT for evaluation."""
         device = next(self.parameters()).device
         num_entries = 2 ** self.num_inputs

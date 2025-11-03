@@ -1,17 +1,28 @@
 import torch
 import torch.nn as nn
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
-from ..constants import (
-    DWN_ALPHA_BASE,
-    DWN_ALPHA_DECAY,
-    DWN_BETA_NUMERATOR,
-    DWN_BETA_DENOMINATOR,
-    DWN_BINARY_THRESHOLD
-)
+
+# Base gradient scaling factor for DWN nodes
+# Default alpha = DWN_ALPHA_BASE * (DWN_ALPHA_DECAY ** (n-1))
+DWN_ALPHA_BASE: float = 0.5
+# Decay factor for alpha based on number of inputs
+# Applied as: alpha = 0.5 * (0.75 ** (n-1))
+DWN_ALPHA_DECAY: float = 0.75
+# Hamming distance decay factor for DWN backward pass
+# Default beta = DWN_BETA_NUMERATOR / DWN_BETA_DENOMINATOR
+DWN_BETA_NUMERATOR: float = 0.25
+DWN_BETA_DENOMINATOR: float = 0.75
+# Binary threshold for DWN forward pass
+# Inputs >= DWN_BINARY_THRESHOLD are treated as 1, otherwise 0
+DWN_BINARY_THRESHOLD: float = 0.5
+# Default flag for using CUDA kernels in DWN nodes
+DEFAULT_DWN_USE_CUDA: bool = True
+# Default flag for clamping LUT values to [0,1] in DWN nodes
+DEFAULT_DWN_CLAMP_LUTS: bool = True
 
 # Try to import the compiled CUDA extension
 try:
@@ -36,7 +47,7 @@ class EFDFunction(torch.autograd.Function):
     Handles 3D tensors with per-layer-node parameters.
     """
     @staticmethod
-    def forward(ctx, input, luts, alpha, beta):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
         
@@ -67,7 +78,7 @@ class EFDFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Backward pass using CUDA kernel with alpha/beta scaling.
         
@@ -102,7 +113,7 @@ class EFDFunctionCPU(torch.autograd.Function):
     Handles 3D tensors with per-layer-node parameters.
     """
     @staticmethod
-    def forward(ctx, input, luts, alpha, beta):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
         """Forward pass with binary thresholding."""
         # Binary threshold at 0.5 for [0, 1] inputs
         x_binary = (input >= 0.5).float()
@@ -129,7 +140,7 @@ class EFDFunctionCPU(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None, None]:
         """Backward pass using Extended Finite Difference (EFD) with alpha/beta scaling."""
         input, luts = ctx.saved_tensors
         alpha = ctx.alpha
@@ -188,7 +199,7 @@ class EFDFunctionCPU(torch.autograd.Function):
         return grad_input, grad_luts, None, None
 
 
-def efd_forward(input, luts, alpha, beta):
+def efd_forward(input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> Optional[torch.Tensor]:
     """
     EFD forward pass with automatic differentiation support.
     
@@ -274,7 +285,7 @@ class DWNNode(BaseNode):
         self.luts = nn.Parameter(torch.rand(self.layer_size, self.num_outputs, lut_size))
         self._apply_init_fn(self.luts, name="luts")
          
-    def _clamp_luts_if_needed(self):
+    def _clamp_luts_if_needed(self) -> None:
         """Clamp LUT values to [0, 1] during training if enabled."""
         if self.training and self.clamp_luts:
             with torch.no_grad():

@@ -5,6 +5,29 @@ from .base_encoder import BaseEncoder
 from ..registry import register_encoder
 
 
+
+# Default number of bits for advanced encoders (Binary, Gray, etc.)
+DEFAULT_ADVANCED_ENCODER_NUM_BITS: int = 8
+
+# Default base for logarithmic encoder
+DEFAULT_LOGARITHMIC_BASE: float = 2.0
+
+# Minimum number of bits required for sign-magnitude encoding
+MIN_SIGN_MAGNITUDE_BITS: int = 2
+
+# Default number of bits for Gray encoder
+DEFAULT_GRAY_ENCODER_NUM_BITS: int = 8
+
+# Default number of bits for OneHot encoder
+DEFAULT_ONEHOT_ENCODER_NUM_BITS: int = 8
+
+# Default number of bits for Binary encoder
+DEFAULT_BINARY_ENCODER_NUM_BITS: int = 8
+
+# Default number of bits for Sign-Magnitude encoder
+DEFAULT_SIGN_MAGNITUDE_NUM_BITS: int = 8
+
+
 @register_encoder("gray")
 class GrayEncoder(BaseEncoder):
     """

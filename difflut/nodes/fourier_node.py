@@ -1,11 +1,19 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
+
 from .cuda import is_cuda_available
+
+# Default maximum amplitude for Fourier series
+DEFAULT_FOURIER_MAX_AMPLITUDE: float = 1.0
+# Default flag for using all 2^n frequency vectors
+DEFAULT_FOURIER_USE_ALL_FREQUENCIES: bool = False
+# Default flag for using CUDA kernels in Fourier nodes
+DEFAULT_FOURIER_USE_CUDA: bool = True
 
 # Try to import the fourier CUDA extension
 try:
@@ -29,7 +37,7 @@ class FourierFunction(torch.autograd.Function):
     PyTorch autograd function wrapper for Fourier CUDA kernels.
     """
     @staticmethod
-    def forward(ctx, input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, frequencies: torch.Tensor, amplitudes: torch.Tensor, phases: torch.Tensor, bias: torch.Tensor, max_amplitude: float, use_eval: bool) -> torch.Tensor:
         """
         Forward pass using CUDA kernel with 3D tensors.
         
@@ -68,7 +76,7 @@ class FourierFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None, None]:
         """
         Backward pass using CUDA kernel with 3D tensors.
         
@@ -96,7 +104,7 @@ class FourierFunction(torch.autograd.Function):
         return grad_input, None, grad_amplitudes, grad_phases, grad_bias, None, None
 
 
-def fourier_forward(input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval=False):
+def fourier_forward(input: torch.Tensor, frequencies: torch.Tensor, amplitudes: torch.Tensor, phases: torch.Tensor, bias: torch.Tensor, max_amplitude: float, use_eval: bool = False) -> Optional[torch.Tensor]:
     """
     Fourier forward pass with automatic differentiation support.
     
@@ -186,16 +194,18 @@ class FourierNode(BaseNode):
     Now supports per-layer-node parameters for better memory access patterns.
     """
     
-    def __init__(self, 
-                 input_dim: int | None = None,
-                 output_dim: int | None = None,
-                 layer_size: int | None = None,
-                 use_all_frequencies: bool = True,
-                 max_amplitude: float = 0.5,
-                 use_cuda: bool = True,
-                 regularizers: dict | None = None,
-                 init_fn: Optional[Callable] = None,
-                 init_kwargs: dict | None = None):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        layer_size: Optional[int] = None,
+        use_all_frequencies: bool = DEFAULT_FOURIER_USE_ALL_FREQUENCIES,
+        max_amplitude: float = DEFAULT_FOURIER_MAX_AMPLITUDE,
+        use_cuda: bool = DEFAULT_FOURIER_USE_CUDA,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None
+    ) -> None:
         """
         Args:
             input_dim: Input dimensions (e.g., 6)

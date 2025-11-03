@@ -20,7 +20,7 @@ Examples:
 """
 
 import warnings
-from typing import Optional
+from typing import Optional, Any, Type
 
 
 class DiffLUTWarning(UserWarning):
@@ -38,7 +38,12 @@ class ConfigurationWarning(UserWarning):
     pass
 
 
-def warn_once(message: str, category: type = UserWarning, stacklevel: int = 2):
+class DefaultValueWarning(ConfigurationWarning):
+    """Warning for use of default configuration values."""
+    pass
+
+
+def warn_once(message: str, category: Type[Warning] = UserWarning, stacklevel: int = 2) -> None:
     """
     Issue a warning that will only be shown once per location.
     
@@ -50,7 +55,23 @@ def warn_once(message: str, category: type = UserWarning, stacklevel: int = 2):
     warnings.warn(message, category=category, stacklevel=stacklevel + 1)
 
 
-def warn_cuda_unavailable(module_name: str, extension_name: str, stacklevel: int = 2):
+def warn_default_value(param_name: str, param_value: Any, stacklevel: int = 2) -> None:
+    """
+    Issue a warning when a default value is used for an optional parameter.
+    
+    Args:
+        param_name: Name of the parameter
+        param_value: Default value being used
+        stacklevel: Stack level for warning source
+    """
+    warnings.warn(
+        f"Parameter '{param_name}' was not provided, using default value: {param_value}",
+        category=DefaultValueWarning,
+        stacklevel=stacklevel + 1
+    )
+
+
+def warn_cuda_unavailable(module_name: str, extension_name: str, stacklevel: int = 2) -> None:
     """
     Standard warning for unavailable CUDA extensions.
     
@@ -69,7 +90,7 @@ def warn_cuda_unavailable(module_name: str, extension_name: str, stacklevel: int
     )
 
 
-def warn_large_lut(num_inputs: int, lut_size: int, stacklevel: int = 2):
+def warn_large_lut(num_inputs: int, lut_size: int, stacklevel: int = 2) -> None:
     """
     Warning for potentially problematic large LUT sizes.
     
@@ -87,7 +108,7 @@ def warn_large_lut(num_inputs: int, lut_size: int, stacklevel: int = 2):
     )
 
 
-def warn_parameter_count(param_count: int, threshold: int = 100000, stacklevel: int = 2):
+def warn_parameter_count(param_count: int, threshold: int = 100000, stacklevel: int = 2) -> None:
     """
     Warning for excessive parameter counts.
     
@@ -106,7 +127,7 @@ def warn_parameter_count(param_count: int, threshold: int = 100000, stacklevel: 
         )
 
 
-def warn_encoder_not_fitted(encoder_class: str, stacklevel: int = 2):
+def warn_encoder_not_fitted(encoder_class: str, stacklevel: int = 2) -> None:
     """
     Warning/error for using unfitted encoder.
     
@@ -123,9 +144,9 @@ def warn_encoder_not_fitted(encoder_class: str, stacklevel: int = 2):
 
 def configure_warnings(
     action: str = 'default',
-    category: Optional[type] = None,
+    category: Optional[Type[Warning]] = None,
     module_pattern: str = 'difflut'
-):
+) -> None:
     """
     Configure warning filters for DiffLUT.
     
@@ -150,7 +171,7 @@ def configure_warnings(
         warnings.filterwarnings(action, category=category, module=module_pattern)
 
 
-def suppress_warnings(func):
+def suppress_warnings(func: Any) -> Any:
     """
     Decorator to suppress warnings for a specific function.
     
@@ -160,7 +181,7 @@ def suppress_warnings(func):
         >>>     # Warnings from DiffLUT will be suppressed here
         >>>     pass
     """
-    def wrapper(*args, **kwargs):
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
         with warnings.catch_warnings():
             warnings.filterwarnings('ignore', module='difflut')
             return func(*args, **kwargs)
@@ -168,22 +189,22 @@ def suppress_warnings(func):
 
 
 # Preset warning configurations
-def enable_all_warnings():
+def enable_all_warnings() -> None:
     """Enable all DiffLUT warnings (useful for debugging)."""
     configure_warnings('always')
 
 
-def disable_all_warnings():
+def disable_all_warnings() -> None:
     """Disable all DiffLUT warnings."""
     configure_warnings('ignore')
 
 
-def disable_cuda_warnings():
+def disable_cuda_warnings() -> None:
     """Disable only CUDA-related performance warnings."""
     configure_warnings('ignore', category=PerformanceWarning)
 
 
-def enable_strict_mode():
+def enable_strict_mode() -> None:
     """Treat all DiffLUT warnings as errors."""
     configure_warnings('error')
 

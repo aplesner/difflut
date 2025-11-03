@@ -2,7 +2,14 @@ import torch
 from abc import ABC, abstractmethod
 from typing import Union, Optional
 import warnings
-from ..constants import DEFAULT_ENCODER_NUM_BITS, DEFAULT_ENCODER_FLATTEN
+
+# Default number of bits for encoding continuous values
+DEFAULT_ENCODER_NUM_BITS: int = 3
+
+# Default flatten behavior for encoders
+# If True, output shape is (batch_size, input_dim * num_bits)
+# If False, output shape is (batch_size, input_dim, num_bits)
+DEFAULT_ENCODER_FLATTEN: bool = True
 
 class BaseEncoder(ABC):
     """
@@ -14,7 +21,11 @@ class BaseEncoder(ABC):
     - flatten=False: Returns 3D tensor (batch_size, input_dim, num_bits)
     """
     
-    def __init__(self, num_bits: int = DEFAULT_ENCODER_NUM_BITS, flatten: bool = DEFAULT_ENCODER_FLATTEN):
+    def __init__(
+        self,
+        num_bits: int = DEFAULT_ENCODER_NUM_BITS,
+        flatten: bool = DEFAULT_ENCODER_FLATTEN
+    ) -> None:
         """
         Args:
             num_bits: Number of bits in the encoded representation
@@ -69,7 +80,7 @@ class BaseEncoder(ABC):
             return torch.tensor(x)
         return x
     
-    def _check_fitted(self):
+    def _check_fitted(self) -> None:
         """Check if encoder has been fitted."""
         if not self._is_fitted:
             raise RuntimeError(

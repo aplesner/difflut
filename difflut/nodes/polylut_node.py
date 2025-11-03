@@ -1,9 +1,12 @@
 import torch
 import torch.nn as nn
 import itertools
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, Tuple, List
 from .base_node import BaseNode
 from ..registry import register_node
+
+# Default maximum polynomial degree for PolyLUT nodes
+DEFAULT_POLYLUT_DEGREE: int = 3
 
 @register_node("polylut")
 class PolyLUTNode(BaseNode):
@@ -13,14 +16,16 @@ class PolyLUTNode(BaseNode):
     Now supports per-layer-node coefficients for better memory access patterns.
     """
     
-    def __init__(self, 
-                 input_dim: int | None = None,
-                 output_dim: int | None = None,
-                 layer_size: int | None = None,
-                 degree: int = 2,
-                 init_fn: Optional[Callable] = None,
-                 init_kwargs: dict | None = None,
-                 regularizers: dict | None = None):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        layer_size: Optional[int] = None,
+        degree: int = DEFAULT_POLYLUT_DEGREE,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None
+    ) -> None:
         """
         Args:
             input_dim: Number of inputs (e.g., 6)

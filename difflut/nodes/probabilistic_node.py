@@ -1,11 +1,20 @@
 import torch
 import torch.nn as nn
 import itertools
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
+
 from .cuda import is_cuda_available
+
+# Default temperature for probabilistic sigmoid scaling
+DEFAULT_PROBABILISTIC_TEMPERATURE: float = 1.0
+# Default evaluation mode for probabilistic nodes
+# Options: 'expectation', 'deterministic', 'threshold'
+DEFAULT_PROBABILISTIC_EVAL_MODE: str = "expectation"
+# Default flag for using CUDA kernels in probabilistic nodes
+DEFAULT_PROBABILISTIC_USE_CUDA: bool = True
 
 # Try to import the compiled CUDA extension
 try:
@@ -30,7 +39,7 @@ class ProbabilisticFunction(torch.autograd.Function):
     Handles 3D tensors with per-layer-node parameters.
     """
     @staticmethod
-    def forward(ctx, input, raw_weights, temperature):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, raw_weights: torch.Tensor, temperature: float) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
         
@@ -59,7 +68,7 @@ class ProbabilisticFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], None]:
         """
         Backward pass using CUDA kernel.
         
@@ -87,7 +96,7 @@ class ProbabilisticFunction(torch.autograd.Function):
         return grad_input, grad_weights, None
 
 
-def probabilistic_forward(input, raw_weights, temperature):
+def probabilistic_forward(input: torch.Tensor, raw_weights: torch.Tensor, temperature: float) -> Optional[torch.Tensor]:
     """
     Probabilistic forward pass with automatic differentiation support.
     
@@ -112,16 +121,18 @@ class ProbabilisticNode(BaseNode):
     Uses probabilistic forward pass and autograd for gradients.
     """
     
-    def __init__(self, 
-                 input_dim: int | None = None,
-                 output_dim: int | None = None,
-                 layer_size: int | None = None,
-                 init_fn: Optional[Callable] = None,
-                 init_kwargs: dict | None = None,
-                 regularizers: dict | None = None,
-                 temperature: float = 1.0,
-                 eval_mode: str = "expectation",
-                 use_cuda: bool = True):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        layer_size: Optional[int] = None,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        temperature: float = DEFAULT_PROBABILISTIC_TEMPERATURE,
+        eval_mode: str = DEFAULT_PROBABILISTIC_EVAL_MODE,
+        use_cuda: bool = DEFAULT_PROBABILISTIC_USE_CUDA
+    ) -> None:
         """
         Args:
             input_dim: Number of inputs (e.g., 6)

@@ -1,4 +1,4 @@
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 import warnings
 import torch
 import torch.nn as nn
@@ -6,6 +6,12 @@ import torch.nn as nn
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
+
+
+# Default gradient scaling factor for DWN Stable nodes
+DEFAULT_DWN_STABLE_GRADIENT_SCALE: float = 1.0
+# Default flag for using CUDA kernels in DWN Stable nodes
+DEFAULT_DWN_STABLE_USE_CUDA: bool = True
 
 # Try to import the compiled CUDA extension
 try:
@@ -31,7 +37,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
     Same as EFD but with gradient scaling in backward pass.
     """
     @staticmethod
-    def forward(ctx, input, luts, gradient_scale):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, gradient_scale: float) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
         
@@ -60,7 +66,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
         """
         Backward pass using CUDA kernel with gradient scaling.
         
@@ -94,7 +100,7 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
     Handles 3D tensors with per-layer-node parameters.
     """
     @staticmethod
-    def forward(ctx, input, luts, gradient_scale):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, gradient_scale: float) -> torch.Tensor:
         """Forward pass with binary thresholding."""
         # Binary threshold at 0.5 for [0, 1] inputs
         x_binary = (input >= 0.5).float()
@@ -120,7 +126,7 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
         """Backward pass using Gradient Stabilized EFD with gradient scaling."""
         input, luts = ctx.saved_tensors
         gradient_scale = ctx.gradient_scale
@@ -178,7 +184,7 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
         return grad_input, grad_luts, None
 
 
-def dwn_stable_forward(input, luts, gradient_scale):
+def dwn_stable_forward(input: torch.Tensor, luts: torch.Tensor, gradient_scale: float) -> Optional[torch.Tensor]:
     """
     Gradient Stabilized forward pass with automatic differentiation support.
     

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import warnings
+from typing import Optional
 
 
 class GroupSum(nn.Module):
@@ -18,7 +19,7 @@ class GroupSum(nn.Module):
     The input is reshaped to (batch_size, k, group_size) where
     group_size = num_features // k, then summed across groups.
     """
-    def __init__(self, k, tau=1, use_randperm=False):
+    def __init__(self, k: int, tau: float = 1, use_randperm: bool = False) -> None:
         """
         Args:
             k: Number of output groups (number of classes)
@@ -36,7 +37,7 @@ class GroupSum(nn.Module):
         if not isinstance(tau, (int, float)) or tau <= 0:
             raise ValueError(f"tau must be a positive number, got {tau}")
         
-    def _validate_input_dim(self, x: torch.Tensor):
+    def _validate_input_dim(self, x: torch.Tensor) -> None:
         """
         Validate that input dimensions are compatible.
         
@@ -76,7 +77,7 @@ class GroupSum(nn.Module):
                 stacklevel=3
             )
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass: group input features and sum within groups.
         

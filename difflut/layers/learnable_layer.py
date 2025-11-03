@@ -1,19 +1,28 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Type
+from typing import Type, Optional, Tuple
 import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
-from ..nodes.node_config import NodeKwargs
-from ..constants import (
-    DEFAULT_LEARNABLE_LAYER_TAU,
-    DEFAULT_LEARNABLE_LAYER_TAU_START,
-    DEFAULT_LEARNABLE_LAYER_TAU_MIN,
-    DEFAULT_LEARNABLE_LAYER_TAU_DECAY_ITERS,
-    LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD,
-    DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT
-)
+from ..nodes.node_config import NodeConfig
+
+# Default temperature for softmax in learnable mapping
+DEFAULT_LEARNABLE_LAYER_TAU: float = 0.001
+# Default starting value for tau (used for exponential decay)
+DEFAULT_LEARNABLE_LAYER_TAU_START: float = 1.0
+# Default minimum value tau can decay to
+DEFAULT_LEARNABLE_LAYER_TAU_MIN: float = 0.0001
+# Default number of iterations for tau to decay by factor of 10
+DEFAULT_LEARNABLE_LAYER_TAU_DECAY_ITERS: float = 1000.0
+# Threshold for warning about excessive learnable connections
+# If output_size * n > input_size * LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD, warn
+LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD: int = 10
+# Use CUDA kernel for soft selection (training mode)
+# If False, always use PyTorch's matmul (more stable, well-tested)
+# If True, use custom CUDA kernel (potentially faster for large matrices)
+# Note: Hard selection (eval mode) always uses CUDA kernel when available
+DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT: bool = False
 
 # Try to import the compiled CUDA extension for learnable mapping
 try:
@@ -37,7 +46,7 @@ class LearnableMappingFunction(torch.autograd.Function):
     Autograd function wrapper for learnable mapping CUDA kernel (hard selection).
     """
     @staticmethod
-    def forward(ctx, input, indices, input_size):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, indices: torch.Tensor, input_size: int) -> torch.Tensor:
         """
         Forward pass using CUDA kernel for hard selection.
         
@@ -66,7 +75,7 @@ class LearnableMappingFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, None, None]:
         """
         Backward pass using CUDA kernel.
         
@@ -92,7 +101,7 @@ class LearnableMappingFunction(torch.autograd.Function):
         return grad_input, None, None
 
 
-def learnable_mapping_forward_cuda(input, indices, input_size):
+def learnable_mapping_forward_cuda(input: torch.Tensor, indices: torch.Tensor, input_size: int) -> Optional[torch.Tensor]:
     """
     Learnable mapping forward pass (hard selection) with CUDA.
     
@@ -110,7 +119,7 @@ def learnable_mapping_forward_cuda(input, indices, input_size):
         return None
 
 
-def learnable_mapping_soft_forward_cuda(input, weights, tau):
+def learnable_mapping_soft_forward_cuda(input: torch.Tensor, weights: torch.Tensor, tau: float) -> Optional[torch.Tensor]:
     """
     Learnable mapping forward pass (soft selection) with CUDA.
     
@@ -169,7 +178,7 @@ class LearnableMappingModule(nn.Module):
         
         return self
     
-    def _compute_hard_selection(self):
+    def _compute_hard_selection(self) -> None:
         """
         Compute hard selection from current weights.
         Computes both indices (for CUDA kernel) and mask (for PyTorch fallback).
@@ -244,7 +253,7 @@ class LearnableLayer(BaseLUTLayer):
                  input_size: int,
                  output_size: int, 
                  node_type: Type[nn.Module],
-                 node_kwargs: NodeKwargs = None,
+                 node_kwargs: NodeConfig,
                  tau: float = None,
                  tau_start: float = None,
                  tau_min: float = None,
@@ -262,7 +271,7 @@ class LearnableLayer(BaseLUTLayer):
                        Should match: (batch_size, input_size)
             output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class
-            node_kwargs: Node configuration (NodeConfig instance or dict with input_dim, output_dim, etc.)
+            node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             tau: Initial temperature for softmax in learnable mapping
             tau_start: Starting value for tau (used for exponential decay)

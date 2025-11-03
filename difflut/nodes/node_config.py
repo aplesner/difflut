@@ -107,7 +107,7 @@ class NodeConfig:
     # stored in extra_params and can be accessed via to_dict()
     extra_params: Dict[str, Any] = field(default_factory=dict)
     
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         if self.regularizers is None:
             self.regularizers = {}
@@ -142,38 +142,6 @@ class NodeConfig:
         result.update(self.extra_params)
         
         return result
-    
-    @classmethod
-    def from_dict(cls, config: Dict[str, Any]) -> 'NodeConfig':
-        """
-        Create NodeConfig from dictionary.
-        
-        Separates known common parameters from node-specific parameters.
-        
-        Args:
-            config: Dictionary with node parameters
-            
-        Returns:
-            NodeConfig instance
-        """
-        # Known common parameters
-        common_params = {
-            'input_dim', 'output_dim', 'layer_size',
-            'regularizers', 'init_fn', 'init_kwargs'
-        }
-        
-        # Separate common from extra parameters
-        kwargs = {}
-        extra = {}
-        
-        for key, value in config.items():
-            if key in common_params:
-                kwargs[key] = value
-            else:
-                extra[key] = value
-        
-        kwargs['extra_params'] = extra
-        return cls(**kwargs)
     
     def copy(self) -> 'NodeConfig':
         """Create a deep copy of this configuration."""
@@ -219,39 +187,3 @@ class NodeConfig:
             params.append(extra_str)
         
         return f"NodeConfig({', '.join(params)})"
-
-
-# Type alias for backward compatibility
-NodeKwargs = Union[NodeConfig, Dict[str, Any], None]
-
-
-def normalize_node_kwargs(node_kwargs: NodeKwargs) -> NodeConfig:
-    """
-    Normalize node_kwargs to NodeConfig.
-    
-    Handles both dictionary and NodeConfig inputs for backward compatibility.
-    
-    Args:
-        node_kwargs: Either a NodeConfig, dict, or None
-        
-    Returns:
-        NodeConfig instance
-        
-    Example:
-        ```python
-        # All of these work:
-        config = normalize_node_kwargs(None)  # Empty config
-        config = normalize_node_kwargs({'input_dim': 6})  # From dict
-        config = normalize_node_kwargs(NodeConfig(input_dim=6))  # Already NodeConfig
-        ```
-    """
-    if node_kwargs is None:
-        return NodeConfig()
-    elif isinstance(node_kwargs, NodeConfig):
-        return node_kwargs
-    elif isinstance(node_kwargs, dict):
-        return NodeConfig.from_dict(node_kwargs)
-    else:
-        raise TypeError(
-            f"node_kwargs must be NodeConfig, dict, or None, got {type(node_kwargs).__name__}"
-        )

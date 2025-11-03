@@ -1,10 +1,14 @@
 import torch
 import torch.nn as nn
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
+
+
+# Default flag for using CUDA kernels in Hybrid nodes
+DEFAULT_HYBRID_USE_CUDA: bool = True
 
 # Try to import the hybrid CUDA extension
 try:
@@ -31,7 +35,7 @@ class HybridFunction(torch.autograd.Function):
     Updated for 3D tensors with per-layer-node parameters (no mapping - dense connectivity)
     """
     @staticmethod
-    def forward(ctx, input, luts, binary_combinations):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, binary_combinations: torch.Tensor) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
         
@@ -60,7 +64,7 @@ class HybridFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
         """
         Backward pass using CUDA kernel with probabilistic gradients.
         
@@ -96,7 +100,7 @@ class HybridFunctionCPU(torch.autograd.Function):
     """
     
     @staticmethod
-    def forward(ctx, x, luts, binary_combinations):
+    def forward(ctx: torch.autograd.function.FunctionCtx, x: torch.Tensor, luts: torch.Tensor, binary_combinations: torch.Tensor) -> torch.Tensor:
         """
         Forward pass: Binary thresholding like DWN.
         
@@ -140,7 +144,7 @@ class HybridFunctionCPU(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None]:
         """
         Backward pass: Probabilistic gradients like UnboundProbabilistic.
         
@@ -212,7 +216,7 @@ class HybridFunctionCPU(torch.autograd.Function):
         return grad_input, grad_luts, None
 
 
-def hybrid_forward(input, luts, binary_combinations):
+def hybrid_forward(input: torch.Tensor, luts: torch.Tensor, binary_combinations: torch.Tensor) -> Optional[torch.Tensor]:
     """
     Hybrid forward pass with automatic differentiation support.
     Forward: Binary thresholding at 0.5 (efficient, discrete)

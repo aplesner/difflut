@@ -3,7 +3,7 @@ Global registry for DiffLUT components.
 Provides a centralized system for registering and retrieving nodes, layers, and encoders.
 """
 
-from typing import Dict, Type, Any, Optional, Callable
+from typing import Dict, Type, Any, Optional, Callable, List
 import inspect
 import warnings
 
@@ -14,7 +14,7 @@ class Registry:
     Manages registration and retrieval of nodes, layers, encoders, initializers, and regularizers.
     """
     
-    def __init__(self):
+    def __init__(self) -> None:
         self._nodes: Dict[str, Type] = {}
         self._layers: Dict[str, Type] = {}
         self._encoders: Dict[str, Type] = {}
@@ -69,7 +69,7 @@ class Registry:
             )
         return self._nodes[name]
     
-    def list_nodes(self) -> list:
+    def list_nodes(self) -> List[str]:
         """List all registered node names."""
         return list(self._nodes.keys())
     
@@ -121,7 +121,7 @@ class Registry:
             )
         return self._layers[name]
     
-    def list_layers(self) -> list:
+    def list_layers(self) -> List[str]:
         """List all registered layer names."""
         return list(self._layers.keys())
     
@@ -173,7 +173,7 @@ class Registry:
             )
         return self._encoders[name]
     
-    def list_encoders(self) -> list:
+    def list_encoders(self) -> List[str]:
         """List all registered encoder names."""
         return list(self._encoders.keys())
     
@@ -244,7 +244,7 @@ class Registry:
             )
         return self._initializers[name_lower]
     
-    def list_initializers(self) -> list:
+    def list_initializers(self) -> List[str]:
         """List all registered initializer names."""
         return sorted(list(self._initializers.keys()))
     
@@ -315,7 +315,7 @@ class Registry:
             )
         return self._regularizers[name_lower]
     
-    def list_regularizers(self) -> list:
+    def list_regularizers(self) -> List[str]:
         """List all registered regularizer names."""
         return sorted(list(self._regularizers.keys()))
     
@@ -365,7 +365,7 @@ class Registry:
     
     # ==================== Utility Methods ====================
     
-    def list_all(self) -> Dict[str, list]:
+    def list_all(self) -> Dict[str, List[str]]:
         """List all registered components."""
         return {
             'nodes': self.list_nodes(),

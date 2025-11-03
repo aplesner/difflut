@@ -1,15 +1,21 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, List, Tuple
 import warnings
-from ..constants import (
-    DEFAULT_NODE_INPUT_DIM,
-    DEFAULT_NODE_OUTPUT_DIM,
-    DEFAULT_NODE_LAYER_SIZE,
-    NODE_INPUT_DIM_WARNING_THRESHOLD,
-    NODE_OUTPUT_DIM_WARNING_THRESHOLD
-)
+
+# Default number of inputs per node if not specified
+DEFAULT_NODE_INPUT_DIM: int = 6
+# Default number of outputs per node if not specified
+DEFAULT_NODE_OUTPUT_DIM: int = 1
+# Default layer size (number of parallel nodes) if not specified
+DEFAULT_NODE_LAYER_SIZE: int = 1
+# Threshold for warning about large input dimensions
+# If input_dim > NODE_INPUT_DIM_WARNING_THRESHOLD, warn about memory
+NODE_INPUT_DIM_WARNING_THRESHOLD: int = 10
+# Threshold for warning about large output dimensions
+# If output_dim > NODE_OUTPUT_DIM_WARNING_THRESHOLD, warn about memory
+NODE_OUTPUT_DIM_WARNING_THRESHOLD: int = 10
 
 
 class BaseNode(nn.Module, ABC):
@@ -17,10 +23,15 @@ class BaseNode(nn.Module, ABC):
     Abstract base class for all LUT nodes with automatic gradient handling
     """
     
-    def __init__(self, input_dim: int = None, output_dim: int = None, 
-                 layer_size: int = None,
-                 regularizers: dict = None,
-                 init_fn: Optional[Callable] = None, init_kwargs: dict = None):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        layer_size: Optional[int] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None
+    ) -> None:
         """
         Args:
             input_dim: Number of inputs (e.g., 6 for 6 inputs)
@@ -163,7 +174,7 @@ class BaseNode(nn.Module, ABC):
                 f"Check that init_fn is compatible with the parameter and init_kwargs are correct."
             )
     
-    def _validate_regularizers(self):
+    def _validate_regularizers(self) -> None:
         """Validate regularizers format - only accepts [fn, weight, kwargs] format"""
         if not self.regularizers:
             return
@@ -212,7 +223,12 @@ class BaseNode(nn.Module, ABC):
         
         self.regularizers = validated
     
-    def _select_independent_luts(self, output_flat: torch.Tensor, batch_size: int, layer_size: int) -> torch.Tensor:
+    def _select_independent_luts(
+        self,
+        output_flat: torch.Tensor,
+        batch_size: int,
+        layer_size: int
+    ) -> torch.Tensor:
         """
         Helper method to select independent LUT outputs when output_dim == layer_size.
         
@@ -304,6 +320,9 @@ class BaseNode(nn.Module, ABC):
         Compute regularization term for the node.
         Combines built-in regularization with custom regularizers.
         Override _builtin_regularization() in subclasses for node-specific regularization.
+        
+        Returns:
+            Scalar tensor with total regularization value
         """
         device = next(self.parameters()).device if list(self.parameters()) else 'cpu'
         
@@ -332,10 +351,10 @@ class BaseNode(nn.Module, ABC):
         Returns:
             Scalar tensor with regularization value (default: 0.0)
         """
-        device = next(self.parameters()).device if list(self.parameters()) else 'cpu'
+        device: torch.device = next(self.parameters()).device if list(self.parameters()) else torch.device('cpu')
         return torch.tensor(0.0, device=device)
     
-    def export_bitstream(self) -> list:
+    def export_bitstream(self) -> List[int]:
         """
         Export node configuration as bitstream for FPGA deployment.
         Default: evaluate all binary input combinations using forward_eval.
