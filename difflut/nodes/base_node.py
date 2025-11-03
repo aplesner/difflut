@@ -3,6 +3,13 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Optional, Callable
 import warnings
+from ..constants import (
+    DEFAULT_NODE_INPUT_DIM,
+    DEFAULT_NODE_OUTPUT_DIM,
+    DEFAULT_NODE_LAYER_SIZE,
+    NODE_INPUT_DIM_WARNING_THRESHOLD,
+    NODE_OUTPUT_DIM_WARNING_THRESHOLD
+)
 
 
 class BaseNode(nn.Module, ABC):
@@ -32,9 +39,29 @@ class BaseNode(nn.Module, ABC):
         super().__init__()
         
         # Set defaults if not provided
-        self.input_dim = input_dim if input_dim is not None else 6
-        self.output_dim = output_dim if output_dim is not None else 1
-        self.layer_size = layer_size if layer_size is not None else 1
+        self.input_dim = input_dim if input_dim is not None else DEFAULT_NODE_INPUT_DIM
+        if input_dim is None:
+            warnings.warn(
+                f"input_dim was not provided, using default value: {self.input_dim}",
+                UserWarning,
+                stacklevel=2
+            )
+        
+        self.output_dim = output_dim if output_dim is not None else DEFAULT_NODE_OUTPUT_DIM
+        if output_dim is None:
+            warnings.warn(
+                f"output_dim was not provided, using default value: {self.output_dim}",
+                UserWarning,
+                stacklevel=2
+            )
+        
+        self.layer_size = layer_size if layer_size is not None else DEFAULT_NODE_LAYER_SIZE
+        if layer_size is None:
+            warnings.warn(
+                f"layer_size was not provided, using default value: {self.layer_size}",
+                UserWarning,
+                stacklevel=2
+            )
         
         # Validate input_dim
         if not isinstance(self.input_dim, int) or self.input_dim <= 0:
@@ -50,10 +77,10 @@ class BaseNode(nn.Module, ABC):
                 f"Example: layer_size=128"
             )
         
-        if self.input_dim > 10:
+        if self.input_dim > NODE_INPUT_DIM_WARNING_THRESHOLD:
             warnings.warn(
                 f"input_dim={self.input_dim} is quite large. "
-                f"LUT nodes with >10 inputs may have exponentially large memory requirements (2^{self.input_dim} entries). "
+                f"LUT nodes with >{NODE_INPUT_DIM_WARNING_THRESHOLD} inputs may have exponentially large memory requirements (2^{self.input_dim} entries). "
                 f"Consider using smaller input dimensions or splitting inputs across multiple layers.",
                 UserWarning,
                 stacklevel=2
@@ -66,7 +93,7 @@ class BaseNode(nn.Module, ABC):
                 f"Example: output_dim=1"
             )
         
-        if self.output_dim > 10:
+        if self.output_dim > NODE_OUTPUT_DIM_WARNING_THRESHOLD:
             warnings.warn(
                 f"output_dim={self.output_dim} is quite large. "
                 f"This may increase memory requirements significantly.",

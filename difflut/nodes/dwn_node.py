@@ -5,6 +5,13 @@ import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
+from ..constants import (
+    DWN_ALPHA_BASE,
+    DWN_ALPHA_DECAY,
+    DWN_BETA_NUMERATOR,
+    DWN_BETA_DENOMINATOR,
+    DWN_BINARY_THRESHOLD
+)
 
 # Try to import the compiled CUDA extension
 try:
@@ -140,7 +147,7 @@ class EFDFunctionCPU(torch.autograd.Function):
                 # Compute current address from binary input
                 addr = 0
                 for i in range(input_dim):
-                    if input[batch_idx, layer_idx, i].item() >= 0.5:
+                    if input[batch_idx, layer_idx, i].item() >= DWN_BINARY_THRESHOLD:
                         addr |= (1 << i)
                 
                 # LUT gradient - direct assignment to accessed entry
@@ -214,16 +221,16 @@ class DWNNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: int = None,
-                 output_dim: int = None,
-                 layer_size: int = None,
+                 input_dim: int | None = None,
+                 output_dim: int | None = None,
+                 layer_size: int | None = None,
                  use_cuda: bool = True,
-                 regularizers: dict = None,
-                 alpha: float = None,
-                 beta: float = None,
+                 regularizers: dict | None = None,
+                 alpha: float | None = None,
+                 beta: float | None = None,
                  clamp_luts: bool = True,
                  init_fn: Optional[Callable] = None,
-                 init_kwargs: dict = None):
+                 init_kwargs: dict | None = None):
         """
         Args:
             input_dim: Number of inputs (e.g., 6)
@@ -254,9 +261,9 @@ class DWNNode(BaseNode):
         
         # Set alpha and beta based on input dimension
         if alpha is None:
-            alpha = 0.5 * (0.75 ** (self.num_inputs - 1))
+            alpha = DWN_ALPHA_BASE * (DWN_ALPHA_DECAY ** (self.num_inputs - 1))
         if beta is None:
-            beta = 0.25 / 0.75
+            beta = DWN_BETA_NUMERATOR / DWN_BETA_DENOMINATOR
         
         self.register_buffer('alpha', torch.tensor(alpha, dtype=torch.float32))
         self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))

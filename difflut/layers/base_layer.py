@@ -2,6 +2,11 @@ import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
 import warnings
+from ..constants import (
+    LAYER_REUSE_WARNING_THRESHOLD,
+    LAYER_UNDERUSE_WARNING_DIVISOR,
+    LAYER_MAX_NODE_INPUT_DIM
+)
 
 
 class BaseLUTLayer(nn.Module, ABC):
@@ -97,7 +102,7 @@ class BaseLUTLayer(nn.Module, ABC):
         total_connections = self.output_size * self.n
         
         # Warning 1: Very large mapping
-        if total_connections > self.input_size * 100:
+        if total_connections > self.input_size * LAYER_REUSE_WARNING_THRESHOLD:
             warnings.warn(
                 f"BaseLUTLayer: Creating {total_connections} node input connections from only "
                 f"{self.input_size} input features. Each input feature will be reused "
@@ -108,7 +113,7 @@ class BaseLUTLayer(nn.Module, ABC):
             )
         
         # Warning 2: Very small mapping
-        if self.output_size * self.n < self.input_size // 10:
+        if self.output_size * self.n < self.input_size // LAYER_UNDERUSE_WARNING_DIVISOR:
             warnings.warn(
                 f"BaseLUTLayer: Creating only {total_connections} node inputs from "
                 f"{self.input_size} input features. Most input features will be unused. "
@@ -118,7 +123,7 @@ class BaseLUTLayer(nn.Module, ABC):
             )
         
         # Warning 3: Large node input dimension
-        if self.n > 15:
+        if self.n > LAYER_MAX_NODE_INPUT_DIM:
             warnings.warn(
                 f"BaseLUTLayer: Node input dimension (n={self.n}) is quite large. "
                 f"LUT nodes with >15 inputs may have exponentially large memory requirements (2^{self.n} entries). "

@@ -2,6 +2,7 @@ import torch
 from abc import ABC, abstractmethod
 from typing import Union, Optional
 import warnings
+from ..constants import DEFAULT_ENCODER_NUM_BITS, DEFAULT_ENCODER_FLATTEN
 
 class BaseEncoder(ABC):
     """
@@ -13,7 +14,7 @@ class BaseEncoder(ABC):
     - flatten=False: Returns 3D tensor (batch_size, input_dim, num_bits)
     """
     
-    def __init__(self, num_bits: int = 3, flatten: bool = True):
+    def __init__(self, num_bits: int = DEFAULT_ENCODER_NUM_BITS, flatten: bool = DEFAULT_ENCODER_FLATTEN):
         """
         Args:
             num_bits: Number of bits in the encoded representation
