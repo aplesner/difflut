@@ -542,3 +542,11 @@ def print_test_result(test_name: str, passed: bool, message: str = ""):
     print(f"  {status}: {test_name}")
     if message:
         print(f"         {message}")
+
+
+if __name__ == '__main__':
+    import sys
+    # test_utils.py is just utilities, not a test file
+    # It should exit with 0 (success)
+    print("✓ Test utilities module loaded successfully")
+    sys.exit(0)

@@ -1,11 +1,19 @@
 """
 Comprehensive forward pass tests for all layer types.
 Tests: all nodes, shape correctness, output range [0,1], CPU/GPU consistency, gradients.
+
+This test is designed for CI/CD pipelines and suppresses non-critical warnings.
 """
 
 import sys
+import warnings
 import torch
 import torch.nn as nn
+
+# Suppress warnings for CI/CD
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
+warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
+
 from test_utils import (
     print_section,
     print_subsection,

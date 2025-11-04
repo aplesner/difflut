@@ -10,13 +10,14 @@ import time
 from pathlib import Path
 
 
-def run_test(test_file: str, test_name: str) -> tuple:
+def run_test(test_file: str, test_name: str, timeout: int = 120) -> tuple:
     """
     Run a single test file.
     
     Args:
         test_file: Name of test file (without .py)
         test_name: Display name of test
+        timeout: Timeout in seconds
         
     Returns:
         Tuple of (passed: bool, runtime: float)
@@ -27,16 +28,24 @@ def run_test(test_file: str, test_name: str) -> tuple:
     
     start_time = time.time()
     
-    result = subprocess.run(
-        [sys.executable, f"{test_file}.py"],
-        cwd=str(Path(__file__).parent),
-        capture_output=False
-    )
-    
-    runtime = time.time() - start_time
-    passed = result.returncode == 0
-    
-    return passed, runtime
+    try:
+        result = subprocess.run(
+            [sys.executable, f"{test_file}.py"],
+            cwd=str(Path(__file__).parent),
+            capture_output=False,
+            timeout=timeout
+        )
+        runtime = time.time() - start_time
+        passed = result.returncode == 0
+        return passed, runtime
+    except subprocess.TimeoutExpired:
+        runtime = time.time() - start_time
+        print(f"\n✗ TIMEOUT: Test did not complete within {timeout}s")
+        return False, runtime
+    except Exception as e:
+        runtime = time.time() - start_time
+        print(f"\n✗ ERROR: {str(e)}")
+        return False, runtime
 
 
 def main():
@@ -52,21 +61,16 @@ def main():
         ("test_layers_forward_pass", "Layer Forward Pass Tests"),
         ("test_encoders_forward_pass", "Encoder Forward Pass Tests"),
         ("test_utils_modules", "Utility Modules Tests (GroupSum)"),
-        ("test_all_nodes_training", "Node Training Performance Tests"),
+        ("test_model_training", "Model Training Test"),
     ]
     
     results = {}
     total_runtime = 0
     
     for test_file, test_name in tests:
-        try:
-            passed, runtime = run_test(test_file, test_name)
-            results[test_name] = (passed, runtime)
-            total_runtime += runtime
-        except Exception as e:
-            print(f"\n✗ FAILED TO RUN: {test_name}")
-            print(f"  Error: {e}")
-            results[test_name] = (False, 0)
+        passed, runtime = run_test(test_file, test_name)
+        results[test_name] = (passed, runtime)
+        total_runtime += runtime
     
     # Print summary
     print("\n" + "="*70)

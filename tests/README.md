@@ -153,14 +153,95 @@ Testing 8 nodes: ['linear_lut', 'polylut', 'neurallut', 'dwn', 'dwn_stable', 'fo
 | Layers (2) | 6 tests | 12 tests |
 | Encoders (8) | 5 tests | 40 tests |
 | Utility Modules | 7 tests | 7 tests |
+| Model Training | 1 integration test | 1 test |
 | Registry | 6 tests | 6 tests |
-| **Total** | - | **113 tests** |
+| **Total** | - | **114 tests** |
 
 ## Tolerance Settings
 
 - **Forward pass**: atol=1e-6, rtol=1e-5
 - **Gradients**: atol=1e-4, rtol=1e-3
 - **CPU/GPU consistency**: atol=1e-5, rtol=1e-4
+
+## Running Tests
+
+### Run all tests
+```bash
+cd difflut/tests
+python run_all_tests.py
+```
+
+### Run specific test
+```bash
+python test_nodes_forward_pass.py
+python test_layers_forward_pass.py
+python test_encoders_forward_pass.py
+python test_registry_validation.py
+python test_utils_modules.py
+python test_model_training.py
+```
+
+## CI/CD Integration
+
+All tests are designed to be CI/CD-friendly:
+
+### Features
+- ✓ **Deterministic**: Fixed random seeds ensure reproducible results
+- ✓ **Fast**: Designed to complete in seconds to minutes
+- ✓ **Clean output**: Minimal noise, warnings suppressed
+- ✓ **Proper exit codes**: 0 for success, 1 for failure
+- ✓ **No GPU required**: All tests run on CPU
+- ✓ **No interactive output**: Suitable for automated pipelines
+
+### Warning Suppression
+All test files automatically suppress non-critical warnings:
+```python
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
+warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
+```
+
+This keeps CI/CD logs clean while preserving test output for debugging.
+
+### Example CI/CD Usage (GitHub Actions)
+
+```yaml
+- name: Run DiffLUT Tests
+  run: |
+    cd difflut/tests
+    python run_all_tests.py
+```
+
+### Expected Output
+
+**Success:**
+```
+  TEST SUMMARY
+  ✓ PASS: Test Utilities Module                              (  3.69s)
+  ✓ PASS: Registry Validation Tests                          (  2.79s)
+  ✓ PASS: Node Forward Pass Tests                            (  3.24s)
+  ✓ PASS: Layer Forward Pass Tests                           (  2.95s)
+  ✓ PASS: Encoder Forward Pass Tests                         (  2.85s)
+  ✓ PASS: Utility Modules Tests (GroupSum)                   (  2.74s)
+  ✓ PASS: Model Training Test                                (  1.25s)
+
+  Total: 7/7 test suites passed (19.51s)
+
+✓ All test suites passed!
+```
+
+**Failure:**
+```
+  TEST SUMMARY
+  ✓ PASS: Test Utilities Module                              (  3.69s)
+  ✓ PASS: Registry Validation Tests                          (  2.79s)
+  ✗ FAIL: Node Forward Pass Tests                            (  3.24s)
+  ...
+  Total: 2/7 test suites passed (19.51s)
+
+⚠ 5 test suite(s) failed!
+```
+
+Exit code will be 1 for failure, allowing CI/CD pipelines to stop at this point.
 
 ## Troubleshooting
 
@@ -200,8 +281,10 @@ The test suite is designed to be:
 - **Maintainable**: Shared utilities reduce code duplication
 - **Scalable**: Easy to add new component types
 - **Informative**: Clear output and error messages
+- **CI/CD-ready**: Deterministic, fast, clean output
 
 ## Exit Codes
 
 - `0`: All tests passed
 - `1`: One or more tests failed
+

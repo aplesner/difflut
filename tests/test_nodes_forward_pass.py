@@ -1,7 +1,42 @@
 """
 Comprehensive forward pass tests for all node types.
 Tests: shape correctness, output range [0,1], CPU/GPU consistency, gradients, initializers, regularizers.
+
+This test is designed for CI/CD pipelines and suppresses non-critical warnings.
 """
+
+import sys
+import warnings
+import torch
+import torch.nn as nn
+
+# Suppress warnings for CI/CD
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
+warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
+
+from test_utils import (
+    print_section,
+    print_subsection,
+    print_test_result,
+    get_available_devices,
+    is_cuda_available,
+    skip_if_no_cuda,
+    get_all_registered_nodes,
+    get_all_registered_layers,
+    instantiate_node,
+    generate_uniform_input,
+    assert_shape_equal,
+    assert_range,
+    assert_gradients_exist,
+    assert_tensors_close,
+    compare_cpu_gpu_forward,
+    check_gradients,
+    IgnoreWarnings,
+    FP32_ATOL,
+    FP32_RTOL,
+    CPU_GPU_ATOL,
+    CPU_GPU_RTOL,
+)
 
 import sys
 import torch
