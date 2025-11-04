@@ -30,17 +30,17 @@ from difflut.registry import (
 # List all available node types
 print("Available nodes:")
 print(get_registered_nodes())
-# Output: ['linear_lut', 'polylut', 'neurallut', 'dwn', 'probabilistic', 'fourier', 'hybrid', 'gradient_stabilized']
+# Output: ['linear_lut', 'polylut', 'neurallut', 'dwn', 'dwn_stable', 'probabilistic', 'fourier', 'hybrid']
 
 # List all available layer types
 print("\nAvailable layers:")
 print(get_registered_layers())
-# Output: ['random', 'learnable', 'grouped', 'residual']
+# Output: ['random', 'learnable']
 
 # List all available encoders
 print("\nAvailable encoders:")
 print(get_registered_encoders())
-# Output: ['thermometer', 'gaussian', 'gray', 'onehot', 'binary', 'logarithmic', ...]
+# Output: ['thermometer', 'gaussian_thermometer', 'distributive_thermometer', 'gray', 'onehot', 'binary', 'sign_magnitude', 'logarithmic']
 ```
 
 ### Check if Component Exists
@@ -51,8 +51,8 @@ from difflut.registry import is_registered_node, is_registered_layer
 if is_registered_node('linear_lut'):
     print("✓ LinearLUT node is available")
 
-if is_registered_layer('residual'):
-    print("✓ Residual layer is available")
+if is_registered_layer('learnable'):
+    print("✓ Learnable layer is available")
 ```
 
 ## Dynamic Component Instantiation
@@ -65,29 +65,38 @@ from difflut.registry import (
     get_layer_class,
     get_encoder_class
 )
+from difflut.nodes.node_config import NodeConfig
 
 # Get class by name
 NodeClass = get_node_class('linear_lut')
 LayerClass = get_layer_class('random')
 EncoderClass = get_encoder_class('thermometer')
 
-# Create instances
-node = NodeClass(input_dim=[4], output_dim=[1])
+# Create instances with NodeConfig for type-safe parameters
+config = NodeConfig(input_dim=4, output_dim=1)
 encoder = EncoderClass(num_bits=8)
+layer = LayerClass(
+    input_size=100,
+    output_size=50,
+    node_type=NodeClass,
+    n=4,
+    node_kwargs=config
+)
 ```
 
 ### Building from Configuration
 
 ```python
 from difflut.registry import get_node_class, get_layer_class
+from difflut.nodes.node_config import NodeConfig
 
-# Configuration dictionary
+# Configuration dictionary (traditional approach)
 config = {
     'node_type': 'poly_lut',
     'node_params': {
-        'input_dim': [6],
-        'output_dim': [1],
-        'degree': 3
+        'input_dim': 6,
+        'output_dim': 1,
+        'extra_params': {'degree': 3}
     },
     'layer_type': 'random',
     'layer_params': {
@@ -97,20 +106,27 @@ config = {
     }
 }
 
-# Build dynamically
+# Build dynamically with NodeConfig
 NodeClass = get_node_class(config['node_type'])
 LayerClass = get_layer_class(config['layer_type'])
 
-node = NodeClass(**config['node_params'])
+# Create type-safe node configuration
+node_config = NodeConfig(
+    input_dim=config['node_params']['input_dim'],
+    output_dim=config['node_params']['output_dim'],
+    extra_params=config['node_params'].get('extra_params', {})
+)
 
 layer = LayerClass(
     input_size=config['layer_params']['input_size'],
     output_size=config['layer_params']['output_size'],
     node_type=NodeClass,
     n=config['layer_params']['n'],
-    node_kwargs=config['node_params']
+    node_kwargs=node_config
 )
 ```
+
+**Note:** NodeConfig provides type-safe parameter passing while maintaining backward compatibility with dict-based APIs through the `to_dict()` method.
 
 ## Configuration-Driven Model Building
 
@@ -130,23 +146,29 @@ layers:
   - name: layer1
     type: random
     node_type: linear_lut
-    input_size: 784  # 784 features * 1 (no encoding in this example)
+    input_size: 784
     output_size: 256
     n: 4
+    flip_probability: 0.01
+    grad_stabilization: layerwise
+    grad_target_std: 1.0
     node_params:
-      input_dim: [4]
-      output_dim: [1]
+      input_dim: 4
+      output_dim: 1
   
   - name: layer2
     type: random
-    node_type: polylut
+    node_type: poly_lut
     input_size: 256
     output_size: 128
     n: 6
+    flip_probability: 0.01
+    grad_stabilization: layerwise
     node_params:
-      input_dim: [6]
-      output_dim: [1]
-      degree: 3
+      input_dim: 6
+      output_dim: 1
+      extra_params:
+        degree: 3
   
   - name: output
     type: random
@@ -155,8 +177,8 @@ layers:
     output_size: 10
     n: 4
     node_params:
-      input_dim: [4]
-      output_dim: [1]
+      input_dim: 4
+      output_dim: 1
 ```
 
 ### Loading Configuration and Building Model
@@ -170,6 +192,7 @@ from difflut.registry import (
     get_layer_class,
     get_node_class
 )
+from difflut.nodes.node_config import NodeConfig
 
 # Load configuration
 with open('model_config.yaml', 'r') as f:
@@ -191,13 +214,32 @@ class ConfiguredLUTModel(nn.Module):
             NodeClass = get_node_class(layer_config['node_type'])
             LayerClass = get_layer_class(layer_config['type'])
             
-            layer = LayerClass(
-                input_size=layer_config['input_size'],
-                output_size=layer_config['output_size'],
-                node_type=NodeClass,
-                n=layer_config['n'],
-                node_kwargs=layer_config['node_params']
+            # Create type-safe node configuration from YAML
+            node_params = layer_config['node_params']
+            node_config = NodeConfig(
+                input_dim=node_params['input_dim'],
+                output_dim=node_params['output_dim'],
+                extra_params=node_params.get('extra_params', {})
             )
+            
+            # Extract layer parameters (optional, with defaults)
+            layer_kwargs = {
+                'input_size': layer_config['input_size'],
+                'output_size': layer_config['output_size'],
+                'node_type': NodeClass,
+                'n': layer_config['n'],
+                'node_kwargs': node_config
+            }
+            
+            # Add optional layer parameters if present in config
+            if 'flip_probability' in layer_config:
+                layer_kwargs['flip_probability'] = layer_config['flip_probability']
+            if 'grad_stabilization' in layer_config:
+                layer_kwargs['grad_stabilization'] = layer_config['grad_stabilization']
+            if 'grad_target_std' in layer_config:
+                layer_kwargs['grad_target_std'] = layer_config['grad_target_std']
+            
+            layer = LayerClass(**layer_kwargs)
             self.layers.append(layer)
     
     def forward(self, x):

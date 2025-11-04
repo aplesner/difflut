@@ -42,6 +42,134 @@ git checkout -b feature/my-new-feature
 
 ## Development Workflow
 
+### Type Hints (PEP 484–compatible)
+
+All code uses PEP 484–compatible type annotations for full static type checker support (mypy) and Python < 3.10 compatibility. Use `Optional[T]` instead of `T | None`:
+
+```python
+from typing import Optional, Tuple, Dict, Any, Callable
+import torch
+
+def process_input(
+    x: torch.Tensor,
+    num_bits: Optional[int] = None,
+    config: Optional[Dict[str, Any]] = None
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Process input with PEP 484-compatible type hints.
+    
+    Parameters
+    ----------
+    x : torch.Tensor
+        Input tensor
+    num_bits : Optional[int]
+        Number of bits (optional)
+    config : Optional[Dict[str, Any]]
+        Configuration dictionary
+        
+    Returns
+    -------
+    Tuple[torch.Tensor, torch.Tensor]
+        Processed output
+    """
+    return x, x
+```
+
+✓ Use `Optional[T]` for optional parameters  
+✓ Use `Dict[K, V]` for dictionaries  
+✓ Use `Callable[[ArgTypes], ReturnType]` for functions  
+✗ Avoid `T | None` syntax (Python 3.10+ only)
+
+### Default Constants & Warnings
+
+All modules define default configuration values as module-level constants and use a unified warning system when defaults are applied.
+
+**Pattern for default constants** at top of each module:
+
+```python
+# Node-specific defaults
+DEFAULT_NODE_INPUT_DIM: int = 6
+DEFAULT_NODE_OUTPUT_DIM: int = 1
+DEFAULT_NODE_LAYER_SIZE: int = 1
+DEFAULT_NODE_USE_CUDA: bool = True
+
+# Warning thresholds
+NODE_INPUT_DIM_WARNING_THRESHOLD: int = 10
+```
+
+**Using defaults in constructors** with explicit warnings:
+
+```python
+from difflut.utils.warnings import warn_default_value
+
+class MyNode(BaseNode):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        use_cuda: bool = DEFAULT_NODE_USE_CUDA,
+        ...
+    ) -> None:
+        # Apply defaults with warnings for None parameters
+        if input_dim is None:
+            self.input_dim = DEFAULT_NODE_INPUT_DIM
+            warn_default_value("input_dim", self.input_dim, stacklevel=2)
+        else:
+            self.input_dim = input_dim
+        
+        # Warn if value exceeds threshold
+        if self.input_dim > NODE_INPUT_DIM_WARNING_THRESHOLD:
+            warn_default_value(
+                f"input_dim ({self.input_dim}) exceeds recommended threshold",
+                NODE_INPUT_DIM_WARNING_THRESHOLD,
+                stacklevel=2
+            )
+```
+
+**Benefits:**
+- Centralized default management
+- Traceable parameter application
+- Consistent warning behavior across modules
+- Easy to adjust defaults in one place
+
+### NodeConfig for Type-Safe Configuration
+
+Instead of passing raw `node_kwargs: dict`, use the typed `NodeConfig` class for clean parameter passing:
+
+```python
+from difflut.nodes.node_config import NodeConfig
+from difflut.nodes import LinearLUTNode
+from difflut.layers import RandomLayer
+
+# Old way (discouraged)
+node_kwargs = {'input_dim': [6], 'output_dim': [1]}
+
+# New way (recommended)
+config = NodeConfig(
+    input_dim=6,
+    output_dim=1,
+    init_fn=my_init_fn,
+    init_kwargs={'scale': 0.1},
+    extra_params={'use_cuda': True}
+)
+
+# Use in layer
+layer = RandomLayer(
+    input_size=100,
+    output_size=50,
+    node_type=LinearLUTNode,
+    node_kwargs=config
+)
+```
+
+**NodeConfig advantages:**
+- Type-safe: IDE autocompletion and mypy checking
+- Self-documenting: All parameters visible and typed
+- Extensible: `extra_params` dict for node-specific options
+- Maintainable: Single source of truth for parameter docs
+
+See `difflut/nodes/node_config.py` for full documentation and examples.
+
 ### Code Style
 
 We follow PEP 8 with a few conventions:

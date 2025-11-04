@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Union, Optional
 import warnings
@@ -11,7 +12,7 @@ DEFAULT_ENCODER_NUM_BITS: int = 3
 # If False, output shape is (batch_size, input_dim, num_bits)
 DEFAULT_ENCODER_FLATTEN: bool = True
 
-class BaseEncoder(ABC):
+class BaseEncoder(nn.Module, ABC):
     """
     Abstract base class for all encoders.
     Encoders transform continuous values into binary representations.
@@ -33,6 +34,7 @@ class BaseEncoder(ABC):
                      If False, keep as 3D (batch_size, input_dim, num_bits).
                      Default: True
         """
+        super().__init__()
         assert num_bits > 0, "num_bits must be positive"
         assert isinstance(flatten, bool), "flatten must be a boolean"
         self.num_bits = int(num_bits)
@@ -70,6 +72,19 @@ class BaseEncoder(ABC):
             Binary encoded tensor
         """
         pass
+    
+    def forward(self, x: Union[torch.Tensor, any]) -> torch.Tensor:
+        """
+        Forward pass for nn.Module compatibility.
+        Calls the encode method. Allows using encoder as: encoder(data)
+        
+        Args:
+            x: Input data to encode
+            
+        Returns:
+            Binary encoded tensor
+        """
+        return self.encode(x)
     
     def _to_tensor(self, x: Union[torch.Tensor, any]) -> torch.Tensor:
         """

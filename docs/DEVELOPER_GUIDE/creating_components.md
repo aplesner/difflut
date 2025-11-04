@@ -21,41 +21,96 @@ Nodes define computation at individual LUT units. Extend `BaseNode`:
 ```python
 import torch
 import torch.nn as nn
+from typing import Optional, Dict, Any, Callable
 from difflut.nodes import BaseNode
+from difflut.nodes.node_config import NodeConfig
+from difflut.utils.warnings import warn_default_value
 from difflut import register_node
+
+# Define module defaults at the top
+DEFAULT_MY_NODE_INPUT_DIM: int = 6
+DEFAULT_MY_NODE_OUTPUT_DIM: int = 1
+DEFAULT_MY_NODE_LAYER_SIZE: int = 1
 
 @register_node('my_custom_node')
 class MyCustomNode(BaseNode):
-    """My custom LUT node implementation."""
+    """
+    My custom LUT node implementation.
     
-    def __init__(self, input_dim=None, output_dim=None, **kwargs):
+    This node demonstrates the recommended pattern for all new components.
+    """
+    
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        layer_size: Optional[int] = None,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        regularizers: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
-        Initialize the node.
+        Initialize the custom node.
         
-        Args:
-            input_dim: List [n] - number of binary inputs
-            output_dim: List [m] - number of outputs
-            **kwargs: Additional arguments
+        Parameters
+        ----------
+        input_dim : Optional[int]
+            Number of binary inputs. Defaults to DEFAULT_MY_NODE_INPUT_DIM.
+        output_dim : Optional[int]
+            Number of outputs. Defaults to DEFAULT_MY_NODE_OUTPUT_DIM.
+        layer_size : Optional[int]
+            Number of parallel nodes (set by layer). 
+            Defaults to DEFAULT_MY_NODE_LAYER_SIZE.
+        init_fn : Optional[Callable]
+            Initialization function for weights.
+        init_kwargs : Optional[Dict[str, Any]]
+            Arguments for initialization function.
+        regularizers : Optional[Dict[str, Any]]
+            Custom regularization functions.
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, **kwargs)
+        # Apply defaults with warnings
+        if input_dim is None:
+            input_dim = DEFAULT_MY_NODE_INPUT_DIM
+            warn_default_value("input_dim", input_dim, stacklevel=2)
+        
+        if output_dim is None:
+            output_dim = DEFAULT_MY_NODE_OUTPUT_DIM
+            warn_default_value("output_dim", output_dim, stacklevel=2)
+        
+        if layer_size is None:
+            layer_size = DEFAULT_MY_NODE_LAYER_SIZE
+            warn_default_value("layer_size", layer_size, stacklevel=2)
+        
+        # Call parent constructor
+        super().__init__(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            layer_size=layer_size,
+            init_fn=init_fn,
+            init_kwargs=init_kwargs,
+            regularizers=regularizers
+        )
         
         # Initialize parameters
-        # self.num_inputs and self.num_outputs are set by parent class
         num_lut_entries = 2 ** self.num_inputs
         
         self.weights = nn.Parameter(
             torch.randn(num_lut_entries, self.num_outputs) * 0.01
         )
     
-    def forward_train(self, x):
+    def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass during training.
         
-        Args:
-            x: Tensor of shape (batch, num_inputs) with binary values {0, 1}
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input of shape (batch, num_inputs) with binary values {0, 1}
         
-        Returns:
-            Tensor of shape (batch, num_outputs)
+        Returns
+        -------
+        torch.Tensor
+            Output of shape (batch, num_outputs)
         """
         # Convert binary input to table indices
         indices = self._binary_to_index(x)
@@ -63,40 +118,55 @@ class MyCustomNode(BaseNode):
         # Look up and return weights
         return self.weights[indices]
     
-    def forward_eval(self, x):
+    def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass during evaluation.
         
-        Can be different from training (e.g., quantized version).
+        Can differ from training (e.g., quantized version).
         Default: same as training.
         
-        Args:
-            x: Tensor of shape (batch, num_inputs) with binary values
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input of shape (batch, num_inputs) with binary values
         
-        Returns:
-            Tensor of shape (batch, num_outputs)
+        Returns
+        -------
+        torch.Tensor
+            Output of shape (batch, num_outputs)
         """
         return self.forward_train(x)
     
-    def regularization(self):
+    def regularization(self) -> torch.Tensor:
         """
-        Optional regularization loss.
+        Compute optional regularization loss.
         
-        Returns:
+        Returns
+        -------
+        torch.Tensor
             Scalar tensor representing regularization term
         """
         # Example: L2 regularization on weights
         return 0.001 * torch.sum(self.weights ** 2)
     
-    def export_bitstream(self):
+    def export_bitstream(self) -> Any:
         """
-        Export LUT configuration for FPGA.
+        Export LUT configuration for FPGA deployment.
         
-        Returns:
-            numpy array of shape (2^num_inputs, num_outputs)
+        Returns
+        -------
+        numpy.ndarray
+            Array of shape (2^num_inputs, num_outputs)
         """
         return self.weights.detach().cpu().numpy()
 ```
+
+**Key pattern elements:**
+1. **PEP 484 types** - Use `Optional[T]` instead of `T | None`
+2. **Module constants** - Define defaults at module level in CAPITALS
+3. **Default warnings** - Use `warn_default_value()` for traceability
+4. **Type-safe** - Full type hints enable IDE support and mypy checking
+5. **NumPy docstrings** - Document all parameters and return values
 
 ### Base Class Methods
 
@@ -175,36 +245,73 @@ Encoders transform continuous inputs to discrete representations. Extend `BaseEn
 ```python
 import torch
 import torch.nn as nn
+from typing import Optional
 from difflut.encoder import BaseEncoder
+from difflut.utils.warnings import warn_default_value
 from difflut import register_encoder
+
+# Module defaults
+DEFAULT_ENCODER_NUM_BITS: int = 8
+DEFAULT_ENCODER_FEATURE_WISE: bool = True
 
 @register_encoder('my_custom_encoder')
 class MyCustomEncoder(BaseEncoder):
-    """My custom input encoder."""
+    """
+    My custom input encoder.
     
-    def __init__(self, num_bits=8, feature_wise=True):
+    Transforms continuous values to discrete binary representations.
+    """
+    
+    def __init__(
+        self,
+        num_bits: Optional[int] = None,
+        feature_wise: bool = DEFAULT_ENCODER_FEATURE_WISE,
+        flatten: bool = True
+    ) -> None:
         """
-        Initialize encoder.
+        Initialize the custom encoder.
         
-        Args:
-            num_bits: Number of bits per feature
-            feature_wise: If True, fit each feature independently
+        Parameters
+        ----------
+        num_bits : Optional[int]
+            Number of bits per feature. 
+            Defaults to DEFAULT_ENCODER_NUM_BITS.
+        feature_wise : bool
+            If True, fit each feature independently.
+            Default is True.
+        flatten : bool
+            If True, return 2D tensor. If False, return 3D.
+            Default is True.
         """
         super().__init__()
+        
+        # Apply defaults with warnings
+        if num_bits is None:
+            num_bits = DEFAULT_ENCODER_NUM_BITS
+            warn_default_value("num_bits", num_bits, stacklevel=2)
+        
         self.num_bits = num_bits
         self.feature_wise = feature_wise
+        self.flatten = flatten
         
         # Register buffers for fitted statistics
         self.register_buffer('min_vals', None)
         self.register_buffer('max_vals', None)
         self._is_fitted = False
     
-    def fit(self, data):
+    def fit(self, data: torch.Tensor) -> 'MyCustomEncoder':
         """
         Fit encoder to data (learn statistics).
         
-        Args:
-            data: Tensor of shape (N, D) with continuous values
+        Parameters
+        ----------
+        data : torch.Tensor
+            Training data of shape (N, D) with continuous values
+        
+        Returns
+        -------
+        MyCustomEncoder
+            Returns self for method chaining
         """
         if self.feature_wise:
             # Fit per feature
@@ -218,16 +325,24 @@ class MyCustomEncoder(BaseEncoder):
             self.max_vals = torch.full(data.shape[1:], max_val)
         
         self._is_fitted = True
+        return self
     
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Encode continuous input to discrete representation.
         
-        Args:
-            x: Tensor of shape (N, D) with continuous values
+        Parameters
+        ----------
+        x : torch.Tensor
+            Input data of shape (N, D) with continuous values
         
-        Returns:
-            Tensor of shape (N, D * num_bits) with encoded values
+        Returns
+        -------
+        torch.Tensor
+            Encoded data. Shape:
+            - (N, D * num_bits) if flatten=True
+            - (N, D, num_bits) if flatten=False
+        """
         """
         if not self._is_fitted:
             raise RuntimeError("Encoder not fitted. Call fit() first.")

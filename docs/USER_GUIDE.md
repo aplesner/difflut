@@ -29,36 +29,7 @@ Input Data
     ↓
 [Nodes] → Compute LUT values → Differentiable forward pass
     ↓
-Output
-```
-
-### Example Flow
-
-```python
-import torch
-from difflut.encoder import ThermometerEncoder
-from difflut.layers import RandomLayer
-from difflut.nodes import LinearLUTNode
-
-# 1. Raw input (continuous values)
-x = torch.randn(32, 784)  # 32 samples, 784 features (MNIST)
-
-# 2. Encoder: discretize to binary values
-encoder = ThermometerEncoder(num_bits=4)
-encoder.fit(x)  # Learn value ranges
-x_encoded = encoder(x)  # Shape: (32, 784 * 4)
-
-# 3. Layer: route to LUT nodes
-layer = RandomLayer(
-    input_size=784 * 4,
-    output_size=128,
-    node_type=LinearLUTNode,
-    n=4,  # 4-input LUTs
-    node_kwargs={'input_dim': [4], 'output_dim': [1]}
-)
-
-# 4. Forward pass through nodes
-output = layer(x_encoded)  # Shape: (32, 128)
+Output/Next Layer
 ```
 
 ## Component Categories
@@ -66,17 +37,17 @@ output = layer(x_encoded)  # Shape: (32, 128)
 ### Encoders
 Transform continuous inputs into discrete representations. See [Components Guide](USER_GUIDE/components.md#encoders).
 
-Available types: Thermometer, Gaussian, Gray, OneHot, Binary, Logarithmic, and more.
+Available types: Thermometer, GaussianThermometer, DistributiveThermometer, Gray, OneHot, Binary, SignMagnitude, Logarithmic.
 
 ### Nodes
 Define computation at individual LUT units. See [Components Guide](USER_GUIDE/components.md#nodes).
 
-Available types: LinearLUT, PolyLUT, NeuralLUT, DWN, Probabilistic, Fourier, Hybrid, Gradient-Stabilized.
+Available types: LinearLUT, PolyLUT, NeuralLUT, DWN, DWNStable, Probabilistic, Fourier, Hybrid.
 
 ### Layers
 Connect inputs to nodes with configurable connectivity patterns. See [Components Guide](USER_GUIDE/components.md#layers).
 
-Available types: Random, Learnable, Grouped, Residual.
+Available types: Random, Learnable.
 
 ## Component Registry
 

@@ -71,7 +71,7 @@ else:
 
 setup_args = dict(
     name='difflut',
-    version="1.0.10",
+    version="1.1.2",
     packages=find_packages(),
     install_requires=[
         'torch>=1.9.0',
