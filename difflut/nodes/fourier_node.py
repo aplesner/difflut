@@ -64,7 +64,7 @@ class FourierFunction(torch.autograd.Function):
         phases = phases.contiguous().float()
         bias = bias.contiguous().float()
         
-        # Call appropriate CUDA forward kernel (now handles 3D tensors natively)
+        # Call appropriate CUDA forward kernel
         if use_eval:
             output = _fourier_cuda_module.forward_eval(input, frequencies, amplitudes, phases, bias, max_amplitude)
         else:
@@ -96,7 +96,7 @@ class FourierFunction(torch.autograd.Function):
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
         
-        # Call CUDA backward kernel (now handles 3D tensors natively)
+        # Call CUDA backward kernel
         grad_input, grad_amplitudes, grad_phases, grad_bias = _fourier_cuda_module.backward(
             input, frequencies, amplitudes, phases, grad_output, max_amplitude
         )

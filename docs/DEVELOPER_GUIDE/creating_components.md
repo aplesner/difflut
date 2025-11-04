@@ -30,7 +30,6 @@ from difflut import register_node
 # Define module defaults at the top
 DEFAULT_MY_NODE_INPUT_DIM: int = 6
 DEFAULT_MY_NODE_OUTPUT_DIM: int = 1
-DEFAULT_MY_NODE_LAYER_SIZE: int = 1
 
 @register_node('my_custom_node')
 class MyCustomNode(BaseNode):

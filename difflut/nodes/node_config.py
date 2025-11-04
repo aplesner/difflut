@@ -22,7 +22,6 @@ class NodeConfig:
     Common Parameters (all nodes):
         input_dim: Number of inputs per node (e.g., 6 for 6-input LUT)
         output_dim: Number of outputs per node (e.g., 1 for single output)
-        layer_size: Number of parallel nodes in layer (set by layer, not user)
         regularizers: Dict of regularization functions
         init_fn: Initialization function for parameters
         init_kwargs: Keyword arguments for initialization function

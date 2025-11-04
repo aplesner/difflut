@@ -90,7 +90,6 @@ All modules define default configuration values as module-level constants and us
 # Node-specific defaults
 DEFAULT_NODE_INPUT_DIM: int = 6
 DEFAULT_NODE_OUTPUT_DIM: int = 1
-DEFAULT_NODE_LAYER_SIZE: int = 1
 DEFAULT_NODE_USE_CUDA: bool = True
 
 # Warning thresholds

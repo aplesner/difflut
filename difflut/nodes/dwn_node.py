@@ -45,7 +45,7 @@ except ImportError:
 class EFDFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for EFD CUDA kernels.
-    Handles 3D tensors with per-layer-node parameters.
+    Processes 2D tensors.
     """
     @staticmethod
     def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
@@ -111,7 +111,7 @@ class EFDFunction(torch.autograd.Function):
 class EFDFunctionCPU(torch.autograd.Function):
     """
     CPU fallback for EFD with proper Extended Finite Difference backward pass.
-    Handles 3D tensors with per-layer-node parameters.
+    Processes 2D tensors.
     """
     @staticmethod
     def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:

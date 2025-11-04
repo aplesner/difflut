@@ -34,7 +34,7 @@ except ImportError:
 class GradientStabilizedFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for Gradient Stabilized CUDA kernels.
-    Handles 3D tensors with per-layer-node parameters.
+    Processes 2D tensors with gradient scaling in backward pass.
     Same as EFD but with gradient scaling in backward pass.
     """
     @staticmethod
@@ -98,7 +98,7 @@ class GradientStabilizedFunction(torch.autograd.Function):
 class GradientStabilizedFunctionCPU(torch.autograd.Function):
     """
     CPU fallback for Gradient Stabilized with EFD backward pass and gradient scaling.
-    Handles 3D tensors with per-layer-node parameters.
+    Processes 2D tensors.
     """
     @staticmethod
     def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, gradient_scale: float) -> torch.Tensor:
