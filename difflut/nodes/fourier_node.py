@@ -5,9 +5,9 @@ from typing import Optional, Callable, Dict, Any, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
+from ..utils.warnings import warn_default_value, CUDAWarning
 
 from .cuda import is_cuda_available
-from ..utils.warnings import warn_default_value
 
 # Default maximum amplitude for Fourier series
 DEFAULT_FOURIER_MAX_AMPLITUDE: float = 1.0
@@ -223,13 +223,35 @@ class FourierNode(BaseNode):
         super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
                          regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         
+        # Determine which implementation is being used and warn accordingly
+        if use_cuda and _FOURIER_CUDA_EXT_AVAILABLE and is_cuda_available():
+            # Using CUDA implementation
+            pass  # Optimal configuration, no warning needed
+        elif use_cuda and not _FOURIER_CUDA_EXT_AVAILABLE:
+            # User requested CUDA but it's not available
+            implementation = "PyTorch GPU (fallback from CUDA)"
+            warnings.warn(
+                f"FourierNode: Using {implementation}. "
+                f"CUDA extension was requested (use_cuda=True) but is not compiled. "
+                f"Compile with: cd difflut && python setup.py install",
+                CUDAWarning,
+                stacklevel=2
+            )
+        elif not use_cuda:
+            # use_cuda=False, using CPU
+            implementation = "PyTorch CPU"
+            warnings.warn(
+                f"FourierNode: Using {implementation}. "
+                f"Set use_cuda=True in config and compile CUDA extension for better performance.",
+                CUDAWarning,
+                stacklevel=2
+            )
+        
         # Warn if using default values
         if use_all_frequencies == DEFAULT_FOURIER_USE_ALL_FREQUENCIES:
             warn_default_value("use_all_frequencies", use_all_frequencies, stacklevel=2)
         if max_amplitude == DEFAULT_FOURIER_MAX_AMPLITUDE:
             warn_default_value("max_amplitude", max_amplitude, stacklevel=2)
-        if use_cuda == DEFAULT_FOURIER_USE_CUDA:
-            warn_default_value("use_cuda", use_cuda, stacklevel=2)
         
         self.use_all_frequencies = use_all_frequencies
         self.max_amplitude = max_amplitude

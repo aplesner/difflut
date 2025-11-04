@@ -16,16 +16,14 @@ This test is designed for CI/CD pipelines:
 
 import sys
 import warnings
-import os
-
-# Suppress all warnings for CI/CD - only show failures
-warnings.filterwarnings('ignore')
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
-
 import torch
 import torch.nn as nn
 import numpy as np
 from pathlib import Path
+
+# Suppress warnings for CI/CD - only show failures
+warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
+warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 

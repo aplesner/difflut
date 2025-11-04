@@ -27,6 +27,14 @@ except ImportError:
         stacklevel=2
     )
 
+# Try to import the compiled CUDA extension for probabilistic nodes
+try:
+    import probabilistic_cuda as _probabilistic_cuda_module
+    _PROBABILISTIC_CUDA_AVAILABLE = True
+except ImportError:
+    _PROBABILISTIC_CUDA_AVAILABLE = False
+    _probabilistic_cuda_module = None
+
 
 class MappingFunction(torch.autograd.Function):
     """
@@ -390,14 +398,21 @@ class RandomLayer(BaseLUTLayer):
         Returns:
             output: (batch_size, chunk_size, output_dim) tensor
         """
-        # Try CUDA kernel first
-        if self.node.use_cuda and x.is_cuda:
+        # Try CUDA kernel first using the autograd-enabled wrapper
+        if self.node.use_cuda and x.is_cuda and _PROBABILISTIC_CUDA_AVAILABLE:
             try:
-                import probabilistic_cuda
-                output = probabilistic_cuda.forward(x.contiguous(), raw_weights.contiguous(), float(temperature))
+                # Import the autograd-enabled function from probabilistic_node
+                from ..nodes.probabilistic_node import ProbabilisticFunction
+                # Ensure temperature is a float (not tensor) for ProbabilisticFunction
+                temp_float = float(temperature) if isinstance(temperature, torch.Tensor) else temperature
+                output = ProbabilisticFunction.apply(x.contiguous(), raw_weights.contiguous(), temp_float)
                 return output
-            except:
-                pass
+            except Exception as e:
+                warnings.warn(
+                    f"CUDA kernel failed, falling back to CPU: {e}",
+                    RuntimeWarning,
+                    stacklevel=2
+                )
         
         # CPU fallback
         batch_size, chunk_size, input_dim = x.shape

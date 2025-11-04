@@ -5,6 +5,7 @@ import torch.nn as nn
 
 from .base_node import BaseNode
 from ..registry import register_node
+from ..utils.warnings import warn_default_value, CUDAWarning
 from .cuda import is_cuda_available
 
 
@@ -239,13 +240,27 @@ class DWNStableNode(BaseNode):
                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_cuda = use_cuda and is_cuda_available()
         
-        # Warn if CUDA requested but not available
-        if use_cuda and not _CUDA_EXT_AVAILABLE:
+        # Determine which implementation is being used and warn accordingly
+        if self.use_cuda and _CUDA_EXT_AVAILABLE and is_cuda_available():
+            # Using CUDA implementation
+            pass  # Optimal configuration, no warning needed
+        elif use_cuda and not _CUDA_EXT_AVAILABLE:
+            # User requested CUDA but it's not available
+            implementation = "PyTorch GPU (fallback from CUDA)"
             warnings.warn(
-                "DWNStableNode: CUDA was requested (use_cuda=True) but CUDA extension is not available. "
-                "Using CPU fallback which may be significantly slower. "
-                "To enable CUDA: compile the extension with 'cd difflut && python setup.py install'",
-                RuntimeWarning,
+                f"DWNStableNode: Using {implementation}. "
+                f"CUDA extension was requested (use_cuda=True) but is not compiled. "
+                f"Compile with: cd difflut && python setup.py install",
+                CUDAWarning,
+                stacklevel=2
+            )
+        else:
+            # use_cuda=False, using CPU
+            implementation = "PyTorch CPU"
+            warnings.warn(
+                f"DWNStableNode: Using {implementation}. "
+                f"Set use_cuda=True in config and compile CUDA extension for better performance.",
+                CUDAWarning,
                 stacklevel=2
             )
         

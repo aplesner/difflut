@@ -7,8 +7,11 @@ Welcome to the DiffLUT User Guide! This guide covers all the features you need t
 DiffLUT is built around three core concepts:
 
 1. **Encoders**: Transform continuous inputs into discrete representations suitable for LUT indexing
-2. **Nodes**: Individual LUT units that perform computation
-3. **Layers**: Connect inputs to nodes with specific connectivity patterns
+
+2. **Layers**: Connect inputs to nodes with specific connectivity patterns
+3. **Nodes**: Individual LUT units that perform computation
+3.1. **Initalizers**
+3.2. **Regularizers**
 
 Together, these form complete differentiable LUT networks.
 

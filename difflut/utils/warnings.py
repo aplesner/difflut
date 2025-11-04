@@ -43,6 +43,11 @@ class DefaultValueWarning(ConfigurationWarning):
     pass
 
 
+class CUDAWarning(PerformanceWarning):
+    """Warning for CUDA availability and optimization issues."""
+    pass
+
+
 def warn_default_value(param_name: str, param_value: Any, stacklevel: int = 2) -> None:
     """
     Issue a warning when a default value is used for an optional parameter.
