@@ -5,6 +5,7 @@ import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
+from ..utils.warnings import warn_default_value
 
 # Base gradient scaling factor for DWN nodes
 # Default alpha = DWN_ALPHA_BASE * (DWN_ALPHA_DECAY ** (n-1))
@@ -273,8 +274,10 @@ class DWNNode(BaseNode):
         # Set alpha and beta based on input dimension
         if alpha is None:
             alpha = DWN_ALPHA_BASE * (DWN_ALPHA_DECAY ** (self.num_inputs - 1))
+            warn_default_value("alpha", alpha, stacklevel=2)
         if beta is None:
             beta = DWN_BETA_NUMERATOR / DWN_BETA_DENOMINATOR
+            warn_default_value("beta", beta, stacklevel=2)
         
         self.register_buffer('alpha', torch.tensor(alpha, dtype=torch.float32))
         self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))

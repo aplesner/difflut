@@ -3,27 +3,22 @@ import numpy as np
 import warnings
 from .base_encoder import BaseEncoder
 from ..registry import register_encoder
+from ..utils.warnings import warn_default_value
 
 
 
 # Default number of bits for advanced encoders (Binary, Gray, etc.)
 DEFAULT_ADVANCED_ENCODER_NUM_BITS: int = 8
-
 # Default base for logarithmic encoder
 DEFAULT_LOGARITHMIC_BASE: float = 2.0
-
 # Minimum number of bits required for sign-magnitude encoding
 MIN_SIGN_MAGNITUDE_BITS: int = 2
-
 # Default number of bits for Gray encoder
 DEFAULT_GRAY_ENCODER_NUM_BITS: int = 8
-
 # Default number of bits for OneHot encoder
 DEFAULT_ONEHOT_ENCODER_NUM_BITS: int = 8
-
 # Default number of bits for Binary encoder
 DEFAULT_BINARY_ENCODER_NUM_BITS: int = 8
-
 # Default number of bits for Sign-Magnitude encoder
 DEFAULT_SIGN_MAGNITUDE_NUM_BITS: int = 8
 
@@ -47,6 +42,13 @@ class GrayEncoder(BaseEncoder):
                      if False, return 3D (batch_size, input_dim, num_bits)
         """
         super().__init__(num_bits=num_bits, flatten=flatten)
+        
+        # Warn if using defaults for this specific encoder
+        if num_bits == 8:
+            warn_default_value("num_bits (GrayEncoder)", num_bits, stacklevel=2)
+        if flatten == True:
+            warn_default_value("flatten (GrayEncoder)", flatten, stacklevel=2)
+        
         self.min_value = None
         self.max_value = None
         self.max_int = (2 ** num_bits) - 1
@@ -136,6 +138,13 @@ class OneHotEncoder(BaseEncoder):
                      if False, return 3D (batch_size, input_dim, num_bits)
         """
         super().__init__(num_bits=num_bits, flatten=flatten)
+        
+        # Warn if using defaults for this specific encoder
+        if num_bits == 8:
+            warn_default_value("num_bits (OneHotEncoder)", num_bits, stacklevel=2)
+        if flatten == True:
+            warn_default_value("flatten (OneHotEncoder)", flatten, stacklevel=2)
+        
         self.bin_edges = None
     
     def fit(self, x: torch.Tensor) -> 'OneHotEncoder':
@@ -212,6 +221,13 @@ class BinaryEncoder(BaseEncoder):
                      if False, return 3D (batch_size, input_dim, num_bits)
         """
         super().__init__(num_bits=num_bits, flatten=flatten)
+        
+        # Warn if using defaults for this specific encoder
+        if num_bits == 8:
+            warn_default_value("num_bits (BinaryEncoder)", num_bits, stacklevel=2)
+        if flatten == True:
+            warn_default_value("flatten (BinaryEncoder)", flatten, stacklevel=2)
+        
         self.min_value = None
         self.max_value = None
         self.max_int = (2 ** num_bits) - 1
@@ -289,6 +305,13 @@ class SignMagnitudeEncoder(BaseEncoder):
                      if False, return 3D (batch_size, input_dim, num_bits)
         """
         super().__init__(num_bits=num_bits, flatten=flatten)
+        
+        # Warn if using defaults for this specific encoder
+        if num_bits == 8:
+            warn_default_value("num_bits (SignMagnitudeEncoder)", num_bits, stacklevel=2)
+        if flatten == True:
+            warn_default_value("flatten (SignMagnitudeEncoder)", flatten, stacklevel=2)
+        
         assert num_bits >= 2, "num_bits must be at least 2 for sign-magnitude encoding"
         self.max_abs_value = None
         self.magnitude_bits = num_bits - 1
@@ -371,6 +394,15 @@ class LogarithmicEncoder(BaseEncoder):
                      if False, return 3D (batch_size, input_dim, num_bits)
         """
         super().__init__(num_bits=num_bits, flatten=flatten)
+        
+        # Warn if using defaults for this specific encoder
+        if num_bits == 8:
+            warn_default_value("num_bits (LogarithmicEncoder)", num_bits, stacklevel=2)
+        if base == 2.0:
+            warn_default_value("base (LogarithmicEncoder)", base, stacklevel=2)
+        if flatten == True:
+            warn_default_value("flatten (LogarithmicEncoder)", flatten, stacklevel=2)
+        
         assert base > 0 and base != 1, "base must be positive and not equal to 1"
         self.base = base
         self.min_log = None

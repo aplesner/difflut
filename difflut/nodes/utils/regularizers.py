@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from typing import Optional
 from ...registry import register_regularizer
+from ...utils.warnings import warn_default_value
 
 # Default parameters for regularizers
 
@@ -55,6 +56,10 @@ def l_regularizer(node: nn.Module, p: int = DEFAULT_REGULARIZER_P_NORM, num_samp
     Returns:
         Average functional sensitivity across sampled inputs
     """
+    if p == DEFAULT_REGULARIZER_P_NORM:
+        warn_default_value("p (l_regularizer)", p, stacklevel=3)
+    if num_samples == DEFAULT_REGULARIZER_NUM_SAMPLES:
+        warn_default_value("num_samples (l_regularizer)", num_samples, stacklevel=3)
     # Get device from node parameters
     device = next(node.parameters()).device
     

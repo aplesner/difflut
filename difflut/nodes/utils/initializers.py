@@ -3,6 +3,7 @@ import torch.nn as nn
 import math
 from typing import Optional, Dict, Any
 from ...registry import register_initializer
+from ...utils.warnings import warn_default_value
 
 # Default parameters for initializers
 
@@ -67,6 +68,11 @@ def normal_init(param: torch.Tensor, mean: float = DEFAULT_NORMAL_INIT_MEAN, std
         std: Standard deviation of the normal distribution
         **kwargs: Unused, for API consistency
     """
+    if mean == DEFAULT_NORMAL_INIT_MEAN:
+        warn_default_value("mean (normal_init)", mean, stacklevel=3)
+    if std == DEFAULT_NORMAL_INIT_STD:
+        warn_default_value("std (normal_init)", std, stacklevel=3)
+    
     with torch.no_grad():
         param.normal_(mean, std)
 
@@ -82,6 +88,11 @@ def uniform_init(param: torch.Tensor, a: float = DEFAULT_UNIFORM_INIT_A, b: floa
         b: Upper bound of the uniform distribution
         **kwargs: Unused, for API consistency
     """
+    if a == DEFAULT_UNIFORM_INIT_A:
+        warn_default_value("a (uniform_init)", a, stacklevel=3)
+    if b == DEFAULT_UNIFORM_INIT_B:
+        warn_default_value("b (uniform_init)", b, stacklevel=3)
+    
     with torch.no_grad():
         param.uniform_(a, b)
 
@@ -98,6 +109,9 @@ def xavier_uniform_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, 
         gain: Scaling factor for the initialization
         **kwargs: Unused, for API consistency
     """
+    if gain == DEFAULT_XAVIER_GAIN:
+        warn_default_value("gain (xavier_uniform_init)", gain, stacklevel=3)
+    
     with torch.no_grad():
         # Calculate fan_in and fan_out from parameter shape
         if param.dim() >= 2:
@@ -124,6 +138,9 @@ def xavier_normal_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, *
         gain: Scaling factor for the initialization
         **kwargs: Unused, for API consistency
     """
+    if gain == DEFAULT_XAVIER_GAIN:
+        warn_default_value("gain (xavier_normal_init)", gain, stacklevel=3)
+    
     with torch.no_grad():
         # Calculate fan_in and fan_out from parameter shape
         if param.dim() >= 2:
@@ -151,6 +168,13 @@ def kaiming_uniform_init(param: torch.Tensor, a: float = DEFAULT_KAIMING_A, mode
         nonlinearity: Type of nonlinearity ('relu', 'leaky_relu', 'tanh', 'sigmoid')
         **kwargs: Unused, for API consistency
     """
+    if a == DEFAULT_KAIMING_A:
+        warn_default_value("a (kaiming_uniform_init)", a, stacklevel=3)
+    if mode == DEFAULT_KAIMING_MODE:
+        warn_default_value("mode (kaiming_uniform_init)", mode, stacklevel=3)
+    if nonlinearity == DEFAULT_KAIMING_NONLINEARITY:
+        warn_default_value("nonlinearity (kaiming_uniform_init)", nonlinearity, stacklevel=3)
+    
     gain = nn.init.calculate_gain(nonlinearity, a)
     
     with torch.no_grad():
@@ -184,6 +208,13 @@ def kaiming_normal_init(param: torch.Tensor, a: float = DEFAULT_KAIMING_A, mode:
         nonlinearity: Type of nonlinearity ('relu', 'leaky_relu', 'tanh', 'sigmoid')
         **kwargs: Unused, for API consistency
     """
+    if a == DEFAULT_KAIMING_A:
+        warn_default_value("a (kaiming_normal_init)", a, stacklevel=3)
+    if mode == DEFAULT_KAIMING_MODE:
+        warn_default_value("mode (kaiming_normal_init)", mode, stacklevel=3)
+    if nonlinearity == DEFAULT_KAIMING_NONLINEARITY:
+        warn_default_value("nonlinearity (kaiming_normal_init)", nonlinearity, stacklevel=3)
+    
     gain = nn.init.calculate_gain(nonlinearity, a)
     
     with torch.no_grad():
@@ -233,6 +264,13 @@ def variance_stabilized_init(param: torch.Tensor, v_target: float = DEFAULT_VARI
         fan_out: Number of outputs (m). If None, will infer from parameter shape
         **kwargs: Unused, for API consistency
     """
+    if v_target == DEFAULT_VARIANCE_STABILIZED_V_TARGET:
+        warn_default_value("v_target (variance_stabilized_init)", v_target, stacklevel=3)
+    if fan_in is None:
+        warn_default_value("fan_in (variance_stabilized_init)", "inferred from shape", stacklevel=3)
+    if fan_out is None:
+        warn_default_value("fan_out (variance_stabilized_init)", "inferred from shape", stacklevel=3)
+    
     # Infer fan_in and fan_out from parameter shape if not provided
     if fan_in is None or fan_out is None:
         if param.dim() >= 2:

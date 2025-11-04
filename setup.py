@@ -2,8 +2,23 @@
 import os
 import setuptools
 from setuptools import setup, find_packages
+import multiprocessing
+import shutil
 
 ext_modules = []
+
+# Enable parallel compilation via environment variable
+num_jobs = min(multiprocessing.cpu_count(), 8)  # Cap at 8 to avoid resource exhaustion
+os.environ['MAX_JOBS'] = str(num_jobs)  # For Ninja/build system
+
+# Enable ccache if available for faster rebuilds
+if shutil.which('ccache'):
+    os.environ['CC'] = 'ccache gcc'
+    os.environ['CXX'] = 'ccache g++'
+    os.environ['NVCC'] = 'ccache nvcc'
+    print(f"✅ ccache enabled for faster rebuilds")
+
+print(f"Parallel compilation enabled: MAX_JOBS={num_jobs}")
 
 # Try to import torch and CUDAExtension, and check for CUDA
 cuda_available = False
@@ -42,7 +57,7 @@ if cuda_available:
                             module_name,
                             [os.path.join(cuda_dir, filename), kernel_path],
                             extra_compile_args={
-                                'cxx': ['-O3'],
+                                'cxx': ['-O3', '-march=native'],
                                 'nvcc': ['-O3', '--use_fast_math']
                             }
                         ))
@@ -70,6 +85,8 @@ setup_args = dict(
 
 if ext_modules and cuda_available:
     setup_args['ext_modules'] = ext_modules
-    setup_args['cmdclass'] = {'build_ext': BuildExtension}
+    setup_args['cmdclass'] = {
+        'build_ext': BuildExtension.with_options(use_ninja=True)
+    }
 
 setup(**setup_args)

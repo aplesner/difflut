@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Union, Dict, Any, Optional, Type, Tuple, Callable, List
 import warnings
 from ..nodes.node_config import NodeConfig
+from ..utils.warnings import warn_default_value
 
 # Default bit-flip probability for training augmentation
 # If flip_probability > 0, randomly flip this fraction of bits during training
@@ -24,6 +25,14 @@ DEFAULT_LAYER_GRAD_EPSILON: float = 1e-8
 # Recommended values: 256 (memory-constrained), 512 (balanced), 1024 (high-memory GPUs)
 # Set to -1 to disable batching (process all nodes at once)
 DEFAULT_LAYER_MAX_NODES_PER_BATCH: int = 512
+# Threshold for warning about excessive input reuse
+# Warn if total connections > input_size * LAYER_REUSE_WARNING_THRESHOLD
+LAYER_REUSE_WARNING_THRESHOLD: int = 10
+# Threshold for warning about underutilized inputs
+# Warn if total connections < input_size // LAYER_UNDERUSE_WARNING_DIVISOR
+LAYER_UNDERUSE_WARNING_DIVISOR: int = 10
+# Maximum recommended node input dimension before warning
+LAYER_MAX_NODE_INPUT_DIM: int = 15
 
 
 
@@ -71,6 +80,7 @@ class BaseLUTLayer(nn.Module, ABC):
         # Set flip_probability with default
         if flip_probability is None:
             self.flip_probability = DEFAULT_LAYER_FLIP_PROBABILITY
+            warn_default_value("flip_probability", self.flip_probability, stacklevel=2)
         else:
             self.flip_probability = flip_probability
         
@@ -84,6 +94,7 @@ class BaseLUTLayer(nn.Module, ABC):
         # Set grad_stabilization with default
         if grad_stabilization is None:
             self.grad_stabilization = DEFAULT_LAYER_GRAD_STABILIZATION
+            warn_default_value("grad_stabilization", self.grad_stabilization, stacklevel=2)
         else:
             self.grad_stabilization = grad_stabilization
         
@@ -98,6 +109,7 @@ class BaseLUTLayer(nn.Module, ABC):
         # Set grad_target_std with default
         if grad_target_std is None:
             self.grad_target_std = DEFAULT_LAYER_GRAD_TARGET_STD
+            warn_default_value("grad_target_std", self.grad_target_std, stacklevel=2)
         else:
             self.grad_target_std = grad_target_std
         
@@ -110,12 +122,14 @@ class BaseLUTLayer(nn.Module, ABC):
         # Set grad_subtract_mean with default
         if grad_subtract_mean is None:
             self.grad_subtract_mean = DEFAULT_LAYER_GRAD_SUBTRACT_MEAN
+            warn_default_value("grad_subtract_mean", self.grad_subtract_mean, stacklevel=2)
         else:
             self.grad_subtract_mean = grad_subtract_mean
         
         # Set grad_epsilon with default
         if grad_epsilon is None:
             self.grad_epsilon = DEFAULT_LAYER_GRAD_EPSILON
+            warn_default_value("grad_epsilon", self.grad_epsilon, stacklevel=2)
         else:
             self.grad_epsilon = grad_epsilon
         
@@ -128,6 +142,7 @@ class BaseLUTLayer(nn.Module, ABC):
         # Set max_nodes_per_batch with default
         if max_nodes_per_batch is None:
             self.max_nodes_per_batch = DEFAULT_LAYER_MAX_NODES_PER_BATCH
+            warn_default_value("max_nodes_per_batch", self.max_nodes_per_batch, stacklevel=2)
         else:
             self.max_nodes_per_batch = max_nodes_per_batch
         
@@ -573,10 +588,11 @@ class BaseLUTLayer(nn.Module, ABC):
         
         # MEMORY OPTIMIZATION: Process nodes in batches if output_size is large
         # This prevents OOM errors by chunking the layer dimension
+        # Note: Subclasses (RandomLayer, LearnableLayer) override forward() with their own batching
         batch_size = mapped_inputs.shape[0]
         
-        if self.max_nodes_per_batch > 0 and self.output_size > self.max_nodes_per_batch and self.training:
-            # Layer-wise batching: process nodes in chunks
+        if self.max_nodes_per_batch > 0 and self.output_size > self.max_nodes_per_batch:
+            # Layer-wise batching: process nodes in chunks (both training and eval)
             output = self._forward_with_node_batching(mapped_inputs)
         else:
             # Standard path: process all nodes at once

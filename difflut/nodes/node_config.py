@@ -17,7 +17,7 @@ class NodeConfig:
     
     This class provides type-safe configuration for all node types with proper
     defaults and documentation. It can be converted to/from dictionaries for
-    backward compatibility.
+    unified API compatibility.
     
     Common Parameters (all nodes):
         input_dim: Number of inputs per node (e.g., 6 for 6-input LUT)
@@ -78,14 +78,6 @@ class NodeConfig:
             output_size=50,
             node_type=DWNNode,
             node_kwargs=config
-        )
-        
-        # Or use dictionary (backward compatible)
-        layer = RandomLayer(
-            input_size=100,
-            output_size=50,
-            node_type=DWNNode,
-            node_kwargs={'input_dim': 6, 'output_dim': 1}
         )
         ```
     """

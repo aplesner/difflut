@@ -7,6 +7,7 @@ from .base_node import BaseNode
 from ..registry import register_node
 
 from .cuda import is_cuda_available
+from ..utils.warnings import warn_default_value
 
 # Default maximum amplitude for Fourier series
 DEFAULT_FOURIER_MAX_AMPLITUDE: float = 1.0
@@ -221,6 +222,15 @@ class FourierNode(BaseNode):
         """
         super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
                          regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
+        
+        # Warn if using default values
+        if use_all_frequencies == DEFAULT_FOURIER_USE_ALL_FREQUENCIES:
+            warn_default_value("use_all_frequencies", use_all_frequencies, stacklevel=2)
+        if max_amplitude == DEFAULT_FOURIER_MAX_AMPLITUDE:
+            warn_default_value("max_amplitude", max_amplitude, stacklevel=2)
+        if use_cuda == DEFAULT_FOURIER_USE_CUDA:
+            warn_default_value("use_cuda", use_cuda, stacklevel=2)
+        
         self.use_all_frequencies = use_all_frequencies
         self.max_amplitude = max_amplitude
         self.use_cuda = use_cuda and is_cuda_available()

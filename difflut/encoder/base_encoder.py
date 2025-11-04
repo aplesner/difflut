@@ -2,10 +2,10 @@ import torch
 from abc import ABC, abstractmethod
 from typing import Union, Optional
 import warnings
+from ..utils.warnings import warn_default_value
 
 # Default number of bits for encoding continuous values
 DEFAULT_ENCODER_NUM_BITS: int = 3
-
 # Default flatten behavior for encoders
 # If True, output shape is (batch_size, input_dim * num_bits)
 # If False, output shape is (batch_size, input_dim, num_bits)
@@ -37,6 +37,11 @@ class BaseEncoder(ABC):
         assert isinstance(flatten, bool), "flatten must be a boolean"
         self.num_bits = int(num_bits)
         self.flatten = flatten
+        
+        # Note: Warnings for using default values are removed here since parameters
+        # are now explicitly provided in configs. Warnings should only trigger when
+        # a parameter is truly missing from kwargs (handled by subclasses).
+        
         self._is_fitted = False
     
     @abstractmethod

@@ -3,6 +3,7 @@ import torch.nn as nn
 from abc import ABC, abstractmethod
 from typing import Optional, Callable, Dict, Any, List, Tuple
 import warnings
+from ..utils.warnings import warn_default_value, DefaultValueWarning
 
 # Default number of inputs per node if not specified
 DEFAULT_NODE_INPUT_DIM: int = 6
@@ -52,31 +53,19 @@ class BaseNode(nn.Module, ABC):
         # Set defaults if not provided
         if input_dim is None:
             self.input_dim = DEFAULT_NODE_INPUT_DIM
-            warnings.warn(
-                f"input_dim was not provided, using default value: {self.input_dim}",
-                UserWarning,
-                stacklevel=2
-            )
+            warn_default_value("input_dim", self.input_dim, stacklevel=2)
         else:
             self.input_dim = input_dim
         
         if output_dim is None:
             self.output_dim = DEFAULT_NODE_OUTPUT_DIM
-            warnings.warn(
-                f"output_dim was not provided, using default value: {self.output_dim}",
-                UserWarning,
-                stacklevel=2
-            )
+            warn_default_value("output_dim", self.output_dim, stacklevel=2)
         else:
             self.output_dim = output_dim
         
         if layer_size is None:
             self.layer_size = DEFAULT_NODE_LAYER_SIZE
-            warnings.warn(
-                f"layer_size was not provided, using default value: {self.layer_size}",
-                UserWarning,
-                stacklevel=2
-            )
+            warn_default_value("layer_size", self.layer_size, stacklevel=2)
         else:
             self.layer_size = layer_size
         
@@ -119,7 +108,11 @@ class BaseNode(nn.Module, ABC):
             )
         
         # Validate and store regularizers
-        self.regularizers = regularizers or {}
+        # Note: Only warn if regularizers is truly missing (None), not if explicitly provided as {}
+        if regularizers is None:
+            self.regularizers = {}
+        else:
+            self.regularizers = regularizers
         
         # Validate init_fn
         if init_fn is not None:
@@ -130,7 +123,13 @@ class BaseNode(nn.Module, ABC):
                 )
         
         self.init_fn = init_fn
-        self.init_kwargs = init_kwargs or {}
+        
+        # Handle init_kwargs with default
+        # Note: Only warn if init_kwargs is truly missing (None), not if explicitly provided as {}
+        if init_kwargs is None:
+            self.init_kwargs = {}
+        else:
+            self.init_kwargs = init_kwargs
         
         # Validate init_kwargs
         if not isinstance(self.init_kwargs, dict):
