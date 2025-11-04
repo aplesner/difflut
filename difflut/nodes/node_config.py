@@ -87,7 +87,6 @@ class NodeConfig:
     # ========================================================================
     input_dim: Optional[int] = None
     output_dim: Optional[int] = None
-    layer_size: Optional[int] = None  # Set automatically by layer
     regularizers: Optional[Dict[str, Any]] = None
     init_fn: Optional[Callable] = None
     init_kwargs: Optional[Dict[str, Any]] = None
@@ -121,8 +120,6 @@ class NodeConfig:
             result['input_dim'] = self.input_dim
         if self.output_dim is not None:
             result['output_dim'] = self.output_dim
-        if self.layer_size is not None:
-            result['layer_size'] = self.layer_size
         if self.regularizers:
             result['regularizers'] = self.regularizers
         if self.init_fn is not None:
@@ -140,28 +137,11 @@ class NodeConfig:
         return NodeConfig(
             input_dim=self.input_dim,
             output_dim=self.output_dim,
-            layer_size=self.layer_size,
             regularizers=self.regularizers.copy() if self.regularizers else None,
             init_fn=self.init_fn,
             init_kwargs=self.init_kwargs.copy() if self.init_kwargs else None,
             extra_params=self.extra_params.copy()
         )
-    
-    def with_layer_size(self, layer_size: int) -> 'NodeConfig':
-        """
-        Create a new config with layer_size set.
-        
-        This is used by layers to inject the layer_size parameter.
-        
-        Args:
-            layer_size: Number of parallel nodes
-            
-        Returns:
-            New NodeConfig with layer_size set
-        """
-        new_config = self.copy()
-        new_config.layer_size = layer_size
-        return new_config
     
     def __repr__(self) -> str:
         """String representation showing all parameters."""
@@ -170,8 +150,6 @@ class NodeConfig:
             params.append(f"input_dim={self.input_dim}")
         if self.output_dim is not None:
             params.append(f"output_dim={self.output_dim}")
-        if self.layer_size is not None:
-            params.append(f"layer_size={self.layer_size}")
         if self.init_fn is not None:
             params.append(f"init_fn={self.init_fn.__name__}")
         if self.extra_params:

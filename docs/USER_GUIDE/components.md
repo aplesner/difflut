@@ -11,10 +11,11 @@ Quick reference for tensor dimensions through the DiffLUT pipeline:
 | Component | Input Shape | Output Shape (flatten=True) | Output Shape (flatten=False) | Notes |
 |-----------|-------------|-----|-----|-------|
 | **Encoder** | `(batch_size, input_dim)` | `(batch_size, input_dim * num_bits)` | `(batch_size, input_dim, num_bits)` | Discretizes continuous inputs |
-| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size * output_dim)` | N/A | Routes inputs to nodes |
-| **Layer (internal)** | `(batch_size, input_size)` | `(batch_size, output_size, node_input_dim)` | N/A | Maps to node inputs |
-| **Nodes** | `(batch_size, output_size, node_input_dim)` | `(batch_size, output_size, node_output_dim)` | N/A | Parallel LUT evaluation |
+| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size)` | N/A | Routes inputs to `output_size` independent nodes |
+| **Single Node** | `(batch_size, node_input_dim)` | `(batch_size, node_output_dim)` | N/A | Each node processes 2D tensors independently |
 | **GroupSum** | `(batch_size, num_nodes)` | `(batch_size, k)` | N/A | Groups & sums features |
+
+**Architecture**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors `(batch, input_dim) → (batch, output_dim)`. The layer iterates through nodes and concatenates outputs.
 
 
 
@@ -595,7 +596,6 @@ All layers accept:
 - `grad_target_std` (optional): Target standard deviation for gradient stabilization (default: 1.0)
 - `grad_subtract_mean` (optional): Whether to subtract mean from gradients (default: False)
 - `grad_epsilon` (optional): Small constant for numerical stability in gradient normalization (default: 1e-8)
-- `max_nodes_per_batch` (optional): Maximum nodes to process per batch for memory optimization (default: 512)
 
 **Example with layer parameters:**
 ```python

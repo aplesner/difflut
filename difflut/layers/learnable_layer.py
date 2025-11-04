@@ -272,7 +272,6 @@ class LearnableLayer(BaseLUTLayer):
                  grad_target_std: float = None,
                  grad_subtract_mean: bool = None,
                  grad_epsilon: float = None,
-                 max_nodes_per_batch: int = None,
                  use_cuda_soft: bool = None):
         """
         Args:
@@ -291,7 +290,6 @@ class LearnableLayer(BaseLUTLayer):
             grad_target_std: Target standard deviation for gradient rescaling
             grad_subtract_mean: Whether to subtract mean before rescaling
             grad_epsilon: Small constant for numerical stability
-            max_nodes_per_batch: Maximum nodes to process per batch (memory optimization)
             use_cuda_soft: Use CUDA kernel for soft selection (training mode)
         """
         # Set defaults from constants
@@ -322,8 +320,7 @@ class LearnableLayer(BaseLUTLayer):
         
         # Initialize parent with nodes (n will be extracted from created nodes)
         super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
-                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon,
-                        max_nodes_per_batch)
+                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
         
         # Warn about parameter count after n is known
         total_connections = output_size * self.n
@@ -385,256 +382,27 @@ class LearnableLayer(BaseLUTLayer):
         # Get mapped inputs: (batch_size, output_size, n)
         mapped_inputs = self.get_mapping(x)
         
-        # MEMORY OPTIMIZATION: Process nodes in batches if output_size is large
-        # This prevents OOM errors by chunking the layer dimension
         batch_size = mapped_inputs.shape[0]
-        
-        if self.max_nodes_per_batch > 0 and self.output_size > self.max_nodes_per_batch:
-            # Process nodes in chunks to reduce memory usage
-            output = self._forward_with_node_batching(mapped_inputs)
-        else:
-            # Standard path: process all nodes at once
-            output = self.node(mapped_inputs)
-        
-        # Output shape: (batch_size, output_size, output_dim)
-        # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
-        output = output.view(batch_size, -1)
-        
-        return output
-    
-    def _forward_with_node_batching(self, mapped_inputs: torch.Tensor) -> torch.Tensor:
-        """
-        Process nodes in batches to reduce memory usage.
-        
-        Splits the layer dimension into chunks and processes each chunk separately,
-        slicing both inputs and node parameters appropriately.
-        
-        Args:
-            mapped_inputs: (batch_size, output_size, n) tensor
-        
-        Returns:
-            output: (batch_size, output_size, output_dim) tensor
-        """
-        batch_size, output_size, n = mapped_inputs.shape
+        output_dim = self.nodes[0].output_dim
         
         # Preallocate output tensor
         output = torch.empty(
-            (batch_size, output_size, self.node.output_dim),
-            device=mapped_inputs.device,
-            dtype=mapped_inputs.dtype
-        )
-        
-        # Process nodes in chunks
-        for start_idx in range(0, output_size, self.max_nodes_per_batch):
-            end_idx = min(start_idx + self.max_nodes_per_batch, output_size)
-            
-            # Extract chunk: (batch_size, chunk_size, n)
-            mapped_chunk = mapped_inputs[:, start_idx:end_idx, :]
-            
-            # Process chunk through node with parameter slicing
-            # The node should handle slicing its own parameters based on layer indices
-            output_chunk = self._process_node_chunk(mapped_chunk, start_idx, end_idx)
-            
-            # Store result
-            output[:, start_idx:end_idx, :] = output_chunk
-        
-        return output
-    
-    def _process_node_chunk(self, mapped_chunk: torch.Tensor, start_idx: int, end_idx: int) -> torch.Tensor:
-        """
-        Process a chunk of nodes by slicing node parameters.
-        
-        Args:
-            mapped_chunk: (batch_size, chunk_size, n) tensor
-            start_idx: Start index in the layer
-            end_idx: End index in the layer
-        
-        Returns:
-            output_chunk: (batch_size, chunk_size, output_dim) tensor
-        """
-        from ..nodes.probabilistic_node import ProbabilisticNode
-        from ..nodes.linear_lut_node import LinearLUTNode
-        
-        # Check node type and slice parameters accordingly
-        if isinstance(self.node, ProbabilisticNode):
-            # Slice raw_weights: (layer_size, 2^n, output_dim) -> (chunk_size, 2^n, output_dim)
-            raw_weights_chunk = self.node.raw_weights[start_idx:end_idx]
-            
-            # Call forward_train directly with sliced parameters
-            if self.training:
-                output_chunk = self._probabilistic_forward_chunk(
-                    mapped_chunk, 
-                    raw_weights_chunk,
-                    self.node.temperature
-                )
-            else:
-                # Evaluation mode
-                output_chunk = self._probabilistic_eval_chunk(
-                    mapped_chunk,
-                    raw_weights_chunk,
-                    self.node.temperature
-                )
-        elif isinstance(self.node, LinearLUTNode):
-            # Slice weights: (layer_size, 2^n, output_dim) -> (chunk_size, 2^n, output_dim)
-            weights_chunk = self.node.weights[start_idx:end_idx]
-            output_chunk = self._linear_lut_forward_chunk(mapped_chunk, weights_chunk)
-        else:
-            # For other node types, try generic parameter slicing
-            # This may not work for all node types - they may need custom handling
-            output_chunk = self._generic_forward_chunk(mapped_chunk, start_idx, end_idx)
-        
-        return output_chunk
-    
-    def _probabilistic_forward_chunk(
-        self, 
-        x: torch.Tensor, 
-        raw_weights: torch.Tensor,
-        temperature: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Forward pass for a chunk of ProbabilisticNodes.
-        
-        Args:
-            x: (batch_size, chunk_size, input_dim) tensor
-            raw_weights: (chunk_size, 2^input_dim, output_dim) tensor
-            temperature: scalar tensor
-        
-        Returns:
-            output: (batch_size, chunk_size, output_dim) tensor
-        """
-        # Try CUDA kernel first using the autograd-enabled wrapper
-        if self.node.use_cuda and x.is_cuda and _PROBABILISTIC_CUDA_AVAILABLE:
-            try:
-                # Import the autograd-enabled function from probabilistic_node
-                from ..nodes.probabilistic_node import ProbabilisticFunction
-                # Ensure temperature is a float (not tensor) for ProbabilisticFunction
-                temp_float = float(temperature) if isinstance(temperature, torch.Tensor) else temperature
-                output = ProbabilisticFunction.apply(x.contiguous(), raw_weights.contiguous(), temp_float)
-                return output
-            except Exception as e:
-                warnings.warn(
-                    f"CUDA kernel failed, falling back to CPU: {e}",
-                    RuntimeWarning,
-                    stacklevel=2
-                )
-        
-        # CPU fallback
-        batch_size, chunk_size, input_dim = x.shape
-        weights = torch.sigmoid(raw_weights / temperature.clamp(min=1e-6))
-        
-        # Ensure binary_combinations is on the same device
-        binary_combinations = self.node.binary_combinations.to(device=x.device, dtype=x.dtype)
-        
-        # Preallocate output
-        output = torch.empty(
-            (batch_size, chunk_size, self.node.output_dim),
+            (batch_size, self.output_size, output_dim),
             device=x.device,
             dtype=x.dtype
         )
         
-        # Process each layer in chunk
-        for layer_idx in range(chunk_size):
-            x_layer = x[:, layer_idx, :]  # (batch_size, input_dim)
-            
-            # Vectorized probability computation
-            x_expanded = x_layer.unsqueeze(1)  # (batch_size, 1, input_dim)
-            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
-            prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-            probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
-            
-            # Apply weights for this layer
-            output[:, layer_idx, :] = torch.matmul(probs, weights[layer_idx])
+        # Process each node independently with its slice of mapped inputs
+        for node_idx, node in enumerate(self.nodes):
+            # Extract inputs for this node: (batch_size, n)
+            node_input = mapped_inputs[:, node_idx, :]
+            # Forward through node: (batch_size, n) -> (batch_size, output_dim)
+            output[:, node_idx, :] = node(node_input)
+        
+        # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
+        output = output.view(batch_size, -1)
         
         return output
-    
-    def _probabilistic_eval_chunk(
-        self,
-        x: torch.Tensor,
-        raw_weights: torch.Tensor,
-        temperature: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Evaluation forward pass for a chunk of ProbabilisticNodes.
-        
-        Args:
-            x: (batch_size, chunk_size, input_dim) tensor
-            raw_weights: (chunk_size, 2^input_dim, output_dim) tensor
-            temperature: scalar tensor
-        
-        Returns:
-            output: (batch_size, chunk_size, output_dim) tensor
-        """
-        batch_size, chunk_size, input_dim = x.shape
-        weights = torch.sigmoid(raw_weights / temperature.clamp(min=1e-6))
-        
-        # Convert binary inputs to LUT indices
-        powers = 2 ** torch.arange(input_dim, device=x.device, dtype=x.dtype)
-        indices = (x * powers).sum(dim=-1).long()  # (batch_size, chunk_size)
-        
-        # Preallocate output
-        output = torch.empty(
-            (batch_size, chunk_size, self.node.output_dim),
-            device=x.device,
-            dtype=weights.dtype
-        )
-        
-        # Gather per-layer weights
-        for layer_idx in range(chunk_size):
-            batch_indices = indices[:, layer_idx]  # (batch_size,)
-            output[:, layer_idx, :] = weights[layer_idx][batch_indices]  # (batch_size, output_dim)
-        
-        # Threshold to get binary output
-        output = (output >= 0.5).float()
-        
-        return output
-    
-    def _linear_lut_forward_chunk(self, x: torch.Tensor, weights: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass for a chunk of LinearLUTNodes.
-        
-        Args:
-            x: (batch_size, chunk_size, input_dim) tensor
-            weights: (chunk_size, 2^input_dim, output_dim) tensor
-        
-        Returns:
-            output: (batch_size, chunk_size, output_dim) tensor
-        """
-        batch_size, chunk_size, input_dim = x.shape
-        
-        # Convert binary inputs to LUT indices
-        powers = 2 ** torch.arange(input_dim, device=x.device, dtype=x.dtype)
-        indices = (x * powers).sum(dim=-1).long()  # (batch_size, chunk_size)
-        
-        # Preallocate output
-        output = torch.empty(
-            (batch_size, chunk_size, self.node.output_dim),
-            device=x.device,
-            dtype=weights.dtype
-        )
-        
-        # Gather per-layer weights
-        for layer_idx in range(chunk_size):
-            batch_indices = indices[:, layer_idx]  # (batch_size,)
-            output[:, layer_idx, :] = weights[layer_idx][batch_indices]  # (batch_size, output_dim)
-        
-        return output
-    
-    def _generic_forward_chunk(self, mapped_chunk: torch.Tensor, start_idx: int, end_idx: int) -> torch.Tensor:
-        """
-        Generic fallback for nodes that don't have custom chunking logic.
-        Simply calls the node's forward method - may not actually save memory.
-        
-        Args:
-            mapped_chunk: (batch_size, chunk_size, n) tensor
-            start_idx: Start index in the layer
-            end_idx: End index in the layer
-        
-        Returns:
-            output_chunk: (batch_size, chunk_size, output_dim) tensor
-        """
-        # Warning: This may not actually reduce memory for all node types
-        # Node types should implement their own chunking logic
-        return self.node(mapped_chunk)
     
     def get_mapping_matrix(self) -> torch.Tensor:
         """Get current hard mapping (for inspection) as indices."""

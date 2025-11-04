@@ -6,16 +6,25 @@
 /**
  * CUDA kernel for optimized mapping operation.
  * 
+ * Maps 2D input to 3D output where each of output_size independent nodes
+ * receives its n-dimensional mapped input. Each node in the layer's ModuleList
+ * will then process its corresponding slice: output[:, node_idx, :] -> (batch, n).
+ * 
  * Replaces the expand + gather pattern with a direct lookup kernel.
  * This eliminates the need for intermediate expanded tensors and reduces
  * memory traffic significantly.
  * 
+ * Architecture:
+ *   - Each node is an independent instance in nn.ModuleList
+ *   - This kernel provides efficient gathering of mapped inputs for all nodes
+ *   - Output is 3D for memory efficiency (avoid list of 2D tensors)
+ * 
  * @param input: (batch_size, input_size) - input features
- * @param indices: (output_size, n) - mapping indices (int16 or int32)
- * @param output: (batch_size, output_size, n) - mapped outputs
+ * @param indices: (output_size, n) - mapping indices per node (int16 or int32)
+ * @param output: (batch_size, output_size, n) - mapped inputs for all nodes
  * @param batch_size: number of samples in batch
  * @param input_size: number of input features
- * @param output_size: number of output nodes
+ * @param output_size: number of independent nodes in layer
  * @param n: number of inputs per node
  */
 template <typename index_t>
@@ -49,12 +58,18 @@ __global__ void gather_mapping_kernel(
 /**
  * Optimized mapping forward pass using CUDA kernel.
  * 
+ * Produces 3D tensor where each node gets its mapped inputs:
+ *   - Input: (batch_size, input_size) - shared input features
+ *   - Output: (batch_size, output_size, n) - mapped inputs for each node
+ *   - Each node_idx processes: output[:, node_idx, :] -> (batch, n)
+ * 
  * This replaces the PyTorch operations:
  *   x_expanded = x.unsqueeze(1).expand(-1, output_size, -1)
  *   mapped_inputs = torch.gather(x_expanded, dim=2, index=indices_long)
  * 
  * With a single fused kernel that directly performs the lookup without
- * creating intermediate tensors.
+ * creating intermediate tensors. The 3D output is kept for memory efficiency
+ * even though each node in the ModuleList processes independently.
  */
 torch::Tensor mapping_cuda_forward(
     torch::Tensor input,
@@ -107,11 +122,16 @@ torch::Tensor mapping_cuda_forward(
 /**
  * Backward pass for mapping operation.
  * 
- * Computes gradient with respect to input:
- *   grad_input[b, src_idx] += grad_output[b, o, i]
+ * Accumulates gradients from all independent nodes back to the shared input:
+ *   grad_input[b, src_idx] += grad_output[b, node_idx, i]
+ * 
+ * Since each node in the ModuleList processes independently, their gradients
+ * are collected in the 3D grad_output tensor. This kernel scatters them back
+ * to the 2D input gradient tensor.
  * 
  * This is a scatter-add operation where gradients from multiple output
- * positions may accumulate to the same input position.
+ * positions may accumulate to the same input position (when the same input
+ * feature is used by multiple nodes).
  */
 template <typename index_t>
 __global__ void gather_mapping_backward_kernel(

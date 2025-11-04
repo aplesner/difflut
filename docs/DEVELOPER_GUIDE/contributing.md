@@ -142,7 +142,7 @@ from difflut.nodes import LinearLUTNode
 from difflut.layers import RandomLayer
 
 # Old way (discouraged)
-node_kwargs = {'input_dim': [6], 'output_dim': [1]}
+node_kwargs = {'input_dim': 6, 'output_dim': 1}
 
 # New way (recommended)
 config = NodeConfig(
@@ -169,6 +169,43 @@ layer = RandomLayer(
 - Maintainable: Single source of truth for parameter docs
 
 See `difflut/nodes/node_config.py` for full documentation and examples.
+
+### Architecture: 2D Tensors with nn.ModuleList
+
+**Current Architecture** (as of November 2025):
+- **Nodes process 2D tensors**: `(batch_size, input_dim)` → `(batch_size, output_dim)`
+- **Layers use nn.ModuleList**: Each layer creates `output_size` independent node instances
+- **No layer_size dimension**: Removed for simplicity and PyTorch best practices
+- **Independent nodes**: Each node in ModuleList processes batches independently
+
+```python
+class MyLayer(BaseLUTLayer):
+    def __init__(self, input_size, output_size, node_type, n, node_kwargs):
+        super().__init__(...)
+        
+        # Create output_size independent nodes
+        self.nodes = nn.ModuleList([
+            node_type(**node_kwargs) for _ in range(output_size)
+        ])
+    
+    def forward(self, x):
+        # x: (batch, input_size)
+        outputs = []
+        for i, node in enumerate(self.nodes):
+            # Map inputs for this node: (batch, input_size) → (batch, n)
+            node_inputs = self.mapping(x, i)  # (batch, n)
+            # Process through node: (batch, n) → (batch, 1)
+            node_output = node(node_inputs)
+            outputs.append(node_output)
+        # Concatenate: list of (batch, 1) → (batch, output_size)
+        return torch.cat(outputs, dim=1)
+```
+
+**Key points for contributors:**
+- All nodes must handle 2D tensors only
+- Parameters like `layer_size` are kept for backward compatibility but unused
+- Layers iterate through `self.nodes` ModuleList
+- Each node processes independently - no shared state across nodes in a layer
 
 ### Code Style
 

@@ -411,39 +411,31 @@ def instantiate_node(
     node_class: type,
     input_dim: int = 4,
     output_dim: int = 1,
-    layer_size: int = 32,
+    layer_size: int = 32,  # Kept for backward compatibility but ignored
     **kwargs
 ) -> nn.Module:
     """
     Instantiate a node with default parameters.
     
+    NOTE: layer_size parameter is kept for backward compatibility but is no longer used.
+    Each node is now an independent instance processing 2D tensors (batch_size, input_dim).
+    
     Args:
         node_class: Node class to instantiate
         input_dim: Input dimension
         output_dim: Output dimension
-        layer_size: Layer size (number of parallel nodes)
+        layer_size: DEPRECATED - kept for backward compatibility, ignored
         **kwargs: Additional arguments
         
     Returns:
         Node instance
     """
-    try:
-        return node_class(
-            input_dim=input_dim,
-            output_dim=output_dim,
-            layer_size=layer_size,
-            **kwargs
-        )
-    except TypeError as e:
-        # Try without layer_size (some nodes might not support it)
-        try:
-            return node_class(
-                input_dim=input_dim,
-                output_dim=output_dim,
-                **kwargs
-            )
-        except Exception:
-            raise e
+    # New architecture: nodes no longer accept layer_size
+    return node_class(
+        input_dim=input_dim,
+        output_dim=output_dim,
+        **kwargs
+    )
 
 
 def instantiate_layer(

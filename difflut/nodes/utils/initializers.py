@@ -251,17 +251,18 @@ def variance_stabilized_init(param: torch.Tensor, v_target: float = DEFAULT_VARI
     ensures that the expected output variance remains approximately v_target
     across layers at initialization.
     
-    The fan_in and fan_out are typically calculated as:
-    - fan_in: Number of inputs to the node (k)
-    - fan_out: Number of downstream connections = next_layer_width * input_dim
-              which represents how many nodes in the next layer connect to this node's output.
-              If not provided, uses inferred values from parameter shape.
+    IMPORTANT: fan_in and fan_out refer to the LOGICAL node dimensions:
+    - fan_in: Number of Boolean inputs to the node (k, the input_dim)
+    - fan_out: Number of outputs from the node (m, the output_dim)
+    
+    NOT the truth table dimensions! For a probabilistic node with param shape
+    (2^k, m), we have fan_in=k and fan_out=m (not 2^k and m).
     
     Args:
-        param: The parameter tensor to initialize
+        param: The parameter tensor to initialize (e.g., raw_weights of shape (2^k, m))
         v_target: Target output variance (default: 1.0)
-        fan_in: Number of inputs (k). If None, will infer from parameter shape
-        fan_out: Number of outputs (m). If None, will infer from parameter shape
+        fan_in: Number of Boolean inputs (k). If None, will infer from log2(table_size)
+        fan_out: Number of outputs (m). If None, will infer as output_dim from shape
         **kwargs: Unused, for API consistency
     """
     if v_target == DEFAULT_VARIANCE_STABILIZED_V_TARGET:
@@ -274,9 +275,27 @@ def variance_stabilized_init(param: torch.Tensor, v_target: float = DEFAULT_VARI
     # Infer fan_in and fan_out from parameter shape if not provided
     if fan_in is None or fan_out is None:
         if param.dim() >= 2:
-            fan_in = param.shape[1] if fan_in is None else fan_in
-            fan_out = param.shape[0] if fan_out is None else fan_out
+            # For LUT nodes: shape is typically (2^input_dim, output_dim) or (num_table_entries, output_dim)
+            # fan_in should be input_dim (log2 of table size)
+            # fan_out should be output_dim (last dimension)
+            table_size = param.shape[0]
+            output_dim = param.shape[-1]
+            
+            if fan_in is None:
+                # Try to infer input_dim from table size (assuming it's 2^k)
+                import math
+                log_size = math.log2(table_size)
+                if abs(log_size - round(log_size)) < 1e-6:
+                    # Table size is a power of 2, likely a truth table
+                    fan_in = int(round(log_size))
+                else:
+                    # Not a power of 2, use table size as fallback
+                    fan_in = table_size
+            
+            if fan_out is None:
+                fan_out = output_dim
         else:
+            # 1D parameter - use size for both
             fan_in = param.shape[0] if fan_in is None else fan_in
             fan_out = param.shape[0] if fan_out is None else fan_out
     

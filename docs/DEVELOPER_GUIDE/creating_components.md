@@ -38,16 +38,17 @@ class MyCustomNode(BaseNode):
     My custom LUT node implementation.
     
     This node demonstrates the recommended pattern for all new components.
+    Processes 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
     """
     
     def __init__(
         self,
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
-        layer_size: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
         regularizers: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> None:
         """
         Initialize the custom node.
@@ -58,15 +59,19 @@ class MyCustomNode(BaseNode):
             Number of binary inputs. Defaults to DEFAULT_MY_NODE_INPUT_DIM.
         output_dim : Optional[int]
             Number of outputs. Defaults to DEFAULT_MY_NODE_OUTPUT_DIM.
-        layer_size : Optional[int]
-            Number of parallel nodes (set by layer). 
-            Defaults to DEFAULT_MY_NODE_LAYER_SIZE.
         init_fn : Optional[Callable]
             Initialization function for weights.
         init_kwargs : Optional[Dict[str, Any]]
             Arguments for initialization function.
         regularizers : Optional[Dict[str, Any]]
             Custom regularization functions.
+        **kwargs : dict
+            Additional arguments (for compatibility).
+        
+        Note
+        ----
+        Each node instance processes 2D tensors independently.
+        Layers create multiple node instances using nn.ModuleList.
         """
         # Apply defaults with warnings
         if input_dim is None:
@@ -77,21 +82,17 @@ class MyCustomNode(BaseNode):
             output_dim = DEFAULT_MY_NODE_OUTPUT_DIM
             warn_default_value("output_dim", output_dim, stacklevel=2)
         
-        if layer_size is None:
-            layer_size = DEFAULT_MY_NODE_LAYER_SIZE
-            warn_default_value("layer_size", layer_size, stacklevel=2)
-        
-        # Call parent constructor
+        # Call parent constructor (no layer_size parameter)
         super().__init__(
             input_dim=input_dim,
             output_dim=output_dim,
-            layer_size=layer_size,
             init_fn=init_fn,
             init_kwargs=init_kwargs,
-            regularizers=regularizers
+            regularizers=regularizers,
+            **kwargs
         )
         
-        # Initialize parameters
+        # Initialize parameters: shape (2^input_dim, output_dim)
         num_lut_entries = 2 ** self.num_inputs
         
         self.weights = nn.Parameter(
@@ -105,12 +106,17 @@ class MyCustomNode(BaseNode):
         Parameters
         ----------
         x : torch.Tensor
-            Input of shape (batch, num_inputs) with binary values {0, 1}
+            Input of shape (batch_size, input_dim) with binary values {0, 1}
         
         Returns
         -------
         torch.Tensor
-            Output of shape (batch, num_outputs)
+            Output of shape (batch_size, output_dim)
+        
+        Note
+        ----
+        Each node instance processes 2D tensors independently.
+        No layer_size dimension - layers manage multiple nodes via nn.ModuleList.
         """
         # Convert binary input to table indices
         indices = self._binary_to_index(x)
@@ -187,7 +193,10 @@ class MyNode(BaseNode):
 ```python
 @register_node('poly_example')
 class PolyExampleNode(BaseNode):
-    """Polynomial approximation LUT node."""
+    """
+    Polynomial approximation LUT node.
+    Processes 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
+    """
     
     def __init__(self, input_dim=None, output_dim=None, degree=3, **kwargs):
         super().__init__(input_dim=input_dim, output_dim=output_dim, **kwargs)
@@ -200,6 +209,19 @@ class PolyExampleNode(BaseNode):
         ])
     
     def forward_train(self, x):
+        """
+        Forward pass with 2D tensors.
+        
+        Parameters
+        ----------
+        x : torch.Tensor
+            Shape (batch_size, input_dim) with binary values
+        
+        Returns
+        -------
+        torch.Tensor
+            Shape (batch_size, output_dim)
+        """
         # Treat binary input as continuous value in [0, 1]
         x_continuous = x.float().mean(dim=1, keepdim=True)
         
@@ -608,8 +630,13 @@ def apply_my_kernel(x, weights):
 ```python
 @register_node('cuda_node')
 class CUDANode(BaseNode):
+    """
+    CUDA-accelerated node with CPU fallback.
+    Processes 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
+    """
     def __init__(self, input_dim=None, output_dim=None, **kwargs):
         super().__init__(input_dim=input_dim, output_dim=output_dim, **kwargs)
+        # Weights shape: (2^input_dim, output_dim)
         self.weights = nn.Parameter(
             torch.randn(2 ** self.num_inputs, self.num_outputs)
         )
@@ -642,14 +669,16 @@ from difflut.encoder import MyCustomEncoder
 
 class TestMyCustomNode:
     def test_forward_shape(self):
-        node = MyCustomNode(input_dim=[4], output_dim=[1])
-        x = torch.randint(0, 2, (32, 4))
+        """Test that node processes 2D tensors correctly."""
+        node = MyCustomNode(input_dim=4, output_dim=1)
+        x = torch.randint(0, 2, (32, 4))  # 2D: (batch, input_dim)
         output = node(x)
-        assert output.shape == (32, 1)
+        assert output.shape == (32, 1)  # 2D: (batch, output_dim)
     
     def test_gradients(self):
-        node = MyCustomNode(input_dim=[4], output_dim=[1])
-        x = torch.randint(0, 2, (32, 4), dtype=torch.float32)
+        """Test gradient flow through node."""
+        node = MyCustomNode(input_dim=4, output_dim=1)
+        x = torch.randint(0, 2, (32, 4), dtype=torch.float32)  # 2D tensor
         
         output = node(x)
         loss = output.sum()

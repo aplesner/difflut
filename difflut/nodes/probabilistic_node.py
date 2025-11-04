@@ -132,7 +132,6 @@ class ProbabilisticNode(BaseNode):
         self,
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
-        layer_size: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
         regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
@@ -144,7 +143,6 @@ class ProbabilisticNode(BaseNode):
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
-            layer_size: Number of parallel nodes in the layer (for per-layer-node parameters)
             init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
@@ -152,7 +150,7 @@ class ProbabilisticNode(BaseNode):
             eval_mode: Evaluation mode
             use_cuda: Whether to use CUDA kernels (if available)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size, 
+        super().__init__(input_dim=input_dim, output_dim=output_dim, 
                          regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.register_buffer('temperature', torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
@@ -187,9 +185,9 @@ class ProbabilisticNode(BaseNode):
                 stacklevel=2
             )
         
-        # Store raw weights (logits) with per-layer-node parameters
-        # Shape: (layer_size, 2**input_dim, output_dim)
-        self.raw_weights = nn.Parameter(torch.randn(self.layer_size, 2**self.input_dim, self.output_dim))
+        # Store raw weights (logits) - single node instance
+        # Shape: (2**input_dim, output_dim)
+        self.raw_weights = nn.Parameter(torch.randn(2**self.input_dim, self.output_dim))
         self._apply_init_fn(self.raw_weights, name="raw_weights")
         
         # Precompute all binary combinations (LSB-first order) - for CPU fallback
@@ -236,47 +234,34 @@ class ProbabilisticNode(BaseNode):
         Uses CUDA kernel if available, otherwise falls back to CPU.
         
         Args:
-            x: Input tensor (batch_size, layer_size, input_dim)
+            x: Input tensor (batch_size, input_dim)
         Returns:
-            Output tensor (batch_size, layer_size, output_dim)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
+        batch_size, input_dim = x.shape
         
-        # Try CUDA kernel first (handles 3D tensors directly)
+        # Try CUDA kernel first
         if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
-            # raw_weights is already (layer_size, 2^input_dim, output_dim)
-            # Pass temperature as tensor
+            # raw_weights shape: (2^input_dim, output_dim)
             output = probabilistic_forward(x, self.raw_weights, self.temperature)
             if output is not None:
                 return output
         
-        # CPU fallback - process layer by layer with per-layer-node weights
-        # weights shape: (layer_size, 2^input_dim, output_dim)
+        # CPU fallback
+        # weights shape: (2^input_dim, output_dim)
         weights = self.weights
         
         # Ensure binary_combinations is on the same device and dtype as x
         binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
         
-        # Memory optimization: Preallocate output tensor instead of list accumulation
-        output = torch.empty(
-            (batch_size, layer_size, self.output_dim),
-            device=x.device,
-            dtype=x.dtype
-        )
+        # Vectorized probability computation
+        x_expanded = x.unsqueeze(1)  # (batch_size, 1, input_dim)
+        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
+        prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
+        probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
         
-        # Process each layer independently
-        for layer_idx in range(layer_size):
-            x_layer = x[:, layer_idx, :]  # (batch_size, input_dim)
-            
-            # Vectorized probability computation for this layer
-            x_expanded = x_layer.unsqueeze(1)  # (batch_size, 1, input_dim)
-            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
-            prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-            probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
-            
-            # Apply per-layer-node weights: (batch_size, 2^input_dim) @ (2^input_dim, output_dim) -> (batch_size, output_dim)
-            # Write directly to preallocated output (no list append)
-            output[:, layer_idx, :] = torch.matmul(probs, weights[layer_idx])
+        # Apply weights: (batch_size, 2^input_dim) @ (2^input_dim, output_dim) -> (batch_size, output_dim)
+        output = torch.matmul(probs, weights)
         
         return output
 
@@ -287,30 +272,21 @@ class ProbabilisticNode(BaseNode):
         Returns binary outputs (0 or 1).
         
         Args:
-            x: Input tensor (batch_size, layer_size, input_dim)
+            x: Input tensor (batch_size, input_dim)
         Returns:
-            Output tensor (batch_size, layer_size, output_dim)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
+        batch_size, input_dim = x.shape
         
         # Convert binary inputs to LUT indices (LSB-first order)
         powers = 2 ** torch.arange(input_dim, device=x.device, dtype=x.dtype)
-        indices = (x * powers).sum(dim=-1).long()  # (batch_size, layer_size)
+        indices = (x * powers).sum(dim=-1).long()  # (batch_size,)
         
-        # Look up per-layer-node weights and threshold at 0.5 to get binary output
-        weights = self.weights  # (layer_size, 2^input_dim, output_dim)
+        # Look up weights and threshold at 0.5 to get binary output
+        weights = self.weights  # (2^input_dim, output_dim)
         
-        # Memory optimization: Preallocate output instead of list accumulation
-        output = torch.empty(
-            (batch_size, layer_size, self.output_dim),
-            device=x.device,
-            dtype=weights.dtype
-        )
-        
-        # Gather per-layer-node weights
-        for layer_idx in range(layer_size):
-            batch_indices = indices[:, layer_idx]  # (batch_size,)
-            output[:, layer_idx, :] = weights[layer_idx][batch_indices]  # (batch_size, output_dim)
+        # Gather weights: (batch_size, output_dim)
+        output = weights[indices]  # (batch_size, output_dim)
         
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output = (output >= 0.5).float()

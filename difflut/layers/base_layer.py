@@ -19,12 +19,6 @@ DEFAULT_LAYER_GRAD_TARGET_STD: float = 1.0
 DEFAULT_LAYER_GRAD_SUBTRACT_MEAN: bool = False
 # Default epsilon for numerical stability in gradient stabilization
 DEFAULT_LAYER_GRAD_EPSILON: float = 1e-8
-# Maximum number of nodes to process in a single batch during forward/backward pass
-# Memory optimization: prevents OOM by processing large layers in chunks
-# Trade-off: Smaller values = less memory, slightly more kernel launches
-# Recommended values: 256 (memory-constrained), 512 (balanced), 1024 (high-memory GPUs)
-# Set to -1 to disable batching (process all nodes at once)
-DEFAULT_LAYER_MAX_NODES_PER_BATCH: int = 512
 # Threshold for warning about excessive input reuse
 # Warn if total connections > input_size * LAYER_REUSE_WARNING_THRESHOLD
 LAYER_REUSE_WARNING_THRESHOLD: int = 10
@@ -42,11 +36,10 @@ class BaseLUTLayer(nn.Module, ABC):
     
     Dimension Specification:
     - Input: (batch_size, input_size)
-    - Output: (batch_size, num_nodes * num_output_per_node)
-    - Internal: (batch_size, input_size) → (batch_size, num_nodes, node_input_dim)
+    - Output: (batch_size, output_size * output_dim_per_node)
     
-    The layer maps 2D input to 3D node inputs, processes through nodes,
-    and reshapes back to 2D output for the next layer.
+    Each node processes: (batch_size, node_input_dim) → (batch_size, output_dim_per_node)
+    The layer uses nn.ModuleList with output_size independent node instances.
     """
     
     def __init__(
@@ -59,8 +52,7 @@ class BaseLUTLayer(nn.Module, ABC):
         grad_stabilization: Optional[str] = None,
         grad_target_std: Optional[float] = None,
         grad_subtract_mean: Optional[bool] = None,
-        grad_epsilon: Optional[float] = None,
-        max_nodes_per_batch: Optional[int] = None
+        grad_epsilon: Optional[float] = None
     ) -> None:
         super().__init__()
         
@@ -139,32 +131,20 @@ class BaseLUTLayer(nn.Module, ABC):
                 f"Used for numerical stability in variance calculation"
             )
         
-        # Set max_nodes_per_batch with default
-        if max_nodes_per_batch is None:
-            self.max_nodes_per_batch = DEFAULT_LAYER_MAX_NODES_PER_BATCH
-            warn_default_value("max_nodes_per_batch", self.max_nodes_per_batch, stacklevel=2)
-        else:
-            self.max_nodes_per_batch = max_nodes_per_batch
-        
-        if not isinstance(self.max_nodes_per_batch, int) or (self.max_nodes_per_batch <= 0 and self.max_nodes_per_batch != -1):
-            raise ValueError(
-                f"max_nodes_per_batch must be a positive integer or -1 (disable batching), got {self.max_nodes_per_batch}. "
-                f"Recommended: 256 (low memory), 512 (balanced), 1024 (high memory), -1 (no batching)"
-            )
-        
+
         self.input_size = input_size
         self.output_size = output_size
         
-        # Create nodes with layer_size parameter - each position gets its own parameters
-        # No weight sharing across layer dimension
-        node_config_with_layer = node_kwargs.with_layer_size(output_size)
-        self.node = node_type(**node_config_with_layer.to_dict())
+        # Create a ModuleList of individual node instances
+        # Each node operates independently on (batch_size, input_dim) -> (batch_size, output_dim)
+        self.nodes = nn.ModuleList([
+            node_type(**node_kwargs.to_dict()) 
+            for _ in range(output_size)
+        ])
         
-        # Extract n (number of inputs per node)
-        self.n = self.node.num_inputs
-        
-        # Memory optimization: preallocate buffer for bit-flip mask (reused across forward passes)
-        self.register_buffer('_flip_mask_buffer', None)
+        # Extract n (number of inputs per node) and output_dim from first node
+        self.n = self.nodes[0].num_inputs
+        self.output_dim_per_node = self.nodes[0].num_outputs
         
         # Warn if configuration seems unusual
         self._validate_layer_config()
@@ -242,134 +222,15 @@ class BaseLUTLayer(nn.Module, ABC):
     
     @abstractmethod
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
-        """Get mapped inputs for nodes"""
+        """
+        Get mapped inputs for all nodes.
+        
+        Returns:
+            3D tensor of shape (batch_size, output_size, n) where each node gets its
+            n-dimensional mapped input. This 3D structure is kept for memory efficiency
+            even though each node processes independently.
+        """
         pass
-    
-    def _forward_with_node_batching(self, mapped_inputs: torch.Tensor) -> torch.Tensor:
-        """
-        Process nodes in batches to reduce memory usage.
-        
-        Memory optimization for large layers: instead of processing all nodes at once,
-        process them in chunks of max_nodes_per_batch. This prevents OOM errors on
-        GPUs with limited memory when output_size is very large (e.g., 10,000+ nodes).
-        
-        The key insight: nodes have per-layer-node parameters stored as tensors with
-        layer_size as the first dimension (e.g., raw_weights shape: (layer_size, 2^n, output_dim)).
-        We slice both the input and the parameters for each chunk, then call the node's
-        forward method with torch.no_grad() temporarily disabled so gradients flow correctly.
-        
-        Args:
-            mapped_inputs: (batch_size, output_size, n) tensor
-        
-        Returns:
-            output: (batch_size, output_size, output_dim) tensor
-        """
-        from ..nodes.probabilistic_node import ProbabilisticNode
-        
-        batch_size, output_size, n = mapped_inputs.shape
-        
-        # Preallocate output tensor
-        output = torch.empty(
-            (batch_size, output_size, self.node.output_dim),
-            device=mapped_inputs.device,
-            dtype=mapped_inputs.dtype
-        )
-        
-        # Check if node is ProbabilisticNode (has raw_weights parameter)
-        is_probabilistic = isinstance(self.node, ProbabilisticNode)
-        
-        # Process nodes in chunks
-        for start_idx in range(0, output_size, self.max_nodes_per_batch):
-            end_idx = min(start_idx + self.max_nodes_per_batch, output_size)
-            
-            # Extract chunk: (batch_size, chunk_size, n)
-            mapped_chunk = mapped_inputs[:, start_idx:end_idx, :]
-            
-            # Process chunk through node with parameter slicing
-            if is_probabilistic:
-                # For ProbabilisticNode, we need to slice raw_weights and call forward_train directly
-                raw_weights_chunk = self.node.raw_weights[start_idx:end_idx]
-                
-                # Call forward_train with sliced weights
-                if self.training:
-                    # Use the probabilistic forward with sliced parameters
-                    if self.node.use_cuda and mapped_chunk.is_cuda:
-                        from ..nodes.probabilistic_node import probabilistic_forward
-                        output_chunk = probabilistic_forward(
-                            mapped_chunk, 
-                            raw_weights_chunk, 
-                            self.node.temperature
-                        )
-                    else:
-                        # CPU fallback - need to implement manual computation
-                        output_chunk = self._probabilistic_forward_cpu(
-                            mapped_chunk, 
-                            raw_weights_chunk, 
-                            self.node.temperature, 
-                            self.node.weights[start_idx:end_idx],
-                            self.node.binary_combinations
-                        )
-                else:
-                    # Evaluation mode - use forward_eval
-                    output_chunk = self.node.forward_eval(mapped_chunk)
-            else:
-                # For other node types, just call forward
-                # This may not work correctly if they also have per-layer parameters
-                output_chunk = self.node(mapped_chunk)
-            
-            # Store result
-            output[:, start_idx:end_idx, :] = output_chunk
-        
-        return output
-    
-    def _probabilistic_forward_cpu(
-        self, 
-        x: torch.Tensor, 
-        raw_weights: torch.Tensor,
-        temperature: torch.Tensor,
-        weights: torch.Tensor,
-        binary_combinations: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        CPU fallback for probabilistic forward with sliced parameters.
-        
-        Args:
-            x: (batch_size, chunk_size, input_dim) tensor
-            raw_weights: (chunk_size, 2^input_dim, output_dim) tensor
-            temperature: scalar tensor
-            weights: (chunk_size, 2^input_dim, output_dim) tensor (sigmoid applied)
-            binary_combinations: (2^input_dim, input_dim) tensor
-        
-        Returns:
-            output: (batch_size, chunk_size, output_dim) tensor
-        """
-        batch_size, chunk_size, input_dim = x.shape
-        output_dim = weights.shape[2]
-        
-        # Ensure binary_combinations is on the same device
-        binary_combinations = binary_combinations.to(device=x.device, dtype=x.dtype)
-        
-        # Preallocate output
-        output = torch.empty(
-            (batch_size, chunk_size, output_dim),
-            device=x.device,
-            dtype=x.dtype
-        )
-        
-        # Process each layer independently
-        for layer_idx in range(chunk_size):
-            x_layer = x[:, layer_idx, :]  # (batch_size, input_dim)
-            
-            # Vectorized probability computation
-            x_expanded = x_layer.unsqueeze(1)  # (batch_size, 1, input_dim)
-            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
-            prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-            probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
-            
-            # Apply weights
-            output[:, layer_idx, :] = torch.matmul(probs, weights[layer_idx])
-        
-        return output
     
     def _apply_bit_flip(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -557,11 +418,12 @@ class BaseLUTLayer(nn.Module, ABC):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through the layer.
+        Forward pass through the layer with multiple independent nodes.
         
         Accepts 2D input (batch_size, input_size) and maps it to 
-        (batch_size, output_size, node.num_inputs) before passing to the single node.
-        The node handles parallelization across output_size using CUDA kernels.
+        (batch_size, output_size, n) where each of the output_size nodes processes
+        its n-dimensional input independently. Each node in self.nodes ModuleList
+        processes (batch_size, n) -> (batch_size, output_dim_per_node).
         
         During training, applies bit-flip augmentation if flip_probability > 0.
         
@@ -571,9 +433,9 @@ class BaseLUTLayer(nn.Module, ABC):
                - From previous Layer: (batch_size, previous_output_size * previous_output_dim)
         
         Returns:
-            Output tensor of shape (batch_size, output_size * output_dim)
-            - For next Layer: (batch_size, output_size * output_dim)
-            - For GroupSum: (batch_size, output_size) if output_dim=1
+            Output tensor of shape (batch_size, output_size * output_dim_per_node)
+            - For next Layer: (batch_size, output_size * output_dim_per_node)
+            - For GroupSum: (batch_size, output_size) if output_dim_per_node=1
         """
         # Validate input dimensions
         self._validate_input_dims(x)
@@ -586,22 +448,24 @@ class BaseLUTLayer(nn.Module, ABC):
         # where n = node.num_inputs
         mapped_inputs = self.get_mapping(x)
         
-        # MEMORY OPTIMIZATION: Process nodes in batches if output_size is large
-        # This prevents OOM errors by chunking the layer dimension
-        # Note: Subclasses (RandomLayer, LearnableLayer) override forward() with their own batching
         batch_size = mapped_inputs.shape[0]
         
-        if self.max_nodes_per_batch > 0 and self.output_size > self.max_nodes_per_batch:
-            # Layer-wise batching: process nodes in chunks (both training and eval)
-            output = self._forward_with_node_batching(mapped_inputs)
-        else:
-            # Standard path: process all nodes at once
-            # Shape: (batch_size, output_size, n) -> (batch_size, output_size, output_dim)
-            output = self.node(mapped_inputs)
+        # Process each node independently
+        # Each node: (batch_size, n) -> (batch_size, output_dim_per_node)
+        # Stack outputs: (batch_size, output_size, output_dim_per_node)
+        node_outputs = []
+        for node_idx, node in enumerate(self.nodes):
+            # Extract mapped input for this node: (batch_size, n)
+            node_input = mapped_inputs[:, node_idx, :]
+            # Process through node: (batch_size, n) -> (batch_size, output_dim_per_node)
+            node_output = node(node_input)
+            node_outputs.append(node_output)
         
-        # Output shape: (batch_size, output_size, output_dim)
-        # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
-        # In most cases output_dim=1, so this just squeezes out the last dimension
+        # Stack along node dimension: (batch_size, output_size, output_dim_per_node)
+        output = torch.stack(node_outputs, dim=1)
+        
+        # Reshape to 2D for next layer: (batch_size, output_size * output_dim_per_node)
+        # In most cases output_dim_per_node=1, so this flattens to (batch_size, output_size)
         output = output.view(batch_size, -1)
         
         # Register gradient stabilization hook if enabled
@@ -611,8 +475,11 @@ class BaseLUTLayer(nn.Module, ABC):
         return output
     
     def regularization(self) -> torch.Tensor:
-        """Compute regularization for the single node"""
-        if hasattr(self.node, 'regularization'):
-            return self.node.regularization()
-        else:
-            return torch.tensor(0.0, device=next(self.node.parameters()).device if list(self.node.parameters()) else 'cpu')
+        """Compute total regularization across all nodes"""
+        total_reg = torch.tensor(0.0, device=next(self.parameters()).device if list(self.parameters()) else 'cpu')
+        
+        for node in self.nodes:
+            if hasattr(node, 'regularization'):
+                total_reg = total_reg + node.regularization()
+        
+        return total_reg

@@ -40,12 +40,12 @@ class HybridFunction(torch.autograd.Function):
         Forward pass using CUDA kernel.
         
         Args:
-            input: (batch_size, layer_size, input_dim) float tensor
-            luts: (layer_size, output_dim, 2^input_dim) float tensor - per-layer-node LUTs
+            input: (batch_size, input_dim) float tensor
+            luts: (output_dim, 2^input_dim) float tensor
             binary_combinations: (2^input_dim, input_dim) float tensor - precomputed binary patterns
         
         Returns:
-            output: (batch_size, layer_size, output_dim) float tensor
+            output: (batch_size, output_dim) float tensor
         """
         if not _HYBRID_CUDA_EXT_AVAILABLE:
             raise RuntimeError("Hybrid CUDA extension not available. Please compile hybrid_cuda extension.")
@@ -69,7 +69,7 @@ class HybridFunction(torch.autograd.Function):
         Backward pass using CUDA kernel with probabilistic gradients.
         
         Args:
-            grad_output: (batch_size, layer_size, output_dim) gradient tensor
+            grad_output: (batch_size, output_dim) gradient tensor
         
         Returns:
             Gradients for (input, luts, binary_combinations)
@@ -105,41 +105,32 @@ class HybridFunctionCPU(torch.autograd.Function):
         Forward pass: Binary thresholding like DWN.
         
         Args:
-            x: Input tensor (batch_size, layer_size, input_dim) in [0, 1]
-            luts: LUT weights (layer_size, output_dim, 2^input_dim) - per-layer-node LUTs
+            x: Input tensor (batch_size, input_dim) in [0, 1]
+            luts: LUT weights (output_dim, 2^input_dim)
             binary_combinations: Precomputed binary patterns (2^input_dim, input_dim)
         
         Returns:
-            output: (batch_size, layer_size, output_dim)
+            output: (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        layer_size_lut, output_dim, lut_size = luts.shape
-        
-        # Verify layer_size matches
-        if layer_size != layer_size_lut:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match LUT layer_size {layer_size_lut}"
-            )
+        batch_size, input_dim = x.shape
+        output_dim, lut_size = luts.shape
         
         # Save for backward
         ctx.save_for_backward(x, luts, binary_combinations)
         
         # Forward: Binary thresholding at 0.5 for [0, 1] inputs
-        x_binary = (x >= 0.5).float()  # (batch_size, layer_size, input_dim)
+        x_binary = (x >= 0.5).float()  # (batch_size, input_dim)
         
-        # Convert to indices for each (batch, layer) position
+        # Convert to indices for each batch position
         # Compute powers of 2
         powers = 2 ** torch.arange(input_dim, device=x.device, dtype=torch.float32)
-        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size, layer_size)
+        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
         
-        # Look up values from per-layer-node LUTs
-        # We need to select luts[l, o, indices[b, l]] for each b, l, o
-        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1).expand(-1, layer_size, output_dim)
-        layer_indices = torch.arange(layer_size, device=x.device).view(1, -1, 1).expand(batch_size, -1, output_dim)
-        output_indices = torch.arange(output_dim, device=x.device).view(1, 1, -1).expand(batch_size, layer_size, -1)
-        lut_indices = indices.unsqueeze(-1).expand(-1, -1, output_dim)
-        
-        output = luts[layer_indices[0], output_indices[0], lut_indices]  # (batch_size, layer_size, output_dim)
+        # Look up values from LUTs
+        # luts is (output_dim, lut_size)
+        # indices is (batch_size,)
+        # We want output[b, o] = luts[o, indices[b]]
+        output = luts[:, indices].T  # (batch_size, output_dim)
         
         return output
     
@@ -149,14 +140,21 @@ class HybridFunctionCPU(torch.autograd.Function):
         Backward pass: Probabilistic gradients like UnboundProbabilistic.
         
         This provides smooth gradients even though forward was discrete.
+        
+        Args:
+            grad_output: (batch_size, output_dim)
+        
+        Returns:
+            grad_input: (batch_size, input_dim)
+            grad_luts: (output_dim, 2^input_dim)
+            None: for binary_combinations
         """
         x, luts, binary_combinations = ctx.saved_tensors
-        batch_size, layer_size, input_dim = x.shape
-        output_dim = luts.size(1)
-        lut_size = luts.size(2)
+        batch_size, input_dim = x.shape
+        output_dim, lut_size = luts.shape
         
         # Input x is already in [0, 1] range, use directly for probabilistic computation
-        x_prob = x  # (batch_size, layer_size, input_dim)
+        x_prob = x  # (batch_size, input_dim)
         
         # Compute probabilistic expectation for gradient
         # binary_combinations: (2^input_dim, input_dim)
@@ -165,53 +163,40 @@ class HybridFunctionCPU(torch.autograd.Function):
         grad_input = torch.zeros_like(x)
         grad_luts = torch.zeros_like(luts)
         
-        # Memory optimization: Preallocate reusable tensors outside loop
         eps = 1e-8
         
-        # Process each layer independently
-        for l in range(layer_size):
-            x_l = x_prob[:, l, :]  # (batch_size, input_dim)
-            
-            # Expand for broadcasting
-            x_expanded = x_l.unsqueeze(1)  # (batch_size, 1, input_dim)
-            a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
-            
-            # Compute Pr(a|x) = prod_j [x_j^a_j * (1-x_j)^(1-a_j)]
-            prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
-            probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^input_dim)
-            
-            # Gradient w.r.t. LUTs for this layer
-            # grad_luts[l] = probs^T @ grad_output[:, l, :]
-            grad_output_l = grad_output[:, l, :]  # (batch_size, output_dim)
-            grad_luts[l] = torch.matmul(probs.t(), grad_output_l).t()  # (output_dim, 2^input_dim)
-            
-            # Gradient w.r.t. inputs for this layer - vectorized version
-            # Memory optimization: Compute all input gradients at once instead of loop
-            # Derivative of probability w.r.t. all x_j simultaneously
-            # a_expanded: (1, 2^input_dim, input_dim)
-            # x_l: (batch_size, input_dim)
-            
-            # Compute derivative factors for all inputs
-            x_expanded_for_grad = x_l.unsqueeze(1)  # (batch_size, 1, input_dim)
-            deriv_factors = (binary_combinations.unsqueeze(0) - x_expanded_for_grad) / (
-                x_expanded_for_grad * (1 - x_expanded_for_grad) + eps
-            )  # (batch_size, 2^input_dim, input_dim)
-            
-            # Weight by probabilities: (batch_size, 2^input_dim) -> (batch_size, 2^input_dim, 1)
-            prob_weighted = probs.unsqueeze(-1) * deriv_factors  # (batch_size, 2^input_dim, input_dim)
-            
-            # Sum over LUT entries weighted by LUT values and output gradient
-            # luts[l]: (output_dim, 2^input_dim)
-            # grad_output_l: (batch_size, output_dim)
-            # Result should be: (batch_size, input_dim)
-            
-            # Compute contribution from each output dimension
-            # (batch_size, 2^input_dim, input_dim) x (output_dim, 2^input_dim) x (batch_size, output_dim)
-            for dim in range(output_dim):
-                lut_weights = luts[l, dim, :]  # (2^input_dim,)
-                weighted_grad = prob_weighted * lut_weights.view(1, -1, 1)  # (batch_size, 2^input_dim, input_dim)
-                grad_j = weighted_grad.sum(dim=1)  # (batch_size, input_dim)
-                grad_input[:, l, :] += grad_j * grad_output_l[:, dim:dim+1]
+        # Expand for broadcasting
+        x_expanded = x_prob.unsqueeze(1)  # (batch_size, 1, input_dim)
+        a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
+        
+        # Compute Pr(a|x) = prod_j [x_j^a_j * (1-x_j)^(1-a_j)]
+        prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
+        probs = torch.prod(prob_terms, dim=2)  # (batch_size, 2^input_dim)
+        
+        # Gradient w.r.t. LUTs
+        # grad_luts = probs^T @ grad_output
+        grad_luts = torch.matmul(probs.t(), grad_output).t()  # (output_dim, 2^input_dim)
+        
+        # Gradient w.r.t. inputs - vectorized version
+        # Compute derivative factors for all inputs
+        deriv_factors = (binary_combinations.unsqueeze(0) - x_expanded) / (
+            x_expanded * (1 - x_expanded) + eps
+        )  # (batch_size, 2^input_dim, input_dim)
+        
+        # Weight by probabilities: (batch_size, 2^input_dim) -> (batch_size, 2^input_dim, 1)
+        prob_weighted = probs.unsqueeze(-1) * deriv_factors  # (batch_size, 2^input_dim, input_dim)
+        
+        # Sum over LUT entries weighted by LUT values and output gradient
+        # luts: (output_dim, 2^input_dim)
+        # grad_output: (batch_size, output_dim)
+        # Result should be: (batch_size, input_dim)
+        
+        # Compute contribution from each output dimension
+        for dim in range(output_dim):
+            lut_weights = luts[dim, :]  # (2^input_dim,)
+            weighted_grad = prob_weighted * lut_weights.view(1, -1, 1)  # (batch_size, 2^input_dim, input_dim)
+            grad_j = weighted_grad.sum(dim=1)  # (batch_size, input_dim)
+            grad_input += grad_j * grad_output[:, dim:dim+1]
         
         return grad_input, grad_luts, None
 
@@ -221,15 +206,14 @@ def hybrid_forward(input: torch.Tensor, luts: torch.Tensor, binary_combinations:
     Hybrid forward pass with automatic differentiation support.
     Forward: Binary thresholding at 0.5 (efficient, discrete)
     Backward: Probabilistic gradients (smooth, trainable)
-    Updated for 3D tensors with per-layer-node parameters (no mapping - dense connectivity)
     
     Args:
-        input: (batch_size, layer_size, input_dim) tensor in [0, 1]
-        luts: (layer_size, output_dim, 2^input_dim) tensor in [0, 1] - per-layer-node LUTs
+        input: (batch_size, input_dim) tensor in [0, 1]
+        luts: (output_dim, 2^input_dim) tensor in [0, 1]
         binary_combinations: (2^input_dim, input_dim) tensor - precomputed binary patterns
     
     Returns:
-        output: (batch_size, layer_size, output_dim) tensor
+        output: (batch_size, output_dim) tensor
     """
     if _HYBRID_CUDA_EXT_AVAILABLE and input.is_cuda:
         return HybridFunction.apply(input, luts, binary_combinations)
@@ -245,6 +229,8 @@ class HybridNode(BaseNode):
     Forward pass: Uses binary thresholding like DWN (discrete, efficient)
     Backward pass: Uses probabilistic gradients like UnboundProbabilistic (smooth, trainable)
     
+    Processes 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
+    
     This combines the best of both worlds:
     - Fast, discrete inference (DWN)
     - Smooth, effective gradients (UnboundProbabilistic)
@@ -255,7 +241,6 @@ class HybridNode(BaseNode):
     def __init__(self, 
                  input_dim: int | None = None,
                  output_dim: int | None = None,
-                 layer_size: int | None = None,
                  use_cuda: bool = True,
                  regularizers: dict | None = None,
                  init_fn: Optional[Callable] = None,
@@ -264,20 +249,19 @@ class HybridNode(BaseNode):
         Args:
             input_dim: Input dimensions (e.g., 6)
             output_dim: Output dimensions (e.g., 1)
-            layer_size: Number of parallel nodes in the layer (e.g., 128)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
             init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
+        super().__init__(input_dim=input_dim, output_dim=output_dim,
                          regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_cuda = use_cuda and is_cuda_available()
         
-        # Initialize raw LUT weights with per-layer-node LUTs
-        # Shape: (layer_size, num_outputs, 2^num_inputs)
+        # Initialize raw LUT weights
+        # Shape: (output_dim, 2^input_dim)
         lut_size = 2 ** self.num_inputs
-        self.raw_luts = nn.Parameter(torch.randn(self.layer_size, self.num_outputs, lut_size) * 0.1)
+        self.raw_luts = nn.Parameter(torch.randn(self.num_outputs, lut_size) * 0.1)
         self._apply_init_fn(self.raw_luts, name="raw_luts")
         
         # Precompute all binary combinations for probabilistic backward
@@ -297,7 +281,7 @@ class HybridNode(BaseNode):
         """
         Get actual LUT weights by applying sigmoid to raw weights.
         Maps from (-inf, inf) to [0, 1].
-        Returns: (layer_size, num_outputs, 2^num_inputs)
+        Returns: (output_dim, 2^input_dim)
         """
         return torch.sigmoid(self.raw_luts)
          
@@ -308,19 +292,11 @@ class HybridNode(BaseNode):
         Backward uses probabilistic gradients for smooth training.
         
         Args:
-            x: Input tensor (batch_size, layer_size, num_inputs)
+            x: Input tensor (batch_size, input_dim)
         Returns:
-            Output tensor (batch_size, layer_size, num_outputs)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
-        
-        # Get actual LUT weights via sigmoid: (layer_size, num_outputs, 2^num_inputs)
+        # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
         
         # Use hybrid forward (CUDA if available, else CPU)
@@ -334,19 +310,11 @@ class HybridNode(BaseNode):
         Output binarized to {0, 1} using Heaviside at 0.5.
         
         Args:
-            x: Input tensor (batch_size, layer_size, num_inputs)
+            x: Input tensor (batch_size, input_dim)
         Returns:
-            Output tensor (batch_size, layer_size, num_outputs)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
-        
-        # Get actual LUT weights via sigmoid: (layer_size, num_outputs, 2^num_inputs)
+        # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
         
         # Inputs are already binarized in {0, 1}, use directly
@@ -354,15 +322,12 @@ class HybridNode(BaseNode):
         
         # Compute LUT indices from binary inputs
         powers = 2 ** torch.arange(self.num_inputs, device=x.device, dtype=torch.float32)
-        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size, layer_size)
+        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
         
-        # Look up LUT values
-        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1).expand(-1, layer_size, self.num_outputs)
-        layer_indices = torch.arange(layer_size, device=x.device).view(1, -1, 1).expand(batch_size, -1, self.num_outputs)
-        output_indices = torch.arange(self.num_outputs, device=x.device).view(1, 1, -1).expand(batch_size, layer_size, -1)
-        lut_indices = indices.unsqueeze(-1).expand(-1, -1, self.num_outputs)
-        
-        output = luts[layer_indices, output_indices, lut_indices]  # (batch_size, layer_size, num_outputs)
+        # Look up LUT values: luts is (output_dim, lut_size)
+        # indices is (batch_size,)
+        # We want output[b, o] = luts[o, indices[b]]
+        output = luts[:, indices].T  # (batch_size, output_dim)
         
         # Binarize output: [0, 1] -> {0, 1} using Heaviside at 0.5
         output = (output >= 0.5).float()

@@ -78,17 +78,17 @@ class NodeTester:
         """Test 1.1: Forward pass produces correct output shape."""
         try:
             with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=2, layer_size=16)
+                node = instantiate_node(self.node_class, input_dim=4, output_dim=2)
             
-            # Input shape: (batch_size, layer_size, input_dim)
+            # Input shape: (batch_size, input_dim) for independent nodes
             batch_size = 8
-            input_tensor = generate_uniform_input((batch_size, 16, 4))
+            input_tensor = generate_uniform_input((batch_size, 4))
             
             with torch.no_grad():
                 output = node(input_tensor)
             
-            # Output shape should be: (batch_size, layer_size, output_dim)
-            expected_shape = (batch_size, 16, 2)
+            # Output shape should be: (batch_size, output_dim)
+            expected_shape = (batch_size, 2)
             assert_shape_equal(output, expected_shape)
             
             print_test_result(f"{self.node_name}: Shape", True)
@@ -104,12 +104,12 @@ class NodeTester:
         """Test 1.1: Output range is [0, 1]."""
         try:
             with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=1, layer_size=16)
+                node = instantiate_node(self.node_class, input_dim=4, output_dim=1)
             node.eval()
             
             # Test multiple random inputs
             for seed in [42, 123, 456]:
-                input_tensor = generate_uniform_input((4, 16, 4), seed=seed)
+                input_tensor = generate_uniform_input((4, 4), seed=seed)
                 
                 with torch.no_grad():
                     output = node(input_tensor)
@@ -133,10 +133,10 @@ class NodeTester:
         
         try:
             with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=1, layer_size=16)
+                node = instantiate_node(self.node_class, input_dim=4, output_dim=1)
             node.eval()
             
-            input_tensor = generate_uniform_input((4, 16, 4), seed=42)
+            input_tensor = generate_uniform_input((4, 4), seed=42)
             
             output_cpu, output_gpu = compare_cpu_gpu_forward(
                 node, input_tensor,
@@ -164,10 +164,10 @@ class NodeTester:
         """Test 1.3: Gradients exist and are not all zero."""
         try:
             with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=1, layer_size=16)
+                node = instantiate_node(self.node_class, input_dim=4, output_dim=1)
             node.train()
             
-            input_tensor = generate_uniform_input((4, 16, 4), seed=42, device='cpu')
+            input_tensor = generate_uniform_input((4, 4), seed=42, device='cpu')
             input_tensor.requires_grad = True
             
             output = node(input_tensor)
@@ -198,13 +198,12 @@ class NodeTester:
                     self.node_class,
                     input_dim=4,
                     output_dim=1,
-                    layer_size=16,
                     init_fn=zeros_init,
                     init_kwargs={}
                 )
             node.eval()
             
-            input_tensor = generate_uniform_input((4, 16, 4), seed=42)
+            input_tensor = generate_uniform_input((4, 4), seed=42)
             
             with torch.no_grad():
                 output = node(input_tensor)
@@ -242,12 +241,11 @@ class NodeTester:
                     self.node_class,
                     input_dim=4,
                     output_dim=1,
-                    layer_size=16,
                     regularizers=regularizers
                 )
             node.eval()
             
-            input_tensor = generate_uniform_input((4, 16, 4), seed=42)
+            input_tensor = generate_uniform_input((4, 4), seed=42)
             
             with torch.no_grad():
                 output = node(input_tensor)

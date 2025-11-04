@@ -57,14 +57,15 @@ class SimpleLUTNetwork(nn.Module):
         # Step 2b: Hidden layer with random connectivity
         # Create type-safe node configuration
         node_config = NodeConfig(
-            input_dim=4,        # 4-input LUTs
+            input_dim=4,        # 4-input LUTs (each node processes (batch, 4) → (batch, 1))
             output_dim=1        # Single output per LUT
         )
         
         # Input: (batch_size, 6272) → Output: (batch_size, 128)
+        # Creates 128 independent LinearLUTNode instances in nn.ModuleList
         self.hidden = RandomLayer(
             input_size=encoded_size,        # 6272 input features
-            output_size=hidden_size,        # 128 output nodes
+            output_size=hidden_size,        # 128 output nodes (128 independent LUTs)
             node_type=LinearLUTNode,
             n=4,                            # Each LUT has 4 inputs
             node_kwargs=node_config
@@ -72,9 +73,10 @@ class SimpleLUTNetwork(nn.Module):
         
         # Step 2c: Output layer routes to num_classes nodes
         # Input: (batch_size, 128) → Output: (batch_size, 10)
+        # Creates 10 independent LinearLUTNode instances in nn.ModuleList
         self.output = RandomLayer(
             input_size=hidden_size,         # 128 input features
-            output_size=num_classes,        # 10 output nodes
+            output_size=num_classes,        # 10 output nodes (10 independent LUTs)
             node_type=LinearLUTNode,
             n=4,                            # Each LUT has 4 inputs
             node_kwargs=node_config
@@ -137,10 +139,13 @@ loss.backward()
 
 ✓ **Encoder input** = (batch_size, input_features)  
 ✓ **Encoder output (auto-flattened)** = (batch_size, input_features × num_bits)  
-✓ **Layer output** = (batch_size, output_size / num_outputs_per_node)  
+✓ **Layer output** = (batch_size, output_size) - Each layer has output_size independent nodes  
+✓ **Node processing** = (batch_size, input_dim) → (batch_size, output_dim) - 2D tensors only  
 ✓ **GroupSum input** = (batch_size, num_nodes)  
 ✓ **GroupSum output** = (batch_size, k_groups)  
 ❌ **Mismatch** = will raise clear error with expected/got dimensions
+
+**Architecture Note**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors. The layer iterates through nodes and concatenates their outputs.
 
 
 

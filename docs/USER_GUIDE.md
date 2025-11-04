@@ -163,27 +163,31 @@ from difflut.nodes import PolyLUTNode, NeuralLUTNode
 
 # PolyLUT has degree parameter
 poly_node = PolyLUTNode(
-    input_dim=[6],
-    output_dim=[1],
+    input_dim=6,
+    output_dim=1,
     degree=3  # Polynomial degree
 )
 
 # NeuralLUT has hidden width
 neural_node = NeuralLUTNode(
-    input_dim=[4],
-    output_dim=[1],
+    input_dim=4,
+    output_dim=1,
     hidden_width=32  # MLP hidden layer width
 )
 ```
 
+**Note**: Nodes process 2D tensors with shape `(batch_size, input_dim)` → `(batch_size, output_dim)`. Layers use `nn.ModuleList` to manage multiple independent node instances.
+
 ### Layer Connectivity
 
-Layers define how inputs connect to nodes:
+Layers define how inputs connect to nodes. Each layer creates `output_size` independent nodes (stored in `nn.ModuleList`):
 
 ```python
 from difflut.layers import RandomLayer, LearnableLayer
+from difflut.nodes import LinearLUTNode
 
 # Random: inputs randomly assigned to LUTs
+# Creates output_size=256 independent LinearLUTNode instances
 random_layer = RandomLayer(
     input_size=512,
     output_size=256,
@@ -192,12 +196,16 @@ random_layer = RandomLayer(
 )
 
 # Learnable: learns which inputs each LUT uses
+# Creates output_size=256 independent LinearLUTNode instances
 learnable_layer = LearnableLayer(
     input_size=512,
     output_size=256,
     node_type=LinearLUTNode,
     n=4
 )
+
+# Forward pass processes (batch_size, 512) → (batch_size, 256)
+# by iterating through the ModuleList of nodes
 ```
 
 ## Next Steps

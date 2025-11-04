@@ -52,8 +52,8 @@ def generate_training_data(n_samples=1000, seed=42):
     np.random.seed(seed)
     X_np = np.random.rand(n_samples, 2)
     Y_np = xorc(X_np[:, 0], X_np[:, 1])
-    # Reshape to (batch_size, 1, input_dim) for 3D input
-    X_train = torch.tensor(X_np, dtype=torch.float32).unsqueeze(1)  # (n_samples, 1, 2)
+    # Use 2D tensors: (batch_size, input_dim) for current architecture
+    X_train = torch.tensor(X_np, dtype=torch.float32)  # (n_samples, 2)
     Y_train = torch.tensor(Y_np, dtype=torch.float32).unsqueeze(-1)  # (n_samples, 1)
     return X_train, Y_train
 
@@ -81,7 +81,7 @@ def train_node_with_lr(node, X_train, Y_train, lr, epochs=10, verbose=False):
     
     Args:
         node: Node instance to train
-        X_train: Training inputs (batch_size, 1, input_dim)
+        X_train: Training inputs (batch_size, input_dim) - 2D tensor
         Y_train: Training targets (batch_size, 1)
         lr: Learning rate
         epochs: Number of training epochs
@@ -238,9 +238,9 @@ def plot_node_surface(ax, node, node_name, lr, success=True, grid_size=20):
     xx, yy = np.meshgrid(x, y)
     inputs = np.stack([xx.flatten(), yy.flatten()], axis=1)
     
-    # Get predictions with 3D input shape (batch_size, 1, input_dim)
+    # Get predictions with 2D input shape (batch_size, input_dim)
     with torch.no_grad():
-        inp = torch.tensor(inputs, dtype=torch.float32).unsqueeze(1)  # (grid_size^2, 1, 2)
+        inp = torch.tensor(inputs, dtype=torch.float32)  # (grid_size^2, 2)
         out = node(inp)
         out = out.reshape(-1).cpu().numpy().reshape(grid_size, grid_size)
     

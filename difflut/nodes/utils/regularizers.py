@@ -227,12 +227,14 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     # Look for truth-table parameters (typically named 'luts' or similar)
     for name, param in node.named_parameters():
         if 'lut' in name.lower():
-            # param should have shape (num_luts, 2^k) or (2^k,)
+            # param should have shape (output_dim, 2^input_dim) for independent nodes
+            # or (2^input_dim,) for a single-output node
             if param.dim() == 1:
-                # Single LUT: shape (2^k,)
+                # Single output: shape (2^input_dim,)
                 lut_table = param.unsqueeze(0)
             elif param.dim() == 2:
-                # Multiple LUTs: shape (num_luts, 2^k)
+                # Multiple outputs: shape (output_dim, 2^input_dim)
+                # Each row is an independent truth table for one output dimension
                 lut_table = param
             else:
                 # Skip if not a truth table
