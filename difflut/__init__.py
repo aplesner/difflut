@@ -44,7 +44,7 @@ from .nodes.base_node import BaseNode
 from .layers.base_layer import BaseLUTLayer
 from .encoder.base_encoder import BaseEncoder
 
-__version__ = '1.1.2'
+__version__ = '1.1.3'
 
 __all__ = [
     'REGISTRY',
