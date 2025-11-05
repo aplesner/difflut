@@ -1,0 +1,26 @@
+# Include documentation
+include README.md
+include LICENSE
+include INSTALL.md
+include VERSION.md
+include .bumpversion.cfg
+
+# Include all CUDA source files
+recursive-include difflut/nodes/cuda *.cpp *.cu *.h
+recursive-include difflut/layers/cuda *.cpp *.cu *.h
+
+# Include documentation
+recursive-include docs *.md *.rst
+
+# Include examples
+recursive-include examples *.py *.ipynb
+
+# Exclude compiled files and build artifacts
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude __pycache__
+global-exclude *.so
+global-exclude .DS_Store
+global-exclude *.egg-info
+recursive-exclude build *
+recursive-exclude * .git*

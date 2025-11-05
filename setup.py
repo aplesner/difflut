@@ -1,92 +1,146 @@
 
+"""
+DiffLUT Setup Script
+Supports GPU, CPU-only, and development installations
+"""
 import os
-import setuptools
+import sys
 from setuptools import setup, find_packages
-import multiprocessing
-import shutil
 
+# Check if user explicitly requested cpu-only build
+build_cpu_only = any('.[cpu]' in arg for arg in sys.argv)
+
+# Default to GPU build unless cpu-only is requested
+build_cuda = not build_cpu_only
+
+# Try to build CUDA extensions
 ext_modules = []
+cmdclass = {}
 
-# Enable parallel compilation via environment variable
-num_jobs = min(multiprocessing.cpu_count(), 8)  # Cap at 8 to avoid resource exhaustion
-os.environ['MAX_JOBS'] = str(num_jobs)  # For Ninja/build system
-
-# Enable ccache if available for faster rebuilds
-if shutil.which('ccache'):
-    os.environ['CC'] = 'ccache gcc'
-    os.environ['CXX'] = 'ccache g++'
-    os.environ['NVCC'] = 'ccache nvcc'
-    print(f"✅ ccache enabled for faster rebuilds")
-
-print(f"Parallel compilation enabled: MAX_JOBS={num_jobs}")
-
-# Try to import torch and CUDAExtension, and check for CUDA
-cuda_available = False
-try:
-    import torch
-    from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-    # Check if CUDA_HOME is set (don't rely on torch.cuda.is_available() during build)
-    cuda_home = os.environ.get('CUDA_HOME') or os.environ.get('CUDA_PATH')
-    if cuda_home:
-        print(f"CUDA_HOME detected: {cuda_home}")
-        cuda_available = True
-    else:
-        print("CUDA_HOME not set. Checking torch.cuda.is_available()...")
-        cuda_available = torch.cuda.is_available()
-except ImportError:
-    print("Warning: PyTorch not found, CUDA extensions will not be built.")
-except Exception as e:
-    print(f"Warning: Could not check CUDA availability: {e}")
-
-cuda_dirs = [
-    os.path.join('difflut', 'nodes', 'cuda'),
-    os.path.join('difflut', 'layers', 'cuda')
-]
-
-if cuda_available:
-    for cuda_dir in cuda_dirs:
-        if os.path.exists(cuda_dir):
-            for filename in os.listdir(cuda_dir):
-                if filename.endswith('.cpp'):
-                    module_name = filename[:-4]
-                    kernel_filename = module_name + '_kernel.cu'
-                    kernel_path = os.path.join(cuda_dir, kernel_filename)
-                    if os.path.exists(kernel_path):
-                        print(f"Building CUDA extension: {module_name} from {cuda_dir}")
-                        ext_modules.append(CUDAExtension(
-                            module_name,
-                            [os.path.join(cuda_dir, filename), kernel_path],
-                            extra_compile_args={
-                                'cxx': ['-O3', '-march=native'],
-                                'nvcc': ['-O3', '--use_fast_math']
-                            }
-                        ))
-                    else:
-                        print(f"Warning: Found {filename} but missing {kernel_filename}")
+if build_cuda:
+    try:
+        import torch
+        from torch.utils.cpp_extension import BuildExtension, CUDAExtension
+        
+        # Check for CUDA availability
+        cuda_home = os.environ.get('CUDA_HOME') or os.environ.get('CUDA_PATH')
+        if cuda_home or torch.cuda.is_available():
+            print("🔧 Building with CUDA support...")
+            
+            # Auto-discover CUDA extensions in specified directories
+            cuda_dirs = ['difflut/nodes/cuda', 'difflut/layers/cuda']
+            
+            for cuda_dir in cuda_dirs:
+                if not os.path.exists(cuda_dir):
+                    continue
+                
+                # Find all .cpp files in the directory
+                for filename in sorted(os.listdir(cuda_dir)):
+                    if filename.endswith('.cpp'):
+                        module_name = filename[:-4]  # Remove .cpp extension
+                        cpp_file = os.path.join(cuda_dir, filename)
+                        cu_file = os.path.join(cuda_dir, f'{module_name}_kernel.cu')
+                        
+                        # Check if corresponding .cu kernel file exists
+                        if os.path.exists(cu_file):
+                            ext_modules.append(CUDAExtension(
+                                module_name,
+                                [cpp_file, cu_file],
+                                extra_compile_args={
+                                    'cxx': ['-O3'],
+                                    'nvcc': ['-O3', '--use_fast_math']
+                                }
+                            ))
+                            print(f"  ✓ {module_name} (from {cuda_dir})")
+                        else:
+                            print(f"  ⚠️  Skipping {module_name}: missing {cu_file}")
+            
+            if ext_modules:
+                cmdclass['build_ext'] = BuildExtension
+                print(f"✅ {len(ext_modules)} CUDA extensions configured")
+            else:
+                print("⚠️  No CUDA extensions found, building CPU-only version")
         else:
-            print(f"CUDA directory not found: {cuda_dir}")
-    print(f"Total CUDA extensions to build: {len(ext_modules)}")
+            print("⚠️  CUDA not available, building CPU-only version")
+    
+    except ImportError:
+        print("⚠️  PyTorch not found, building CPU-only version")
+    except Exception as e:
+        print(f"⚠️  CUDA build failed: {e}, building CPU-only version")
 else:
-    print("CUDA not available or not detected. Skipping CUDA extension build.")
+    print("🔧 Building CPU-only version (CUDA disabled)")
 
-setup_args = dict(
+# Read long description from README
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
+
+setup(
     name='difflut',
-    version="1.1.2",
-    packages=find_packages(),
+    version='1.1.2',
+    description='Differentiable LUT-based neural networks for efficient FPGA deployment',
+    long_description=long_description,
+    long_description_content_type='text/markdown',
+    author='Simon Buehrer',
+    author_email='sbuehrer@ethz.ch',
+    url='https://github.com/aplesner/difflut',
+    project_urls={
+        'Documentation': 'https://github.com/aplesner/difflut/tree/main/docs',
+        'Source': 'https://github.com/aplesner/difflut',
+        'Issues': 'https://github.com/aplesner/difflut/issues',
+    },
+    license='MIT',
+    packages=find_packages(exclude=['tests*', 'examples*', 'docs*', 'build*']),
     install_requires=[
         'torch>=1.9.0',
-        'numpy',
+        'numpy>=1.19.0',
     ],
+    extras_require={
+        'gpu': [],  # Dummy extra to trigger GPU build
+        'cpu': [],  # Dummy extra to trigger CPU build
+        'dev': [
+            'bump2version>=1.0.0',
+            'pytest>=7.0.0',
+            'pytest-cov>=3.0.0',
+            'black>=22.0.0',
+            'flake8>=4.0.0',
+            'isort>=5.10.0',
+            'sphinx>=4.0.0',
+            'sphinx-rtd-theme>=1.0.0',
+            'jupyter>=1.0.0',
+            'matplotlib>=3.3.0',
+            'torchvision>=0.10.0',
+        ],
+        'all': [
+            'bump2version>=1.0.0',
+            'pytest>=7.0.0',
+            'pytest-cov>=3.0.0',
+            'black>=22.0.0',
+            'flake8>=4.0.0',
+            'isort>=5.10.0',
+            'sphinx>=4.0.0',
+            'sphinx-rtd-theme>=1.0.0',
+            'jupyter>=1.0.0',
+            'matplotlib>=3.3.0',
+            'torchvision>=0.10.0',
+        ],
+    },
     python_requires='>=3.7',
-    description='Differentiable LUT-based neural networks',
-    author='Simon Buehrer',
-    license='MIT',
+    ext_modules=ext_modules if ext_modules else [],
+    cmdclass=cmdclass,
+    keywords='deep-learning neural-networks lut fpga pytorch hardware-acceleration',
+    classifiers=[
+        'Development Status :: 4 - Beta',
+        'Intended Audience :: Science/Research',
+        'Intended Audience :: Developers',
+        'License :: OSI Approved :: MIT License',
+        'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
+        'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
+        'Topic :: Scientific/Engineering :: Artificial Intelligence',
+        'Topic :: Software Development :: Libraries :: Python Modules',
+    ],
+    include_package_data=True,
 )
-
-if ext_modules and cuda_available:
-    setup_args['ext_modules'] = ext_modules
-    setup_args['cmdclass'] = {
-        'build_ext': BuildExtension.with_options(use_ninja=True)
-    }
-
-setup(**setup_args)
