@@ -62,10 +62,10 @@ If you use DiffLUT in your research, please cite:
 ```bibtex
 @software{difflut2025,
   title={DiffLUT: Differentiable Lookup Table Networks},
-  author={B\"uhrer, Simon Jonas},
+  author={B\"uhrer, Simon Jonas and Plesner, Andreas and Aczel, Till},
   year={2025},
   institution={ETH Zurich, Distributed Computing Group},
-  url={https://gitlab.ethz.ch/disco-students/hs25/difflut}
+  url={https://github.com/aplesner/difflut}
 }
 ```
 
@@ -75,13 +75,12 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 👤 Contact
 
-- **Author**: Simon Jonas Bührer
-- **Email**: sbuehrer@ethz.ch
+- **Authors**: Simon Jonas Bührer, Andreas Plesner, and Till Aczel
+- **Emails**: {sbuehrer,aplesner,taczel}@ethz.ch
 - **Institution**: ETH Zurich, Distributed Computing Group
-- **Issues**: https://gitlab.ethz.ch/disco-students/hs25/difflut/-/issues
+- **Issues**: https://github.com/aplesner/difflut/-/issues
 
 ## 🔗 Related Projects
 
 Part of the **DiffLUT Research Framework**:
 - **Parent Project**: Full experiment pipeline with Hydra configs and SLURM scripts
-- **Repository**: https://gitlab.ethz.ch/disco-students/hs25/difflut
