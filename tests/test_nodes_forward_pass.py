@@ -1,322 +1,217 @@
 """
 Comprehensive forward pass tests for all node types.
-Tests: shape correctness, output range [0,1], CPU/GPU consistency, gradients, initializers, regularizers.
+Tests: shape correctness, output range [0,1], CPU/GPU consistency, gradients.
 
-This test is designed for CI/CD pipelines and suppresses non-critical warnings.
+Uses pytest parametrization for individual test discovery.
 """
 
-import sys
-import warnings
+import pytest
 import torch
 import torch.nn as nn
-
-# Suppress warnings for CI/CD
-warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
-warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
-
-from test_utils import (
-    print_section,
-    print_subsection,
-    print_test_result,
-    get_available_devices,
+from difflut.registry import REGISTRY
+from testing_utils import (
     is_cuda_available,
-    skip_if_no_cuda,
-    get_all_registered_nodes,
-    get_all_registered_layers,
     instantiate_node,
     generate_uniform_input,
     assert_shape_equal,
     assert_range,
     assert_gradients_exist,
-    assert_tensors_close,
     compare_cpu_gpu_forward,
-    check_gradients,
     IgnoreWarnings,
-    FP32_ATOL,
-    FP32_RTOL,
-    CPU_GPU_ATOL,
-    CPU_GPU_RTOL,
-)
-
-import sys
-import torch
-import torch.nn as nn
-from test_utils import (
-    print_section,
-    print_subsection,
-    print_test_result,
-    get_available_devices,
-    is_cuda_available,
-    skip_if_no_cuda,
-    get_all_registered_nodes,
-    instantiate_node,
-    generate_uniform_input,
-    assert_shape_equal,
-    assert_range,
-    assert_gradients_exist,
-    assert_tensors_close,
-    compare_cpu_gpu_forward,
-    check_gradients,
-    IgnoreWarnings,
-    FP32_ATOL,
-    FP32_RTOL,
     CPU_GPU_ATOL,
     CPU_GPU_RTOL,
 )
 
 
-class NodeTester:
-    """Helper class for testing nodes."""
+# ============================================================================
+# Node Forward Pass Tests
+# ============================================================================
+
+@pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
+class TestNodeForwardPass:
+    """Comprehensive forward pass tests for nodes."""
     
-    def __init__(self, node_name: str, node_class: type):
-        self.node_name = node_name
-        self.node_class = node_class
-        self.tests_passed = 0
-        self.tests_failed = 0
-    
-    def test_shape_forward_pass(self):
+    def test_shape_correct(self, node_name):
         """Test 1.1: Forward pass produces correct output shape."""
-        try:
-            with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=2)
-            
-            # Input shape: (batch_size, input_dim) for independent nodes
-            batch_size = 8
-            input_tensor = generate_uniform_input((batch_size, 4))
-            
-            with torch.no_grad():
-                output = node(input_tensor)
-            
-            # Output shape should be: (batch_size, output_dim)
-            expected_shape = (batch_size, 2)
-            assert_shape_equal(output, expected_shape)
-            
-            print_test_result(f"{self.node_name}: Shape", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.node_name}: Shape", False, str(e))
-            self.tests_failed += 1
-            return False
-    
-    def test_output_range(self):
-        """Test 1.1: Output range is [0, 1]."""
-        try:
-            with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=1)
-            node.eval()
-            
-            # Test multiple random inputs
-            for seed in [42, 123, 456]:
-                input_tensor = generate_uniform_input((4, 4), seed=seed)
-                
-                with torch.no_grad():
-                    output = node(input_tensor)
-                
-                assert_range(output, 0.0, 1.0, msg=f"seed={seed}")
-            
-            print_test_result(f"{self.node_name}: Output Range [0,1]", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.node_name}: Output Range [0,1]", False, str(e))
-            self.tests_failed += 1
-            return False
-    
-    def test_cpu_gpu_consistency(self):
-        """Test 1.2: CPU and GPU implementations give same forward pass."""
-        if not is_cuda_available():
-            print_test_result(f"{self.node_name}: CPU/GPU Consistency", None, "CUDA not available")
-            return None
+        node_class = REGISTRY.get_node(node_name)
         
-        try:
-            with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=1)
-            node.eval()
-            
-            input_tensor = generate_uniform_input((4, 4), seed=42)
-            
-            output_cpu, output_gpu = compare_cpu_gpu_forward(
-                node, input_tensor,
-                atol=CPU_GPU_ATOL,
-                rtol=CPU_GPU_RTOL
-            )
-            
-            print_test_result(f"{self.node_name}: CPU/GPU Consistency", True)
-            self.tests_passed += 1
-            return True
-            
-        except RuntimeError as e:
-            if "CUDA" in str(e):
-                print_test_result(f"{self.node_name}: CPU/GPU Consistency", None, "CUDA not available")
-                return None
-            print_test_result(f"{self.node_name}: CPU/GPU Consistency", False, str(e))
-            self.tests_failed += 1
-            return False
-        except Exception as e:
-            print_test_result(f"{self.node_name}: CPU/GPU Consistency", False, str(e))
-            self.tests_failed += 1
-            return False
-    
-    def test_gradients(self):
-        """Test 1.3: Gradients exist and are not all zero."""
-        try:
-            with IgnoreWarnings():
-                node = instantiate_node(self.node_class, input_dim=4, output_dim=1)
-            node.train()
-            
-            input_tensor = generate_uniform_input((4, 4), seed=42, device='cpu')
-            input_tensor.requires_grad = True
-            
+        with IgnoreWarnings():
+            node = instantiate_node(node_class, input_dim=4, output_dim=2)
+        
+        # Input shape: (batch_size, input_dim)
+        batch_size = 8
+        input_tensor = generate_uniform_input((batch_size, 4))
+        
+        with torch.no_grad():
             output = node(input_tensor)
-            loss = output.sum()
-            loss.backward()
-            
-            # Check that gradients exist and are not all zero
-            assert_gradients_exist(node, msg="Node has zero gradients")
-            
-            print_test_result(f"{self.node_name}: Gradients", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.node_name}: Gradients", False, str(e))
-            self.tests_failed += 1
-            return False
+        
+        # Output shape should be: (batch_size, output_dim)
+        expected_shape = (batch_size, 2)
+        assert_shape_equal(output, expected_shape)
     
-    def test_with_initializer(self):
-        """Test 1.4: Node works with initializers."""
-        try:
-            # Define a simple initializer
-            def zeros_init(param: torch.Tensor, **kwargs):
-                nn.init.zeros_(param)
-            
-            with IgnoreWarnings():
-                node = instantiate_node(
-                    self.node_class,
-                    input_dim=4,
-                    output_dim=1,
-                    init_fn=zeros_init,
-                    init_kwargs={}
-                )
-            node.eval()
-            
-            input_tensor = generate_uniform_input((4, 4), seed=42)
-            
+    def test_output_range_01(self, node_name):
+        """Test 1.2: Output range is [0, 1]."""
+        node_class = REGISTRY.get_node(node_name)
+        
+        with IgnoreWarnings():
+            node = instantiate_node(node_class, input_dim=4, output_dim=2)
+        node.eval()
+        
+        # Test multiple random inputs
+        for seed in [42, 123, 456]:
+            input_tensor = generate_uniform_input((8, 4), seed=seed)
             with torch.no_grad():
                 output = node(input_tensor)
             
-            # Should not crash and produce valid output
-            assert output.shape[0] == 4
-            
-            print_test_result(f"{self.node_name}: With Initializer", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            # Some nodes might not support initializers
-            if "init_fn" in str(e) or "unexpected keyword" in str(e):
-                print_test_result(f"{self.node_name}: With Initializer", None, "Not supported")
-                return None
-            print_test_result(f"{self.node_name}: With Initializer", False, str(e))
-            self.tests_failed += 1
-            return False
+            assert_range(output, 0.0, 1.0)
     
-    def test_with_regularizer(self):
-        """Test 1.4: Node works with regularizers."""
+    @pytest.mark.gpu
+    def test_cpu_gpu_consistency(self, node_name):
+        """Test 1.3: CPU and GPU implementations give same forward pass."""
+        if not is_cuda_available():
+            pytest.skip("CUDA not available")
+        
+        node_class = REGISTRY.get_node(node_name)
+        
+        with IgnoreWarnings():
+            node_cpu = instantiate_node(node_class, input_dim=4, output_dim=2)
+        
+        input_cpu = generate_uniform_input((8, 4), seed=42)
+        
         try:
-            # Define a simple regularizer
-            def l1_regularizer(node, **kwargs):
-                l1_loss = 0
-                for param in node.parameters():
-                    l1_loss += param.abs().sum()
-                return l1_loss
-            
-            regularizers = {'l1': (l1_regularizer, 0.01, {})}
+            output_cpu, output_gpu = compare_cpu_gpu_forward(
+                node_cpu, input_cpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
+            )
+        except RuntimeError as e:
+            if "CUDA" in str(e) or "cuda" in str(e):
+                pytest.skip(f"CUDA error for {node_name}: {e}")
+            raise
+    
+    def test_gradients_exist(self, node_name):
+        """Test 1.4: Gradients exist and are not all zero."""
+        node_class = REGISTRY.get_node(node_name)
+        
+        with IgnoreWarnings():
+            node = instantiate_node(node_class, input_dim=4, output_dim=2)
+        
+        node.train()
+        input_tensor = generate_uniform_input((8, 4), seed=42)
+        input_tensor.requires_grad = True
+        
+        output = node(input_tensor)
+        loss = output.sum()
+        loss.backward()
+        
+        # Check gradients exist for parameters
+        assert_gradients_exist(node)
+    
+    def test_with_initializer(self, node_name):
+        """Test 1.5: Node works with initializers."""
+        node_class = REGISTRY.get_node(node_name)
+        
+        try:
+            # Try to use a simple initializer
+            def simple_init(weight):
+                """Simple initializer for testing."""
+                if weight is not None and hasattr(weight, 'data'):
+                    torch.nn.init.uniform_(weight.data, 0.0, 1.0)
             
             with IgnoreWarnings():
                 node = instantiate_node(
-                    self.node_class,
+                    node_class,
                     input_dim=4,
-                    output_dim=1,
-                    regularizers=regularizers
+                    output_dim=2,
+                    initializer=simple_init
                 )
-            node.eval()
             
-            input_tensor = generate_uniform_input((4, 4), seed=42)
-            
+            # Test forward pass still works
+            input_tensor = generate_uniform_input((8, 4), seed=42)
             with torch.no_grad():
                 output = node(input_tensor)
             
-            # Should not crash and produce valid output
-            assert output.shape[0] == 4
+            assert output.shape == (8, 2)
             
-            print_test_result(f"{self.node_name}: With Regularizer", True)
-            self.tests_passed += 1
-            return True
+        except TypeError as e:
+            # Some nodes might not support initializer parameter
+            if "initializer" not in str(e):
+                raise
+            pytest.skip(f"{node_name} does not support initializer parameter")
+    
+    def test_with_regularizer(self, node_name):
+        """Test 1.6: Node works with regularizers."""
+        node_class = REGISTRY.get_node(node_name)
+        
+        try:
+            # Try to use a simple regularizer
+            def simple_reg(weight):
+                """Simple regularizer for testing."""
+                if weight is not None:
+                    return 0.01 * torch.sum(weight ** 2)
+                return torch.tensor(0.0)
             
-        except Exception as e:
-            # Some nodes might not support regularizers
-            if "regularizers" in str(e) or "unexpected keyword" in str(e):
-                print_test_result(f"{self.node_name}: With Regularizer", None, "Not supported")
-                return None
-            print_test_result(f"{self.node_name}: With Regularizer", False, str(e))
-            self.tests_failed += 1
-            return False
+            with IgnoreWarnings():
+                node = instantiate_node(
+                    node_class,
+                    input_dim=4,
+                    output_dim=2,
+                    regularizer=simple_reg
+                )
+            
+            # Test forward pass still works
+            input_tensor = generate_uniform_input((8, 4), seed=42)
+            with torch.no_grad():
+                output = node(input_tensor)
+            
+            assert output.shape == (8, 2)
+            
+        except TypeError as e:
+            # Some nodes might not support regularizer parameter
+            if "regularizer" not in str(e):
+                raise
+            pytest.skip(f"{node_name} does not support regularizer parameter")
 
 
-def test_all_nodes():
-    """Test all registered nodes."""
-    print_section("NODE FORWARD PASS TESTS")
+# ============================================================================
+# Additional Node Tests
+# ============================================================================
+
+@pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
+def test_node_different_batch_sizes(node_name):
+    """Test node works with different batch sizes."""
+    node_class = REGISTRY.get_node(node_name)
     
-    nodes = get_all_registered_nodes()
-    print(f"\nTesting {len(nodes)} nodes: {list(nodes.keys())}\n")
+    with IgnoreWarnings():
+        node = instantiate_node(node_class, input_dim=4, output_dim=2)
+    node.eval()
     
-    all_passed = 0
-    all_failed = 0
-    
-    for node_name, node_class in nodes.items():
-        print_subsection(f"Node: {node_name}")
+    for batch_size in [1, 8, 32, 128]:
+        input_tensor = generate_uniform_input((batch_size, 4), seed=42)
+        with torch.no_grad():
+            output = node(input_tensor)
         
-        tester = NodeTester(node_name, node_class)
+        assert output.shape == (batch_size, 2), \
+            f"{node_name} failed for batch_size={batch_size}"
+
+
+@pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
+def test_node_different_dimensions(node_name):
+    """Test node works with different input/output dimensions."""
+    node_class = REGISTRY.get_node(node_name)
+    
+    test_configs = [
+        (2, 1),   # Small
+        (4, 2),   # Medium
+        (8, 4),   # Large
+        (16, 8),  # Very large
+    ]
+    
+    for input_dim, output_dim in test_configs:
+        with IgnoreWarnings():
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=output_dim)
         
-        # Run all tests
-        tester.test_shape_forward_pass()
-        tester.test_output_range()
-        tester.test_cpu_gpu_consistency()
-        tester.test_gradients()
-        tester.test_with_initializer()
-        tester.test_with_regularizer()
+        input_tensor = generate_uniform_input((8, input_dim), seed=42)
+        with torch.no_grad():
+            output = node(input_tensor)
         
-        all_passed += tester.tests_passed
-        all_failed += tester.tests_failed
-        
-        print(f"  → {tester.tests_passed} passed, {tester.tests_failed} failed")
-    
-    return all_passed, all_failed
-
-
-def main():
-    """Run all node tests."""
-    print("\n" + "=" * 70)
-    print("  NODE FORWARD PASS TEST SUITE")
-    print("=" * 70)
-    
-    passed, failed = test_all_nodes()
-    
-    # Summary
-    print_section("SUMMARY")
-    print(f"  Total: {passed} passed, {failed} failed")
-    
-    if failed > 0:
-        print(f"\n⚠ {failed} test(s) failed!")
-        sys.exit(1)
-    else:
-        print("\n✓ All node tests passed!")
-        sys.exit(0)
-
-
-if __name__ == '__main__':
-    main()
+        assert output.shape == (8, output_dim), \
+            f"{node_name} failed for dims ({input_dim}, {output_dim})"

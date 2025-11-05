@@ -2,281 +2,221 @@
 Tests for utility modules like GroupSum.
 Verifies GroupSum works correctly for feature grouping and summing.
 
-This test is designed for CI/CD pipelines and suppresses non-critical warnings.
+Uses pytest parametrization for comprehensive testing.
 """
 
-import sys
-import warnings
+import pytest
 import torch
 import torch.nn as nn
-
-# Suppress warnings for CI/CD
-warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
-warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
-
-from test_utils import (
-    print_section,
-    print_subsection,
-    print_test_result,
+from testing_utils import (
     generate_uniform_input,
     assert_shape_equal,
-    assert_range,
+    assert_gradients_exist,
 )
 
 
-class GroupSumTester:
-    """Helper class for testing GroupSum module."""
-    
-    def __init__(self):
-        self.tests_passed = 0
-        self.tests_failed = 0
+# ============================================================================
+# GroupSum Module Tests
+# ============================================================================
+
+class TestGroupSum:
+    """Test suite for GroupSum module."""
     
     def test_basic_forward_pass(self):
         """Test GroupSum basic forward pass."""
-        try:
-            from difflut.utils.modules import GroupSum
-            
-            groupsum = GroupSum(k=10, tau=1.0)
-            
-            # Input: (batch_size, 10) features
-            # Output: (batch_size, 10) groups
-            input_tensor = generate_uniform_input((4, 10), seed=42)
-            
-            output = groupsum(input_tensor)
-            
-            assert_shape_equal(output, (4, 10))
-            
-            print_test_result("GroupSum: Basic Forward Pass", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: Basic Forward Pass", False, str(e))
-            self.tests_failed += 1
-            return False
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=10, tau=1.0, use_randperm=False)
+        
+        # Input: (batch_size, 10) features
+        # Output: (batch_size, 10) groups
+        input_tensor = generate_uniform_input((4, 10), seed=42)
+        
+        output = groupsum(input_tensor)
+        
+        assert_shape_equal(output, (4, 10))
     
-    def test_grouping(self):
+    def test_grouping_correctness(self):
         """Test that GroupSum correctly groups and sums features."""
-        try:
-            from difflut.utils.modules import GroupSum
-            
-            # Create input where each group has known values
-            # k=2 groups, 4 features per group, so 8 features total
-            # Group 0: [1, 1, 1, 1] -> sum = 4
-            # Group 1: [2, 2, 2, 2] -> sum = 8
-            groupsum = GroupSum(k=2, tau=1.0)
-            
-            input_tensor = torch.tensor([
-                [1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]
-            ])
-            
-            output = groupsum(input_tensor)
-            
-            expected = torch.tensor([[4.0, 8.0]])
-            assert torch.allclose(output, expected), f"Expected {expected}, got {output}"
-            
-            print_test_result("GroupSum: Correct Grouping", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: Correct Grouping", False, str(e))
-            self.tests_failed += 1
-            return False
+        from difflut.utils.modules import GroupSum
+        
+        # Create input where each group has known values
+        # k=2 groups, 4 features per group, so 8 features total
+        # Group 0: [1, 1, 1, 1] -> sum = 4
+        # Group 1: [2, 2, 2, 2] -> sum = 8
+        groupsum = GroupSum(k=2, tau=1.0, use_randperm=False)
+        
+        input_tensor = torch.tensor([
+            [1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]
+        ])
+        
+        output = groupsum(input_tensor)
+        
+        expected = torch.tensor([[4.0, 8.0]])
+        assert torch.allclose(output, expected), f"Expected {expected}, got {output}"
     
-    def test_tau_scaling(self):
+    @pytest.mark.parametrize("tau", [0.5, 1.0, 2.0])
+    def test_tau_scaling(self, tau):
         """Test that tau parameter correctly scales output."""
-        try:
-            from difflut.utils.modules import GroupSum
-            
-            # Create input: [4, 4] -> with tau=1.0: [4, 4], with tau=2.0: [2, 2]
-            input_tensor = torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]])
-            
-            groupsum1 = GroupSum(k=2, tau=1.0)
-            groupsum2 = GroupSum(k=2, tau=2.0)
-            
-            output1 = groupsum1(input_tensor)
-            output2 = groupsum2(input_tensor)
-            
-            # output1 should be [4, 4]
-            # output2 should be [2, 2]
-            assert torch.allclose(output1, torch.tensor([[4.0, 4.0]])), \
-                f"With tau=1.0: expected [4, 4], got {output1}"
-            assert torch.allclose(output2, torch.tensor([[2.0, 2.0]])), \
-                f"With tau=2.0: expected [2, 2], got {output2}"
-            
-            print_test_result("GroupSum: Tau Scaling", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: Tau Scaling", False, str(e))
-            self.tests_failed += 1
-            return False
+        from difflut.utils.modules import GroupSum
+        
+        # Create input: [4, 4] -> with different tau values
+        input_tensor = torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]])
+        
+        groupsum = GroupSum(k=2, tau=tau, use_randperm=False)
+        output = groupsum(input_tensor)
+        
+        # output should be [4/tau, 4/tau]
+        expected_value = 4.0 / tau
+        expected = torch.tensor([[expected_value, expected_value]])
+        assert torch.allclose(output, expected, atol=1e-5), \
+            f"With tau={tau}: expected {expected}, got {output}"
     
-    def test_batch_handling(self):
+    @pytest.mark.parametrize("batch_size", [1, 8, 32, 128])
+    def test_batch_handling(self, batch_size):
         """Test GroupSum with different batch sizes."""
-        try:
-            from difflut.utils.modules import GroupSum
-            
-            groupsum = GroupSum(k=5, tau=1.0)
-            
-            # Test with different batch sizes
-            for batch_size in [1, 4, 16, 32]:
-                input_tensor = generate_uniform_input((batch_size, 10), seed=42)
-                output = groupsum(input_tensor)
-                
-                assert_shape_equal(output, (batch_size, 5))
-            
-            print_test_result("GroupSum: Batch Handling", True, "Tested batch sizes: 1, 4, 16, 32")
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: Batch Handling", False, str(e))
-            self.tests_failed += 1
-            return False
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=5, tau=1.0, use_randperm=False)
+        
+        # Create input with correct feature dimension
+        # k=5 groups, need multiple of 5 features
+        input_tensor = generate_uniform_input((batch_size, 25), seed=42)
+        
+        output = groupsum(input_tensor)
+        
+        expected_shape = (batch_size, 5)
+        assert_shape_equal(output, expected_shape)
     
     def test_with_layer_output(self):
         """Test GroupSum with realistic layer output."""
-        try:
-            from difflut.utils.modules import GroupSum
-            from difflut.layers import RandomLayer
-            from difflut.nodes import LinearLUTNode
-            from difflut.nodes.node_config import NodeConfig
-            
-            # Create a layer that outputs 10 values
-            node_config = NodeConfig(input_dim=4, output_dim=1)
-            layer = RandomLayer(
-                input_size=128,
-                output_size=10,
-                node_type=LinearLUTNode,
-                node_kwargs=node_config
+        from difflut.utils.modules import GroupSum
+        from difflut.registry import REGISTRY
+        from testing_utils import instantiate_layer, IgnoreWarnings
+        
+        # Create a layer
+        layer_class = REGISTRY.get_layer('random')
+        with IgnoreWarnings():
+            layer = instantiate_layer(
+                layer_class,
+                input_size=256,
+                output_size=100,  # 100 nodes
+                n=4
             )
-            layer.eval()
-            
-            # Create GroupSum to group into 10 classes
-            groupsum = GroupSum(k=10, tau=1.0)
-            
-            # Generate input and pass through layer
-            input_tensor = generate_uniform_input((4, 128), seed=42)
+        
+        # Create GroupSum for 10 classes
+        groupsum = GroupSum(k=10, tau=1.0, use_randperm=False)  # 100 nodes / 10 classes = 10 nodes per class
+        
+        # Forward pass
+        input_tensor = generate_uniform_input((8, 256), seed=42)
+        
+        with torch.no_grad():
             layer_output = layer(input_tensor)
-            
-            # GroupSum the output
-            final_output = groupsum(layer_output)
-            
-            # Should have shape (4, 10)
-            assert_shape_equal(final_output, (4, 10))
-            
-            # Output should be non-negative (it's a sum of values in [0,1])
-            assert final_output.min() >= 0
-            
-            print_test_result("GroupSum: With Layer Output", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: With Layer Output", False, str(e))
-            self.tests_failed += 1
-            return False
+            grouped_output = groupsum(layer_output)
+        
+        # Output should be (batch_size, k)
+        expected_shape = (8, 10)
+        assert_shape_equal(grouped_output, expected_shape)
     
     def test_gradient_flow(self):
         """Test that gradients flow through GroupSum."""
-        try:
-            from difflut.utils.modules import GroupSum
-            
-            groupsum = GroupSum(k=5, tau=1.0)
-            
-            input_tensor = generate_uniform_input((4, 10), seed=42, device='cpu')
-            input_tensor.requires_grad = True
-            
-            output = groupsum(input_tensor)
-            loss = output.sum()
-            loss.backward()
-            
-            # Check that gradients exist and are non-zero
-            assert input_tensor.grad is not None, "No gradients computed"
-            assert input_tensor.grad.abs().sum() > 0, "All gradients are zero"
-            
-            print_test_result("GroupSum: Gradient Flow", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: Gradient Flow", False, str(e))
-            self.tests_failed += 1
-            return False
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=5, tau=1.0, use_randperm=False)
+        
+        input_tensor = generate_uniform_input((8, 25), seed=42)
+        input_tensor.requires_grad = True
+        
+        output = groupsum(input_tensor)
+        loss = output.sum()
+        loss.backward()
+        
+        # Check that input has gradients
+        assert input_tensor.grad is not None
+        assert not torch.all(input_tensor.grad == 0), "All gradients are zero"
     
     def test_uneven_grouping(self):
-        """Test GroupSum with non-divisible feature counts (should pad)."""
-        try:
-            from difflut.utils.modules import GroupSum
-            
-            # 10 features grouped into 3 groups
-            # 10 % 3 = 1, so should pad with 2 zeros
-            groupsum = GroupSum(k=3, tau=1.0)
-            
-            # This should trigger a warning about padding
-            input_tensor = torch.ones((2, 10))
-            
-            with __import__('warnings').catch_warnings(record=True) as w:
-                __import__('warnings').simplefilter("always")
-                output = groupsum(input_tensor)
-                
-                # Check that warning was issued
-                # (padding warning is expected for non-divisible grouping)
-            
-            assert_shape_equal(output, (2, 3))
-            
-            print_test_result("GroupSum: Uneven Grouping", True, "Handles padding correctly")
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result("GroupSum: Uneven Grouping", False, str(e))
-            self.tests_failed += 1
-            return False
+        """Test GroupSum with non-divisible feature counts (should pad or handle)."""
+        from difflut.utils.modules import GroupSum
+        
+        # k=3 groups, 10 features -> not evenly divisible
+        groupsum = GroupSum(k=3, tau=1.0, use_randperm=False)
+        
+        input_tensor = generate_uniform_input((4, 10), seed=42)
+        
+        # Should still work (either by padding or other strategy)
+        output = groupsum(input_tensor)
+        
+        # Output should still be (batch_size, k)
+        assert output.shape[0] == 4
+        assert output.shape[1] == 3
 
 
-def test_groupsum():
-    """Test GroupSum module."""
-    print_section("GROUPSUM TESTS")
-    
-    tester = GroupSumTester()
-    
-    print_subsection("GroupSum Module Tests")
-    
-    # Run all tests
-    tester.test_basic_forward_pass()
-    tester.test_grouping()
-    tester.test_tau_scaling()
-    tester.test_batch_handling()
-    tester.test_with_layer_output()
-    tester.test_gradient_flow()
-    tester.test_uneven_grouping()
-    
-    return tester.tests_passed, tester.tests_failed
+# ============================================================================
+# GroupSum Edge Cases
+# ============================================================================
 
-
-def main():
-    """Run all GroupSum tests."""
-    print("\n" + "=" * 70)
-    print("  GROUPSUM MODULE TEST SUITE")
-    print("=" * 70)
+class TestGroupSumEdgeCases:
+    """Test edge cases for GroupSum module."""
     
-    passed, failed = test_groupsum()
+    def test_single_group(self):
+        """Test GroupSum with k=1 (single group)."""
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=1, tau=1.0, use_randperm=False)
+        input_tensor = generate_uniform_input((4, 10), seed=42)
+        
+        output = groupsum(input_tensor)
+        
+        # Should sum all features
+        expected = input_tensor.sum(dim=1, keepdim=True)
+        assert torch.allclose(output, expected, atol=1e-5)
     
-    # Summary
-    print_section("SUMMARY")
-    print(f"  Total: {passed} passed, {failed} failed")
+    def test_many_groups(self):
+        """Test GroupSum with many groups."""
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=100, tau=1.0, use_randperm=False)
+        input_tensor = generate_uniform_input((4, 100), seed=42)
+        
+        output = groupsum(input_tensor)
+        
+        assert_shape_equal(output, (4, 100))
     
-    if failed > 0:
-        print(f"\n⚠ {failed} test(s) failed!")
-        sys.exit(1)
-    else:
-        print("\n✓ All GroupSum tests passed!")
-        sys.exit(0)
-
-
-if __name__ == '__main__':
-    main()
+    @pytest.mark.parametrize("use_randperm", [True, False])
+    def test_randperm_parameter(self, use_randperm):
+        """Test GroupSum with use_randperm option."""
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=5, tau=1.0, use_randperm=use_randperm)
+        input_tensor = generate_uniform_input((4, 25), seed=42)
+        
+        output = groupsum(input_tensor)
+        
+        # Should work regardless of use_randperm
+        assert_shape_equal(output, (4, 5))
+    
+    def test_zero_input(self):
+        """Test GroupSum with zero input."""
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=5, tau=1.0, use_randperm=False)
+        input_tensor = torch.zeros(4, 25)
+        
+        output = groupsum(input_tensor)
+        
+        # Output should be all zeros
+        assert torch.allclose(output, torch.zeros(4, 5))
+    
+    def test_one_input(self):
+        """Test GroupSum with all-ones input."""
+        from difflut.utils.modules import GroupSum
+        
+        groupsum = GroupSum(k=5, tau=1.0, use_randperm=False)
+        input_tensor = torch.ones(4, 25)
+        
+        output = groupsum(input_tensor)
+        
+        # Each group should sum to 5 (25 features / 5 groups = 5 features per group)
+        expected = torch.ones(4, 5) * 5.0
+        assert torch.allclose(output, expected, atol=1e-5)

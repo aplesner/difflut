@@ -2,26 +2,13 @@
 Registry validation tests.
 Ensures all registered components are actually implemented and can be instantiated.
 
-This test is designed for CI/CD pipelines and suppresses non-critical warnings.
+Uses pytest parametrization for individual test discovery.
 """
 
-import sys
-import warnings
-import traceback
-
-# Suppress warnings for CI/CD
-warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
-warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
-
-from test_utils import (
-    print_section,
-    print_subsection,
-    print_test_result,
-    get_all_registered_nodes,
-    get_all_registered_layers,
-    get_all_registered_encoders,
-    get_all_registered_initializers,
-    get_all_registered_regularizers,
+import pytest
+import torch.nn as nn
+from difflut.registry import REGISTRY
+from testing_utils import (
     instantiate_node,
     instantiate_layer,
     instantiate_encoder,
@@ -29,267 +16,127 @@ from test_utils import (
 )
 
 
-def test_registry_nodes_implemented():
-    """Test that all registered nodes are actually implemented."""
-    print_section("REGISTRY VALIDATION: Nodes")
+# ============================================================================
+# Node Tests
+# ============================================================================
+
+@pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
+def test_node_is_implemented(node_name):
+    """Test that registered node can be instantiated."""
+    node_class = REGISTRY.get_node(node_name)
+    assert node_class is not None, f"Node {node_name} class is None"
     
-    nodes = get_all_registered_nodes()
-    print(f"\nFound {len(nodes)} registered nodes: {list(nodes.keys())}")
+    with IgnoreWarnings():
+        node = instantiate_node(node_class, input_dim=4, output_dim=1, layer_size=2)
     
-    passed = 0
-    failed = 0
-    
-    for node_name, node_class in nodes.items():
-        try:
-            # Try to instantiate the node
-            with IgnoreWarnings():
-                node = instantiate_node(node_class, input_dim=4, output_dim=1, layer_size=2)
-            
-            # Check that it's a proper PyTorch module
-            import torch.nn as nn
-            assert isinstance(node, nn.Module), f"Node {node_name} is not an nn.Module"
-            
-            # Check that it has forward method
-            assert hasattr(node, 'forward'), f"Node {node_name} has no forward method"
-            
-            print_test_result(node_name, True)
-            passed += 1
-            
-        except Exception as e:
-            print_test_result(node_name, False, str(e))
-            failed += 1
-    
-    print(f"\nNodes: {passed} passed, {failed} failed")
-    return failed == 0
+    assert isinstance(node, nn.Module), f"Node {node_name} is not an nn.Module"
+    assert hasattr(node, 'forward'), f"Node {node_name} has no forward method"
 
 
-def test_registry_layers_implemented():
-    """Test that all registered layers are actually implemented."""
-    print_section("REGISTRY VALIDATION: Layers")
+# ============================================================================
+# Layer Tests
+# ============================================================================
+
+@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+def test_layer_is_implemented(layer_name):
+    """Test that registered layer can be instantiated."""
+    layer_class = REGISTRY.get_layer(layer_name)
+    assert layer_class is not None, f"Layer {layer_name} class is None"
     
-    layers = get_all_registered_layers()
-    print(f"\nFound {len(layers)} registered layers: {list(layers.keys())}")
+    with IgnoreWarnings():
+        layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
     
-    passed = 0
-    failed = 0
-    
-    for layer_name, layer_class in layers.items():
-        try:
-            # Try to instantiate the layer
-            with IgnoreWarnings():
-                layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
-            
-            # Check that it's a proper PyTorch module
-            import torch.nn as nn
-            assert isinstance(layer, nn.Module), f"Layer {layer_name} is not an nn.Module"
-            
-            # Check that it has forward method
-            assert hasattr(layer, 'forward'), f"Layer {layer_name} has no forward method"
-            
-            print_test_result(layer_name, True)
-            passed += 1
-            
-        except Exception as e:
-            print_test_result(layer_name, False, str(e))
-            failed += 1
-    
-    print(f"\nLayers: {passed} passed, {failed} failed")
-    return failed == 0
+    assert isinstance(layer, nn.Module), f"Layer {layer_name} is not an nn.Module"
+    assert hasattr(layer, 'forward'), f"Layer {layer_name} has no forward method"
 
 
-def test_registry_encoders_implemented():
-    """Test that all registered encoders are actually implemented."""
-    print_section("REGISTRY VALIDATION: Encoders")
+# ============================================================================
+# Encoder Tests
+# ============================================================================
+
+@pytest.mark.parametrize("encoder_name", REGISTRY.list_encoders())
+def test_encoder_is_implemented(encoder_name):
+    """Test that registered encoder can be instantiated."""
+    encoder_class = REGISTRY.get_encoder(encoder_name)
+    assert encoder_class is not None, f"Encoder {encoder_name} class is None"
     
-    encoders = get_all_registered_encoders()
-    print(f"\nFound {len(encoders)} registered encoders: {list(encoders.keys())}")
+    with IgnoreWarnings():
+        encoder = instantiate_encoder(encoder_class, num_bits=8)
     
-    passed = 0
-    failed = 0
-    
-    for encoder_name, encoder_class in encoders.items():
-        try:
-            # Try to instantiate the encoder
-            with IgnoreWarnings():
-                encoder = instantiate_encoder(encoder_class, num_bits=8)
-            
-            # Check that it's a proper PyTorch module
-            import torch.nn as nn
-            assert isinstance(encoder, nn.Module), f"Encoder {encoder_name} is not an nn.Module"
-            
-            # Check that it has forward method
-            assert hasattr(encoder, 'forward'), f"Encoder {encoder_name} has no forward method"
-            
-            print_test_result(encoder_name, True)
-            passed += 1
-            
-        except Exception as e:
-            print_test_result(encoder_name, False, str(e))
-            failed += 1
-    
-    print(f"\nEncoders: {passed} passed, {failed} failed")
-    return failed == 0
+    assert isinstance(encoder, nn.Module), f"Encoder {encoder_name} is not an nn.Module"
+    assert hasattr(encoder, 'forward'), f"Encoder {encoder_name} has no forward method"
 
 
-def test_registry_initializers_implemented():
-    """Test that all registered initializers are actually implemented."""
-    print_section("REGISTRY VALIDATION: Initializers")
-    
-    initializers = get_all_registered_initializers()
-    print(f"\nFound {len(initializers)} registered initializers: {list(initializers.keys())}")
-    
-    if len(initializers) == 0:
-        print("  No initializers registered (this is okay)")
-        return True
-    
-    passed = 0
-    failed = 0
-    
-    for init_name, init_func in initializers.items():
-        try:
-            # Check that it's callable
-            assert callable(init_func), f"Initializer {init_name} is not callable"
-            
-            print_test_result(init_name, True)
-            passed += 1
-            
-        except Exception as e:
-            print_test_result(init_name, False, str(e))
-            failed += 1
-    
-    print(f"\nInitializers: {passed} passed, {failed} failed")
-    return failed == 0
+# ============================================================================
+# Registry Consistency Tests
+# ============================================================================
+
+def test_registry_list_all_structure():
+    """Test that list_all() returns expected structure."""
+    all_components = REGISTRY.list_all()
+    expected_keys = {'nodes', 'layers', 'encoders', 'initializers', 'regularizers'}
+    assert set(all_components.keys()) == expected_keys, \
+        f"list_all() has keys {set(all_components.keys())}, expected {expected_keys}"
 
 
-def test_registry_regularizers_implemented():
-    """Test that all registered regularizers are actually implemented."""
-    print_section("REGISTRY VALIDATION: Regularizers")
-    
-    regularizers = get_all_registered_regularizers()
-    print(f"\nFound {len(regularizers)} registered regularizers: {list(regularizers.keys())}")
-    
-    if len(regularizers) == 0:
-        print("  No regularizers registered (this is okay)")
-        return True
-    
-    passed = 0
-    failed = 0
-    
-    for reg_name, reg_func in regularizers.items():
-        try:
-            # Check that it's callable
-            assert callable(reg_func), f"Regularizer {reg_name} is not callable"
-            
-            print_test_result(reg_name, True)
-            passed += 1
-            
-        except Exception as e:
-            print_test_result(reg_name, False, str(e))
-            failed += 1
-    
-    print(f"\nRegularizers: {passed} passed, {failed} failed")
-    return failed == 0
+def test_registry_list_nodes_consistency():
+    """Test that list_nodes() is consistent with list_all()."""
+    nodes_direct = REGISTRY.list_nodes()
+    nodes_from_all = REGISTRY.list_all()['nodes']
+    assert nodes_direct == nodes_from_all, \
+        "list_nodes() inconsistent with list_all()['nodes']"
 
 
-def test_registry_consistency():
-    """Test that registry methods are consistent."""
-    print_section("REGISTRY VALIDATION: Consistency")
-    
-    from difflut.registry import REGISTRY
-    
-    tests_passed = 0
-    tests_failed = 0
-    
-    # Test 1: list_all() returns expected structure
-    try:
-        all_components = REGISTRY.list_all()
-        expected_keys = {'nodes', 'layers', 'encoders', 'initializers', 'regularizers'}
-        assert set(all_components.keys()) == expected_keys, "list_all() missing expected keys"
-        print_test_result("list_all() structure", True)
-        tests_passed += 1
-    except Exception as e:
-        print_test_result("list_all() structure", False, str(e))
-        tests_failed += 1
-    
-    # Test 2: list_nodes() == list_all()['nodes']
-    try:
-        nodes_direct = REGISTRY.list_nodes()
-        nodes_from_all = REGISTRY.list_all()['nodes']
-        assert nodes_direct == nodes_from_all, "list_nodes() inconsistent with list_all()"
-        print_test_result("list_nodes() consistency", True)
-        tests_passed += 1
-    except Exception as e:
-        print_test_result("list_nodes() consistency", False, str(e))
-        tests_failed += 1
-    
-    # Test 3: get_node() works for all listed nodes
-    try:
-        for node_name in REGISTRY.list_nodes():
-            node_class = REGISTRY.get_node(node_name)
-            assert node_class is not None
-        print_test_result("get_node() for all listed", True, f"({len(REGISTRY.list_nodes())} nodes)")
-        tests_passed += 1
-    except Exception as e:
-        print_test_result("get_node() for all listed", False, str(e))
-        tests_failed += 1
-    
-    # Test 4: Invalid component names raise ValueError
-    try:
-        try:
-            REGISTRY.get_node('nonexistent_node')
-            raise AssertionError("Should have raised ValueError")
-        except ValueError:
-            pass  # Expected
-        
-        try:
-            REGISTRY.get_layer('nonexistent_layer')
-            raise AssertionError("Should have raised ValueError")
-        except ValueError:
-            pass  # Expected
-        
-        print_test_result("Invalid names raise ValueError", True)
-        tests_passed += 1
-    except Exception as e:
-        print_test_result("Invalid names raise ValueError", False, str(e))
-        tests_failed += 1
-    
-    print(f"\nConsistency: {tests_passed} passed, {tests_failed} failed")
-    return tests_failed == 0
+def test_registry_list_layers_consistency():
+    """Test that list_layers() is consistent with list_all()."""
+    layers_direct = REGISTRY.list_layers()
+    layers_from_all = REGISTRY.list_all()['layers']
+    assert layers_direct == layers_from_all, \
+        "list_layers() inconsistent with list_all()['layers']"
 
 
-def main():
-    """Run all registry validation tests."""
-    print("\n" + "=" * 70)
-    print("  REGISTRY VALIDATION TEST SUITE")
-    print("=" * 70)
-    
-    results = {
-        'Nodes': test_registry_nodes_implemented(),
-        'Layers': test_registry_layers_implemented(),
-        'Encoders': test_registry_encoders_implemented(),
-        'Initializers': test_registry_initializers_implemented(),
-        'Regularizers': test_registry_regularizers_implemented(),
-        'Consistency': test_registry_consistency(),
-    }
-    
-    # Summary
-    print_section("SUMMARY")
-    passed = sum(1 for v in results.values() if v)
-    failed = len(results) - passed
-    
-    for name, result in results.items():
-        status = "✓ PASS" if result else "✗ FAIL"
-        print(f"  {status}: {name}")
-    
-    print(f"\nTotal: {passed}/{len(results)} test groups passed")
-    
-    if failed > 0:
-        print(f"\n⚠ {failed} test group(s) failed!")
-        sys.exit(1)
-    else:
-        print("\n✓ All registry validation tests passed!")
-        sys.exit(0)
+def test_registry_list_encoders_consistency():
+    """Test that list_encoders() is consistent with list_all()."""
+    encoders_direct = REGISTRY.list_encoders()
+    encoders_from_all = REGISTRY.list_all()['encoders']
+    assert encoders_direct == encoders_from_all, \
+        "list_encoders() inconsistent with list_all()['encoders']"
 
 
-if __name__ == '__main__':
-    main()
+def test_registry_get_node_works_for_all():
+    """Test that get_node() works for all listed nodes."""
+    for node_name in REGISTRY.list_nodes():
+        node_class = REGISTRY.get_node(node_name)
+        assert node_class is not None, f"get_node('{node_name}') returned None"
+
+
+def test_registry_get_layer_works_for_all():
+    """Test that get_layer() works for all listed layers."""
+    for layer_name in REGISTRY.list_layers():
+        layer_class = REGISTRY.get_layer(layer_name)
+        assert layer_class is not None, f"get_layer('{layer_name}') returned None"
+
+
+def test_registry_get_encoder_works_for_all():
+    """Test that get_encoder() works for all listed encoders."""
+    for encoder_name in REGISTRY.list_encoders():
+        encoder_class = REGISTRY.get_encoder(encoder_name)
+        assert encoder_class is not None, f"get_encoder('{encoder_name}') returned None"
+
+
+def test_registry_invalid_node_raises_error():
+    """Test that getting invalid node raises ValueError."""
+    with pytest.raises(ValueError):
+        REGISTRY.get_node('nonexistent_node_12345')
+
+
+def test_registry_invalid_layer_raises_error():
+    """Test that getting invalid layer raises ValueError."""
+    with pytest.raises(ValueError):
+        REGISTRY.get_layer('nonexistent_layer_12345')
+
+
+def test_registry_invalid_encoder_raises_error():
+    """Test that getting invalid encoder raises ValueError."""
+    with pytest.raises(ValueError):
+        REGISTRY.get_encoder('nonexistent_encoder_12345')
