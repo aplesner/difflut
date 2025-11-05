@@ -7,7 +7,6 @@ on:
       - '.bumpversion.cfg'
       - 'setup.py'
       - 'pyproject.toml'
-      - 'difflut/__init__.py'
 
 jobs:
   validate-version:
@@ -31,14 +30,12 @@ jobs:
         # Extract versions from each file
         SETUP_VERSION=$(grep "version=" setup.py | head -1 | sed "s/.*version='//;s/'.*//")
         PYPROJECT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
-        INIT_VERSION=$(grep "__version__" difflut/__init__.py | sed "s/.*__version__ = '//;s/'.*//")
         
         echo "setup.py version: $SETUP_VERSION"
         echo "pyproject.toml version: $PYPROJECT_VERSION"
-        echo "difflut/__init__.py version: $INIT_VERSION"
         
-        # Check if all versions match
-        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ] || [ "$PYPROJECT_VERSION" != "$INIT_VERSION" ]; then
+        # Check if versions match
+        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ]; then
           echo "❌ Version mismatch detected!"
           exit 1
         fi
@@ -94,16 +91,11 @@ jobs:
 
     - name: Sync versions across files
       run: |
-        cd difflut
-        
         # Extract version from pyproject.toml (source of truth)
         VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
         
         # Update setup.py
         sed -i "s/version='[^']*'/version='$VERSION'/g" setup.py
-        
-        # Update __init__.py
-        sed -i "s/__version__ = '[^']*'/__version__ = '$VERSION'/g" difflut/__init__.py
         
         echo "✅ All versions synced to: $VERSION"
 

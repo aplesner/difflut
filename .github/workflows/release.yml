@@ -4,8 +4,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'difflut/__init__.py'
       - 'pyproject.toml'
+      - 'setup.py'
 
 jobs:
   check-version-changed:
