@@ -82,13 +82,13 @@ jobs:
         include:
           - python-version: '3.10'
             cuda-version: '12.6'
-            torch-version: 'torch==2.4.1'
+            torch-version: 'torch==2.6.0+cu126'
           - python-version: '3.11'
             cuda-version: '12.6'
-            torch-version: 'torch==2.5.0'
+            torch-version: 'torch==2.7.1+cu126'
           - python-version: '3.12'
             cuda-version: '12.6'
-            torch-version: 'torch==2.6.0'
+            torch-version: 'torch==2.9.0+cu126'
 
     steps:
     - uses: actions/checkout@v4
