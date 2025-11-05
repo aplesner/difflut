@@ -212,13 +212,13 @@ class DWNStableNode(BaseNode):
     """
     
     def __init__(self, 
-                 input_dim: int | None = None,
-                 output_dim: int | None = None,
+                 input_dim: Optional[int] = None,
+                 output_dim: Optional[int] = None,
                  use_cuda: bool = True,
-                 regularizers: dict | None = None,
+                 regularizers: Optional[dict] = None,
                  gradient_scale: float = 1.25,
                  init_fn: Optional[Callable] = None,
-                 init_kwargs: dict | None = None):
+                 init_kwargs: Optional[dict] = None):
         """
         Args:
             input_dim: Number of inputs (e.g., 6)
