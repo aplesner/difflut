@@ -7,7 +7,7 @@ name = "difflut"
 version = "1.1.2"
 description = "Differentiable LUT-based neural networks for efficient FPGA deployment"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"  # Required for PEP 604 union type syntax (X | Y)
 license = {text = "MIT"}
 authors = [
     {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"}
@@ -22,11 +22,9 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]

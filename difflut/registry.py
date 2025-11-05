@@ -193,7 +193,7 @@ class Registry:
                 pass
         """
         def decorator(func: Callable) -> Callable:
-            init_name = name if name is not None else func.__name__
+            init_name = (name if name is not None else func.__name__).lower()
             # Remove '_init' suffix if present for cleaner naming
             if init_name.endswith('_init'):
                 init_name_clean = init_name[:-5]
@@ -264,7 +264,7 @@ class Registry:
                 pass
         """
         def decorator(func: Callable) -> Callable:
-            reg_name = name if name is not None else func.__name__
+            reg_name = (name if name is not None else func.__name__).lower()
             # Remove '_regularizer' suffix if present for cleaner naming
             if reg_name.endswith('_regularizer'):
                 reg_name_clean = reg_name[:-12]
