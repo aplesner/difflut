@@ -1,10 +1,29 @@
 import torch
 import torch.nn as nn
-from typing import Optional, Callable
+from typing import Optional, Callable, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
 from .cuda import is_cuda_available
+from ..utils.warnings import warn_default_value
+
+# Base gradient scaling factor for DWN nodes
+# Default alpha = DWN_ALPHA_BASE * (DWN_ALPHA_DECAY ** (n-1))
+DWN_ALPHA_BASE: float = 0.5
+# Decay factor for alpha based on number of inputs
+# Applied as: alpha = 0.5 * (0.75 ** (n-1))
+DWN_ALPHA_DECAY: float = 0.75
+# Hamming distance decay factor for DWN backward pass
+# Default beta = DWN_BETA_NUMERATOR / DWN_BETA_DENOMINATOR
+DWN_BETA_NUMERATOR: float = 0.25
+DWN_BETA_DENOMINATOR: float = 0.75
+# Binary threshold for DWN forward pass
+# Inputs >= DWN_BINARY_THRESHOLD are treated as 1, otherwise 0
+DWN_BINARY_THRESHOLD: float = 0.5
+# Default flag for using CUDA kernels in DWN nodes
+DEFAULT_DWN_USE_CUDA: bool = True
+# Default flag for clamping LUT values to [0,1] in DWN nodes
+DEFAULT_DWN_CLAMP_LUTS: bool = True
 
 # Try to import the compiled CUDA extension
 try:
@@ -26,21 +45,21 @@ except ImportError:
 class EFDFunction(torch.autograd.Function):
     """
     PyTorch autograd function wrapper for EFD CUDA kernels.
-    Handles 3D tensors with per-layer-node parameters.
+    Processes 2D tensors.
     """
     @staticmethod
-    def forward(ctx, input, luts, alpha, beta):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
         
         Args:
-            input: (batch_size, layer_size, input_dim) float tensor in [0, 1]
-            luts: (layer_size, output_dim, 2^input_dim) float tensor in [0, 1]
+            input: (batch_size, input_dim) float tensor in [0, 1]
+            luts: (output_dim, 2^input_dim) float tensor in [0, 1]
             alpha: scalar float for gradient scaling
             beta: scalar float for Hamming distance decay
         
         Returns:
-            output: (batch_size, layer_size, output_dim) float tensor in [0, 1]
+            output: (batch_size, output_dim) float tensor in [0, 1]
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
@@ -60,12 +79,12 @@ class EFDFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None, None]:
         """
         Backward pass using CUDA kernel with alpha/beta scaling.
         
         Args:
-            grad_output: (batch_size, layer_size, output_dim) gradient tensor
+            grad_output: (batch_size, output_dim) gradient tensor
         
         Returns:
             Gradients for (input, luts, alpha, beta)
@@ -92,27 +111,24 @@ class EFDFunction(torch.autograd.Function):
 class EFDFunctionCPU(torch.autograd.Function):
     """
     CPU fallback for EFD with proper Extended Finite Difference backward pass.
-    Handles 3D tensors with per-layer-node parameters.
+    Processes 2D tensors.
     """
     @staticmethod
-    def forward(ctx, input, luts, alpha, beta):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> torch.Tensor:
         """Forward pass with binary thresholding."""
         # Binary threshold at 0.5 for [0, 1] inputs
         x_binary = (input >= 0.5).float()
-        batch_size, layer_size, input_dim = x_binary.shape
-        output_dim = luts.shape[1]
+        batch_size, input_dim = x_binary.shape
+        output_dim = luts.shape[0]
         
         # Compute LUT indices from binary inputs
         powers = 2 ** torch.arange(input_dim, device=input.device, dtype=torch.float32)
-        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size, layer_size)
+        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
         
-        # Look up LUT values: luts is (layer_size, output_dim, 2^input_dim)
-        batch_indices = torch.arange(batch_size, device=input.device).view(-1, 1, 1).expand(-1, layer_size, output_dim)
-        layer_indices = torch.arange(layer_size, device=input.device).view(1, -1, 1).expand(batch_size, -1, output_dim)
-        output_indices = torch.arange(output_dim, device=input.device).view(1, 1, -1).expand(batch_size, layer_size, -1)
-        lut_indices = indices.unsqueeze(-1).expand(-1, -1, output_dim)
-        
-        output = luts[layer_indices, output_indices, lut_indices]  # (batch_size, layer_size, output_dim)
+        # Look up LUT values: luts is (output_dim, 2^input_dim)
+        # indices is (batch_size,)
+        # We want output[b, o] = luts[o, indices[b]]
+        output = luts[:, indices].T  # (batch_size, output_dim)
         
         # Save for backward
         ctx.save_for_backward(input, luts)
@@ -122,77 +138,76 @@ class EFDFunctionCPU(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, None, None]:
         """Backward pass using Extended Finite Difference (EFD) with alpha/beta scaling."""
         input, luts = ctx.saved_tensors
         alpha = ctx.alpha
         beta = ctx.beta
         
-        batch_size, layer_size, input_dim = input.shape
-        output_dim = luts.shape[1]
+        batch_size, input_dim = input.shape
+        output_dim = luts.shape[0]
         lut_size = 2 ** input_dim
         
         grad_input = torch.zeros_like(input)
         grad_luts = torch.zeros_like(luts)
         
         for batch_idx in range(batch_size):
-            for layer_idx in range(layer_size):
-                # Compute current address from binary input
-                addr = 0
-                for i in range(input_dim):
-                    if input[batch_idx, layer_idx, i].item() >= 0.5:
-                        addr |= (1 << i)
+            # Compute current address from binary input
+            addr = 0
+            for i in range(input_dim):
+                if input[batch_idx, i].item() >= DWN_BINARY_THRESHOLD:
+                    addr |= (1 << i)
+            
+            # LUT gradient - direct assignment to accessed entry
+            for dim_idx in range(output_dim):
+                grad_luts[dim_idx, addr] += grad_output[batch_idx, dim_idx]
+            
+            # Input gradient using Extended Finite Difference (EFD)
+            for input_idx in range(input_dim):
+                # Create mask to exclude input_idx-th bit
+                mask = ((1 << input_dim) - 1) & ~(1 << input_idx)
+                addr_masked = addr & mask
                 
-                # LUT gradient - direct assignment to accessed entry
-                for dim_idx in range(output_dim):
-                    grad_luts[layer_idx, dim_idx, addr] += grad_output[batch_idx, layer_idx, dim_idx]
+                total_gradient = 0.0
                 
-                # Input gradient using Extended Finite Difference (EFD)
-                for input_idx in range(input_dim):
-                    # Create mask to exclude input_idx-th bit
-                    mask = ((1 << input_dim) - 1) & ~(1 << input_idx)
-                    addr_masked = addr & mask
+                # Iterate over all possible addresses k
+                for k in range(lut_size):
+                    # Calculate Hamming distance between addr and k, excluding input_idx-th bit
+                    k_masked = k & mask
+                    hamming_dist = bin(addr_masked ^ k_masked).count('1')
                     
-                    total_gradient = 0.0
+                    # Get k_l (input_idx-th bit of k)
+                    k_l = (k >> input_idx) & 1
                     
-                    # Iterate over all possible addresses k
-                    for k in range(lut_size):
-                        # Calculate Hamming distance between addr and k, excluding input_idx-th bit
-                        k_masked = k & mask
-                        hamming_dist = bin(addr_masked ^ k_masked).count('1')
-                        
-                        # Get k_l (input_idx-th bit of k)
-                        k_l = (k >> input_idx) & 1
-                        
-                        # Calculate sign factor: (-1)^(1-k_l)
-                        sign_factor = -1.0 if k_l == 0 else 1.0
-                        
-                        # Get LUT values at position k for all output dimensions
-                        for dim_idx in range(output_dim):
-                            lut_value = luts[layer_idx, dim_idx, k].item()
-                            
-                            # Add weighted contribution: alpha * sign * lut * beta^hamming_dist
-                            total_gradient += (alpha * sign_factor * lut_value * 
-                                             (beta ** hamming_dist) * 
-                                             grad_output[batch_idx, layer_idx, dim_idx].item())
+                    # Calculate sign factor: (-1)^(1-k_l)
+                    sign_factor = -1.0 if k_l == 0 else 1.0
                     
-                    grad_input[batch_idx, layer_idx, input_idx] = total_gradient
+                    # Get LUT values at position k for all output dimensions
+                    for dim_idx in range(output_dim):
+                        lut_value = luts[dim_idx, k].item()
+                        
+                        # Add weighted contribution: alpha * sign * lut * beta^hamming_dist
+                        total_gradient += (alpha * sign_factor * lut_value * 
+                                         (beta ** hamming_dist) * 
+                                         grad_output[batch_idx, dim_idx].item())
+                
+                grad_input[batch_idx, input_idx] = total_gradient
         
         return grad_input, grad_luts, None, None
 
 
-def efd_forward(input, luts, alpha, beta):
+def efd_forward(input: torch.Tensor, luts: torch.Tensor, alpha: float, beta: float) -> Optional[torch.Tensor]:
     """
     EFD forward pass with automatic differentiation support.
     
     Args:
-        input: (batch_size, layer_size, input_dim) tensor in [0, 1]
-        luts: (layer_size, output_dim, 2^input_dim) tensor in [0, 1]
+        input: (batch_size, input_dim) tensor in [0, 1]
+        luts: (output_dim, 2^input_dim) tensor in [0, 1]
         alpha: scalar float for gradient scaling
         beta: scalar float for Hamming distance decay
     
     Returns:
-        output: (batch_size, layer_size, output_dim) tensor in [0, 1]
+        output: (batch_size, output_dim) tensor in [0, 1]
     """
     if _CUDA_EXT_AVAILABLE and input.is_cuda:
         return EFDFunction.apply(input, luts, alpha, beta)
@@ -210,25 +225,23 @@ class DWNNode(BaseNode):
               alpha * (-1)^(1-k_j) * lut[k] * beta^hamming_dist
     
     Weights: LUT values in [0, 1], clamped during training
-    Now supports per-layer-node LUTs for better memory access patterns.
+    Processes 2D tensors: (batch_size, input_dim) -> (batch_size, output_dim)
     """
     
     def __init__(self, 
-                 input_dim: int = None,
-                 output_dim: int = None,
-                 layer_size: int = None,
+                 input_dim: int | None = None,
+                 output_dim: int | None = None,
                  use_cuda: bool = True,
-                 regularizers: dict = None,
-                 alpha: float = None,
-                 beta: float = None,
+                 regularizers: dict | None = None,
+                 alpha: float | None = None,
+                 beta: float | None = None,
                  clamp_luts: bool = True,
                  init_fn: Optional[Callable] = None,
-                 init_kwargs: dict = None):
+                 init_kwargs: dict | None = None):
         """
         Args:
             input_dim: Number of inputs (e.g., 6)
             output_dim: Number of outputs (e.g., 1)
-            layer_size: Number of parallel nodes in the layer (e.g., 128)
             use_cuda: Whether to use CUDA kernels (if available)
             regularizers: Dict of custom regularization functions
             alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
@@ -237,7 +250,7 @@ class DWNNode(BaseNode):
             init_fn: Optional initialization function for LUT weights. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
+        super().__init__(input_dim=input_dim, output_dim=output_dim,
                          regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
         self.use_cuda = use_cuda and is_cuda_available()
         self.clamp_luts = clamp_luts
@@ -254,24 +267,26 @@ class DWNNode(BaseNode):
         
         # Set alpha and beta based on input dimension
         if alpha is None:
-            alpha = 0.5 * (0.75 ** (self.num_inputs - 1))
+            alpha = DWN_ALPHA_BASE * (DWN_ALPHA_DECAY ** (self.num_inputs - 1))
+            warn_default_value("alpha", alpha, stacklevel=2)
         if beta is None:
-            beta = 0.25 / 0.75
+            beta = DWN_BETA_NUMERATOR / DWN_BETA_DENOMINATOR
+            warn_default_value("beta", beta, stacklevel=2)
         
         self.register_buffer('alpha', torch.tensor(alpha, dtype=torch.float32))
         self.register_buffer('beta', torch.tensor(beta, dtype=torch.float32))
         
-        # Initialize LUT weights with per-layer-node LUTs
-        # Shape: (layer_size, num_outputs, 2^num_inputs)
+        # Initialize LUT weights
+        # Shape: (output_dim, 2^input_dim)
         lut_size = 2 ** self.num_inputs
-        self.luts = nn.Parameter(torch.rand(self.layer_size, self.num_outputs, lut_size))
+        self.luts = nn.Parameter(torch.rand(self.num_outputs, lut_size))
         self._apply_init_fn(self.luts, name="luts")
          
-    def _clamp_luts_if_needed(self):
+    def _clamp_luts_if_needed(self) -> None:
         """Clamp LUT values to [0, 1] during training if enabled."""
-        if self.training and self.clamp_luts:
-            with torch.no_grad():
-                self.luts.clamp_(0.0, 1.0)
+        # Do nothing - clamping should be done outside the forward pass
+        # to avoid inplace operations that break autograd
+        pass
     
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -281,21 +296,13 @@ class DWNNode(BaseNode):
         Uses CUDA kernels when available, otherwise CPU fallback.
         
         Args:
-            x: Tensor of shape (batch_size, layer_size, input_dim)
+            x: Tensor of shape (batch_size, input_dim)
         
         Returns:
-            Tensor of shape (batch_size, layer_size, output_dim)
+            Tensor of shape (batch_size, output_dim)
         """
         # Clamp LUT values to [0, 1] if enabled
         self._clamp_luts_if_needed()
-        
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
         
         # Use CUDA if available and requested
         if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
@@ -312,33 +319,22 @@ class DWNNode(BaseNode):
         Output binarized to {0, 1} using threshold at 0.5.
         
         Args:
-            x: Tensor of shape (batch_size, layer_size, input_dim)
+            x: Tensor of shape (batch_size, input_dim)
         
         Returns:
-            Tensor of shape (batch_size, layer_size, output_dim)
+            Tensor of shape (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
-        
         # Inputs are already binarized in {0, 1}, use directly
         x_binary = x.float()
         
         # Compute LUT indices from binary inputs
         powers = 2 ** torch.arange(self.num_inputs, device=x.device, dtype=torch.float32)
-        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size, layer_size)
+        indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
         
-        # Look up LUT values
-        batch_indices = torch.arange(batch_size, device=x.device).view(-1, 1, 1).expand(-1, layer_size, self.num_outputs)
-        layer_indices = torch.arange(layer_size, device=x.device).view(1, -1, 1).expand(batch_size, -1, self.num_outputs)
-        output_indices = torch.arange(self.num_outputs, device=x.device).view(1, 1, -1).expand(batch_size, layer_size, -1)
-        lut_indices = indices.unsqueeze(-1).expand(-1, -1, self.num_outputs)
-        
-        output = self.luts[layer_indices, output_indices, lut_indices]  # (batch_size, layer_size, num_outputs)
+        # Look up LUT values: luts is (output_dim, lut_size)
+        # indices is (batch_size,)
+        # We want output[b, o] = luts[o, indices[b]]
+        output = self.luts[:, indices].T  # (batch_size, output_dim)
         
         # Binarize output: [0, 1] -> {0, 1} using threshold at 0.5
         output = (output >= 0.5).float()

@@ -1,10 +1,34 @@
-
-
 import torch
 import torch.nn as nn
 import math
 from typing import Optional, Dict, Any
 from ...registry import register_initializer
+from ...utils.warnings import warn_default_value
+
+# Default parameters for initializers
+
+# Default mean for normal initialization
+DEFAULT_NORMAL_INIT_MEAN: float = 0.0
+# Default standard deviation for normal initialization
+DEFAULT_NORMAL_INIT_STD: float = 1.0
+# Default lower bound for uniform initialization
+DEFAULT_UNIFORM_INIT_A: float = -1.0
+# Default upper bound for uniform initialization
+DEFAULT_UNIFORM_INIT_B: float = 1.0
+# Default gain factor for Xavier/Glorot initialization
+DEFAULT_XAVIER_GAIN: float = 1.0
+# Default gain factor for Kaiming/He initialization
+DEFAULT_KAIMING_GAIN: float = 1.0
+# Default negative slope for Kaiming/He (leaky_relu parameter)
+DEFAULT_KAIMING_A: float = 0.0
+# Default mode for Kaiming/He initialization ('fan_in' or 'fan_out')
+DEFAULT_KAIMING_MODE: str = 'fan_in'
+# Default nonlinearity for Kaiming/He ('relu', 'leaky_relu', 'tanh', 'sigmoid')
+DEFAULT_KAIMING_NONLINEARITY: str = 'leaky_relu'
+# Default target variance for variance-stabilized initialization
+DEFAULT_VARIANCE_STABILIZED_V_TARGET: float = 1.0
+# Default number of samples for regularization computations
+DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
 
 
 @register_initializer("zeros")
@@ -34,7 +58,7 @@ def ones_init(param: torch.Tensor, **kwargs) -> None:
 
 
 @register_initializer("normal")
-def normal_init(param: torch.Tensor, mean: float = 0.0, std: float = 1.0, **kwargs) -> None:
+def normal_init(param: torch.Tensor, mean: float = DEFAULT_NORMAL_INIT_MEAN, std: float = DEFAULT_NORMAL_INIT_STD, **kwargs) -> None:
     """
     Initialize a parameter from a normal distribution.
     
@@ -44,12 +68,17 @@ def normal_init(param: torch.Tensor, mean: float = 0.0, std: float = 1.0, **kwar
         std: Standard deviation of the normal distribution
         **kwargs: Unused, for API consistency
     """
+    if mean == DEFAULT_NORMAL_INIT_MEAN:
+        warn_default_value("mean (normal_init)", mean, stacklevel=3)
+    if std == DEFAULT_NORMAL_INIT_STD:
+        warn_default_value("std (normal_init)", std, stacklevel=3)
+    
     with torch.no_grad():
         param.normal_(mean, std)
 
 
 @register_initializer("uniform")
-def uniform_init(param: torch.Tensor, a: float = -1.0, b: float = 1.0, **kwargs) -> None:
+def uniform_init(param: torch.Tensor, a: float = DEFAULT_UNIFORM_INIT_A, b: float = DEFAULT_UNIFORM_INIT_B, **kwargs) -> None:
     """
     Initialize a parameter from a uniform distribution.
     
@@ -59,6 +88,11 @@ def uniform_init(param: torch.Tensor, a: float = -1.0, b: float = 1.0, **kwargs)
         b: Upper bound of the uniform distribution
         **kwargs: Unused, for API consistency
     """
+    if a == DEFAULT_UNIFORM_INIT_A:
+        warn_default_value("a (uniform_init)", a, stacklevel=3)
+    if b == DEFAULT_UNIFORM_INIT_B:
+        warn_default_value("b (uniform_init)", b, stacklevel=3)
+    
     with torch.no_grad():
         param.uniform_(a, b)
 
@@ -66,7 +100,7 @@ def uniform_init(param: torch.Tensor, a: float = -1.0, b: float = 1.0, **kwargs)
 @register_initializer("xavier_uniform")
 @register_initializer("glorot_uniform")
 @register_initializer("xavier")
-def xavier_uniform_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None:
+def xavier_uniform_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, **kwargs) -> None:
     """
     Initialize a parameter using Xavier/Glorot uniform initialization.
     
@@ -75,6 +109,9 @@ def xavier_uniform_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> Non
         gain: Scaling factor for the initialization
         **kwargs: Unused, for API consistency
     """
+    if gain == DEFAULT_XAVIER_GAIN:
+        warn_default_value("gain (xavier_uniform_init)", gain, stacklevel=3)
+    
     with torch.no_grad():
         # Calculate fan_in and fan_out from parameter shape
         if param.dim() >= 2:
@@ -92,7 +129,7 @@ def xavier_uniform_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> Non
 @register_initializer("xavier_normal")
 @register_initializer("glorot_normal")
 @register_initializer("glorot")
-def xavier_normal_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None:
+def xavier_normal_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, **kwargs) -> None:
     """
     Initialize a parameter using Xavier/Glorot normal initialization.
     
@@ -101,6 +138,9 @@ def xavier_normal_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None
         gain: Scaling factor for the initialization
         **kwargs: Unused, for API consistency
     """
+    if gain == DEFAULT_XAVIER_GAIN:
+        warn_default_value("gain (xavier_normal_init)", gain, stacklevel=3)
+    
     with torch.no_grad():
         # Calculate fan_in and fan_out from parameter shape
         if param.dim() >= 2:
@@ -116,8 +156,8 @@ def xavier_normal_init(param: torch.Tensor, gain: float = 1.0, **kwargs) -> None
 
 @register_initializer("kaiming_uniform")
 @register_initializer("he_uniform")
-def kaiming_uniform_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in', 
-                         nonlinearity: str = 'leaky_relu', **kwargs) -> None:
+def kaiming_uniform_init(param: torch.Tensor, a: float = DEFAULT_KAIMING_A, mode: str = DEFAULT_KAIMING_MODE, 
+                         nonlinearity: str = DEFAULT_KAIMING_NONLINEARITY, **kwargs) -> None:
     """
     Initialize a parameter using Kaiming/He uniform initialization.
     
@@ -128,6 +168,13 @@ def kaiming_uniform_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in'
         nonlinearity: Type of nonlinearity ('relu', 'leaky_relu', 'tanh', 'sigmoid')
         **kwargs: Unused, for API consistency
     """
+    if a == DEFAULT_KAIMING_A:
+        warn_default_value("a (kaiming_uniform_init)", a, stacklevel=3)
+    if mode == DEFAULT_KAIMING_MODE:
+        warn_default_value("mode (kaiming_uniform_init)", mode, stacklevel=3)
+    if nonlinearity == DEFAULT_KAIMING_NONLINEARITY:
+        warn_default_value("nonlinearity (kaiming_uniform_init)", nonlinearity, stacklevel=3)
+    
     gain = nn.init.calculate_gain(nonlinearity, a)
     
     with torch.no_grad():
@@ -149,8 +196,8 @@ def kaiming_uniform_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in'
 @register_initializer("he_normal")
 @register_initializer("kaiming")
 @register_initializer("he")
-def kaiming_normal_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in', 
-                        nonlinearity: str = 'leaky_relu', **kwargs) -> None:
+def kaiming_normal_init(param: torch.Tensor, a: float = DEFAULT_KAIMING_A, mode: str = DEFAULT_KAIMING_MODE, 
+                        nonlinearity: str = DEFAULT_KAIMING_NONLINEARITY, **kwargs) -> None:
     """
     Initialize a parameter using Kaiming/He normal initialization.
     
@@ -161,6 +208,13 @@ def kaiming_normal_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in',
         nonlinearity: Type of nonlinearity ('relu', 'leaky_relu', 'tanh', 'sigmoid')
         **kwargs: Unused, for API consistency
     """
+    if a == DEFAULT_KAIMING_A:
+        warn_default_value("a (kaiming_normal_init)", a, stacklevel=3)
+    if mode == DEFAULT_KAIMING_MODE:
+        warn_default_value("mode (kaiming_normal_init)", mode, stacklevel=3)
+    if nonlinearity == DEFAULT_KAIMING_NONLINEARITY:
+        warn_default_value("nonlinearity (kaiming_normal_init)", nonlinearity, stacklevel=3)
+    
     gain = nn.init.calculate_gain(nonlinearity, a)
     
     with torch.no_grad():
@@ -179,7 +233,7 @@ def kaiming_normal_init(param: torch.Tensor, a: float = 0, mode: str = 'fan_in',
 
 @register_initializer("probabilistic_init")
 @register_initializer("variance_stabilized")
-def variance_stabilized_init(param: torch.Tensor, v_target: float = 1.0, 
+def variance_stabilized_init(param: torch.Tensor, v_target: float = DEFAULT_VARIANCE_STABILIZED_V_TARGET, 
                              fan_in: Optional[int] = None, 
                              fan_out: Optional[int] = None,
                              **kwargs) -> None:
@@ -197,25 +251,51 @@ def variance_stabilized_init(param: torch.Tensor, v_target: float = 1.0,
     ensures that the expected output variance remains approximately v_target
     across layers at initialization.
     
-    The fan_in and fan_out are typically calculated as:
-    - fan_in: Number of inputs to the node (k)
-    - fan_out: Number of downstream connections = next_layer_width * input_dim
-              which represents how many nodes in the next layer connect to this node's output.
-              If not provided, uses inferred values from parameter shape.
+    IMPORTANT: fan_in and fan_out refer to the LOGICAL node dimensions:
+    - fan_in: Number of Boolean inputs to the node (k, the input_dim)
+    - fan_out: Number of outputs from the node (m, the output_dim)
+    
+    NOT the truth table dimensions! For a probabilistic node with param shape
+    (2^k, m), we have fan_in=k and fan_out=m (not 2^k and m).
     
     Args:
-        param: The parameter tensor to initialize
+        param: The parameter tensor to initialize (e.g., raw_weights of shape (2^k, m))
         v_target: Target output variance (default: 1.0)
-        fan_in: Number of inputs (k). If None, will infer from parameter shape
-        fan_out: Number of outputs (m). If None, will infer from parameter shape
+        fan_in: Number of Boolean inputs (k). If None, will infer from log2(table_size)
+        fan_out: Number of outputs (m). If None, will infer as output_dim from shape
         **kwargs: Unused, for API consistency
     """
+    if v_target == DEFAULT_VARIANCE_STABILIZED_V_TARGET:
+        warn_default_value("v_target (variance_stabilized_init)", v_target, stacklevel=3)
+    if fan_in is None:
+        warn_default_value("fan_in (variance_stabilized_init)", "inferred from shape", stacklevel=3)
+    if fan_out is None:
+        warn_default_value("fan_out (variance_stabilized_init)", "inferred from shape", stacklevel=3)
+    
     # Infer fan_in and fan_out from parameter shape if not provided
     if fan_in is None or fan_out is None:
         if param.dim() >= 2:
-            fan_in = param.shape[1] if fan_in is None else fan_in
-            fan_out = param.shape[0] if fan_out is None else fan_out
+            # For LUT nodes: shape is typically (2^input_dim, output_dim) or (num_table_entries, output_dim)
+            # fan_in should be input_dim (log2 of table size)
+            # fan_out should be output_dim (last dimension)
+            table_size = param.shape[0]
+            output_dim = param.shape[-1]
+            
+            if fan_in is None:
+                # Try to infer input_dim from table size (assuming it's 2^k)
+                import math
+                log_size = math.log2(table_size)
+                if abs(log_size - round(log_size)) < 1e-6:
+                    # Table size is a power of 2, likely a truth table
+                    fan_in = int(round(log_size))
+                else:
+                    # Not a power of 2, use table size as fallback
+                    fan_in = table_size
+            
+            if fan_out is None:
+                fan_out = output_dim
         else:
+            # 1D parameter - use size for both
             fan_in = param.shape[0] if fan_in is None else fan_in
             fan_out = param.shape[0] if fan_out is None else fan_out
     

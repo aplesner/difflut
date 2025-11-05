@@ -6,30 +6,28 @@
 
 // CUDA kernel for hybrid forward pass
 // Forward: Binary thresholding (like DWN)
-// Updated for 3D tensors with per-layer-node LUTs (no mapping - dense connectivity)
+// Updated for 2D tensors
 __global__ void hybrid_forward_kernel(
     const float* __restrict__ input,
     const float* __restrict__ luts,
     float* __restrict__ output,
     const int batch_size,
-    const int layer_size,
     const int input_dim,
     const int output_dim) {
     
-    // Each thread handles one (batch, layer, output) element
+    // Each thread handles one (batch, output) element
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    const int total_elements = batch_size * layer_size * output_dim;
+    const int total_elements = batch_size * output_dim;
     
     if (idx >= total_elements) return;
     
-    // Decompose linear index into batch, layer, output indices
+    // Decompose linear index into batch and output indices
     const int output_idx = idx % output_dim;
-    const int layer_idx = (idx / output_dim) % layer_size;
-    const int batch_idx = idx / (layer_size * output_dim);
+    const int batch_idx = idx / output_dim;
     
     // Compute LUT address using binary thresholding at 0.5
-    // Input: (batch_size, layer_size, input_dim)
-    const int input_offset = (batch_idx * layer_size + layer_idx) * input_dim;
+    // Input: (batch_size, input_dim)
+    const int input_offset = batch_idx * input_dim;
     
     int addr = 0;
     for (int i = 0; i < input_dim; i++) {
@@ -40,17 +38,17 @@ __global__ void hybrid_forward_kernel(
         }
     }
     
-    // Look up value from per-layer-node LUT
-    // LUTs shape: (layer_size, output_dim, 2^input_dim)
+    // Look up value from LUT
+    // LUTs shape: (output_dim, 2^input_dim)
     const int lut_size = 1 << input_dim;
-    const int lut_offset = (layer_idx * output_dim + output_idx) * lut_size;
+    const int lut_offset = output_idx * lut_size;
     
     output[idx] = luts[lut_offset + addr];
 }
 
 // CUDA kernel for hybrid backward pass - input gradients
 // Backward: Probabilistic gradients with inputs in [0, 1]
-// Updated for 3D tensors (no mapping - dense connectivity)
+// Updated for 2D tensors
 __global__ void hybrid_backward_input_kernel(
     const float* __restrict__ input,
     const float* __restrict__ luts,
@@ -58,26 +56,24 @@ __global__ void hybrid_backward_input_kernel(
     const float* __restrict__ grad_output,
     float* __restrict__ grad_input,
     const int batch_size,
-    const int layer_size,
     const int input_dim,
     const int output_dim) {
     
-    // Each thread handles one (batch, layer, input) element
+    // Each thread handles one (batch, input) element
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    const int total_elements = batch_size * layer_size * input_dim;
+    const int total_elements = batch_size * input_dim;
     
     if (idx >= total_elements) return;
     
     // Decompose linear index
     const int input_idx = idx % input_dim;
-    const int layer_idx = (idx / input_dim) % layer_size;
-    const int batch_idx = idx / (layer_size * input_dim);
+    const int batch_idx = idx / input_dim;
     
     const int lut_size = 1 << input_dim;
     const float eps = 1e-8f;
     
     // Get input value for this element
-    const int input_offset = (batch_idx * layer_size + layer_idx) * input_dim;
+    const int input_offset = batch_idx * input_dim;
     float x_prob = input[input_offset + input_idx];
     
     float grad_sum = 0.0f;
@@ -100,11 +96,11 @@ __global__ void hybrid_backward_input_kernel(
             float deriv_factor = (ai - x_prob) / (x_prob * (1.0f - x_prob) + eps);
             
             // Weight by LUT value
-            const int lut_offset = (layer_idx * output_dim + out_idx) * lut_size;
+            const int lut_offset = out_idx * lut_size;
             float lut_val = luts[lut_offset + addr];
             
             // Get gradient from output
-            const int grad_out_offset = (batch_idx * layer_size + layer_idx) * output_dim;
+            const int grad_out_offset = batch_idx * output_dim;
             float grad_out = grad_output[grad_out_offset + out_idx];
             
             // Accumulate gradient
@@ -116,35 +112,33 @@ __global__ void hybrid_backward_input_kernel(
 }
 
 // CUDA kernel for hybrid backward pass - LUT gradients
-// Updated for 3D tensors - accumulate over batch dimension
+// Updated for 2D tensors - accumulate over batch dimension
 __global__ void hybrid_backward_lut_kernel(
     const float* __restrict__ input,
     const float* __restrict__ binary_combinations,
     const float* __restrict__ grad_output,
     float* __restrict__ grad_luts,
     const int batch_size,
-    const int layer_size,
     const int input_dim,
     const int output_dim) {
     
-    // Each thread handles one (layer, output, addr) element
+    // Each thread handles one (output, addr) element
     const int idx = blockIdx.x * blockDim.x + threadIdx.x;
     const int lut_size = 1 << input_dim;
-    const int total_lut_elements = layer_size * output_dim * lut_size;
+    const int total_lut_elements = output_dim * lut_size;
     
     if (idx >= total_lut_elements) return;
     
     // Decompose linear index
     const int addr = idx % lut_size;
-    const int out_idx = (idx / lut_size) % output_dim;
-    const int layer_idx = idx / (lut_size * output_dim);
+    const int out_idx = idx / lut_size;
     
     float grad_sum = 0.0f;
     
     // Sum over batch
     for (int batch_idx = 0; batch_idx < batch_size; batch_idx++) {
         // Compute Pr(addr|x) for this batch sample
-        const int input_offset = (batch_idx * layer_size + layer_idx) * input_dim;
+        const int input_offset = batch_idx * input_dim;
         float prob = 1.0f;
         for (int i = 0; i < input_dim; i++) {
             float xi = input[input_offset + i];
@@ -153,7 +147,7 @@ __global__ void hybrid_backward_lut_kernel(
         }
         
         // Get gradient from output
-        const int grad_out_offset = (batch_idx * layer_size + layer_idx) * output_dim;
+        const int grad_out_offset = batch_idx * output_dim;
         float grad_out = grad_output[grad_out_offset + out_idx];
         
         // Accumulate gradient
@@ -169,17 +163,16 @@ torch::Tensor hybrid_cuda_forward(
     torch::Tensor input,
     torch::Tensor luts) {
     
-    // Extract 3D dimensions
+    // Extract 2D dimensions
     const int batch_size = input.size(0);
-    const int layer_size = input.size(1);
-    const int input_dim = input.size(2);
-    const int output_dim = luts.size(1);  // luts: (layer_size, output_dim, 2^input_dim)
+    const int input_dim = input.size(1);
+    const int output_dim = luts.size(0);  // luts: (output_dim, 2^input_dim)
     
-    // Allocate output: (batch_size, layer_size, output_dim)
-    auto output = torch::zeros({batch_size, layer_size, output_dim}, input.options());
+    // Allocate output: (batch_size, output_dim)
+    auto output = torch::zeros({batch_size, output_dim}, input.options());
     
     // Launch kernel with 1D thread distribution
-    const int total_elements = batch_size * layer_size * output_dim;
+    const int total_elements = batch_size * output_dim;
     const int threads = 256;
     const int blocks = (total_elements + threads - 1) / threads;
     
@@ -188,7 +181,6 @@ torch::Tensor hybrid_cuda_forward(
         luts.data_ptr<float>(),
         output.data_ptr<float>(),
         batch_size,
-        layer_size,
         input_dim,
         output_dim
     );
@@ -202,22 +194,21 @@ std::vector<torch::Tensor> hybrid_cuda_backward(
     torch::Tensor binary_combinations,
     torch::Tensor grad_output) {
     
-    // Extract 3D dimensions
+    // Extract 2D dimensions
     const int batch_size = input.size(0);
-    const int layer_size = input.size(1);
-    const int input_dim = input.size(2);
-    const int output_dim = luts.size(1);
-    const int lut_size = luts.size(2);
+    const int input_dim = input.size(1);
+    const int output_dim = luts.size(0);
+    const int lut_size = luts.size(1);
     
     // Allocate gradients
-    auto grad_input = torch::zeros_like(input);  // (batch_size, layer_size, input_dim)
-    auto grad_luts = torch::zeros_like(luts);    // (layer_size, output_dim, lut_size)
+    auto grad_input = torch::zeros_like(input);  // (batch_size, input_dim)
+    auto grad_luts = torch::zeros_like(luts);    // (output_dim, lut_size)
     
     const int threads = 256;
     
     // Compute input gradients
     {
-        const int total_elements = batch_size * layer_size * input_dim;
+        const int total_elements = batch_size * input_dim;
         const int blocks = (total_elements + threads - 1) / threads;
         
         hybrid_backward_input_kernel<<<blocks, threads>>>(
@@ -227,7 +218,6 @@ std::vector<torch::Tensor> hybrid_cuda_backward(
             grad_output.data_ptr<float>(),
             grad_input.data_ptr<float>(),
             batch_size,
-            layer_size,
             input_dim,
             output_dim
         );
@@ -235,7 +225,7 @@ std::vector<torch::Tensor> hybrid_cuda_backward(
     
     // Compute LUT gradients
     {
-        const int total_lut_elements = layer_size * output_dim * lut_size;
+        const int total_lut_elements = output_dim * lut_size;
         const int blocks = (total_lut_elements + threads - 1) / threads;
         
         hybrid_backward_lut_kernel<<<blocks, threads>>>(
@@ -244,7 +234,6 @@ std::vector<torch::Tensor> hybrid_cuda_backward(
             grad_output.data_ptr<float>(),
             grad_luts.data_ptr<float>(),
             batch_size,
-            layer_size,
             input_dim,
             output_dim
         );

@@ -1,7 +1,10 @@
 # pyproject.toml
 [build-system]
-requires = ["setuptools>=45", "wheel", "torch>=1.9.0"]
+requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[build-system.cmake.cmake-minimum-required]
+version = "3.15"
 
 [project]
 name = "difflut"
@@ -18,3 +21,13 @@ dependencies = [
     "torch>=1.9.0",
     "numpy",
 ]
+
+[tool.setuptools]
+# Optimize build caching
+py-modules = []
+include-package-data = true
+
+[tool.ccache]
+# Enable ccache for faster rebuilds if available
+enabled = true
+max_size = "5G"

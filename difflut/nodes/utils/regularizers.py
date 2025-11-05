@@ -1,10 +1,15 @@
-
-
 import torch
 import torch.nn as nn
 from typing import Optional
 from ...registry import register_regularizer
+from ...utils.warnings import warn_default_value
 
+# Default parameters for regularizers
+
+# Default norm parameter for functional regularization (1 for L1, 2 for L2)
+DEFAULT_REGULARIZER_P_NORM: int = 2
+# Default number of random binary samples for regularization
+DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
 
 # Helper function (not registered)
 def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
@@ -30,7 +35,7 @@ def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
 
 @register_regularizer("l")
 @register_regularizer("functional")
-def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.Tensor:
+def l_regularizer(node: nn.Module, p: int = DEFAULT_REGULARIZER_P_NORM, num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES) -> torch.Tensor:
     """
     Functional L-regularization for DiffLUT nodes.
     
@@ -51,6 +56,10 @@ def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.
     Returns:
         Average functional sensitivity across sampled inputs
     """
+    if p == DEFAULT_REGULARIZER_P_NORM:
+        warn_default_value("p (l_regularizer)", p, stacklevel=3)
+    if num_samples == DEFAULT_REGULARIZER_NUM_SAMPLES:
+        warn_default_value("num_samples (l_regularizer)", num_samples, stacklevel=3)
     # Get device from node parameters
     device = next(node.parameters()).device
     
@@ -109,7 +118,7 @@ def l_regularizer(node: nn.Module, p: int = 2, num_samples: int = 100) -> torch.
 
 @register_regularizer("l1")
 @register_regularizer("l1_functional")
-def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
+def l1_regularizer(node: nn.Module, num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES) -> torch.Tensor:
     """
     L1 functional regularization (convenience wrapper for l_regularizer with p=1).
     
@@ -125,7 +134,7 @@ def l1_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
 
 @register_regularizer("l2")
 @register_regularizer("l2_functional")
-def l2_regularizer(node: nn.Module, num_samples: int = 100) -> torch.Tensor:
+def l2_regularizer(node: nn.Module, num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES) -> torch.Tensor:
     """
     L2 functional regularization (convenience wrapper for l_regularizer with p=2).
     
@@ -218,12 +227,14 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     # Look for truth-table parameters (typically named 'luts' or similar)
     for name, param in node.named_parameters():
         if 'lut' in name.lower():
-            # param should have shape (num_luts, 2^k) or (2^k,)
+            # param should have shape (output_dim, 2^input_dim) for independent nodes
+            # or (2^input_dim,) for a single-output node
             if param.dim() == 1:
-                # Single LUT: shape (2^k,)
+                # Single output: shape (2^input_dim,)
                 lut_table = param.unsqueeze(0)
             elif param.dim() == 2:
-                # Multiple LUTs: shape (num_luts, 2^k)
+                # Multiple outputs: shape (output_dim, 2^input_dim)
+                # Each row is an independent truth table for one output dimension
                 lut_table = param
             else:
                 # Skip if not a truth table

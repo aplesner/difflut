@@ -7,8 +7,11 @@ Welcome to the DiffLUT User Guide! This guide covers all the features you need t
 DiffLUT is built around three core concepts:
 
 1. **Encoders**: Transform continuous inputs into discrete representations suitable for LUT indexing
-2. **Nodes**: Individual LUT units that perform computation
-3. **Layers**: Connect inputs to nodes with specific connectivity patterns
+
+2. **Layers**: Connect inputs to nodes with specific connectivity patterns
+3. **Nodes**: Individual LUT units that perform computation
+3.1. **Initalizers**
+3.2. **Regularizers**
 
 Together, these form complete differentiable LUT networks.
 
@@ -29,36 +32,7 @@ Input Data
     ↓
 [Nodes] → Compute LUT values → Differentiable forward pass
     ↓
-Output
-```
-
-### Example Flow
-
-```python
-import torch
-from difflut.encoder import ThermometerEncoder
-from difflut.layers import RandomLayer
-from difflut.nodes import LinearLUTNode
-
-# 1. Raw input (continuous values)
-x = torch.randn(32, 784)  # 32 samples, 784 features (MNIST)
-
-# 2. Encoder: discretize to binary values
-encoder = ThermometerEncoder(num_bits=4)
-encoder.fit(x)  # Learn value ranges
-x_encoded = encoder(x)  # Shape: (32, 784 * 4)
-
-# 3. Layer: route to LUT nodes
-layer = RandomLayer(
-    input_size=784 * 4,
-    output_size=128,
-    node_type=LinearLUTNode,
-    n=4,  # 4-input LUTs
-    node_kwargs={'input_dim': [4], 'output_dim': [1]}
-)
-
-# 4. Forward pass through nodes
-output = layer(x_encoded)  # Shape: (32, 128)
+Output/Next Layer
 ```
 
 ## Component Categories
@@ -66,17 +40,17 @@ output = layer(x_encoded)  # Shape: (32, 128)
 ### Encoders
 Transform continuous inputs into discrete representations. See [Components Guide](USER_GUIDE/components.md#encoders).
 
-Available types: Thermometer, Gaussian, Gray, OneHot, Binary, Logarithmic, and more.
+Available types: Thermometer, GaussianThermometer, DistributiveThermometer, Gray, OneHot, Binary, SignMagnitude, Logarithmic.
 
 ### Nodes
 Define computation at individual LUT units. See [Components Guide](USER_GUIDE/components.md#nodes).
 
-Available types: LinearLUT, PolyLUT, NeuralLUT, DWN, Probabilistic, Fourier, Hybrid, Gradient-Stabilized.
+Available types: LinearLUT, PolyLUT, NeuralLUT, DWN, DWNStable, Probabilistic, Fourier, Hybrid.
 
 ### Layers
 Connect inputs to nodes with configurable connectivity patterns. See [Components Guide](USER_GUIDE/components.md#layers).
 
-Available types: Random, Learnable, Grouped, Residual.
+Available types: Random, Learnable.
 
 ## Component Registry
 
@@ -189,27 +163,31 @@ from difflut.nodes import PolyLUTNode, NeuralLUTNode
 
 # PolyLUT has degree parameter
 poly_node = PolyLUTNode(
-    input_dim=[6],
-    output_dim=[1],
+    input_dim=6,
+    output_dim=1,
     degree=3  # Polynomial degree
 )
 
 # NeuralLUT has hidden width
 neural_node = NeuralLUTNode(
-    input_dim=[4],
-    output_dim=[1],
+    input_dim=4,
+    output_dim=1,
     hidden_width=32  # MLP hidden layer width
 )
 ```
 
+**Note**: Nodes process 2D tensors with shape `(batch_size, input_dim)` → `(batch_size, output_dim)`. Layers use `nn.ModuleList` to manage multiple independent node instances.
+
 ### Layer Connectivity
 
-Layers define how inputs connect to nodes:
+Layers define how inputs connect to nodes. Each layer creates `output_size` independent nodes (stored in `nn.ModuleList`):
 
 ```python
 from difflut.layers import RandomLayer, LearnableLayer
+from difflut.nodes import LinearLUTNode
 
 # Random: inputs randomly assigned to LUTs
+# Creates output_size=256 independent LinearLUTNode instances
 random_layer = RandomLayer(
     input_size=512,
     output_size=256,
@@ -218,12 +196,16 @@ random_layer = RandomLayer(
 )
 
 # Learnable: learns which inputs each LUT uses
+# Creates output_size=256 independent LinearLUTNode instances
 learnable_layer = LearnableLayer(
     input_size=512,
     output_size=256,
     node_type=LinearLUTNode,
     n=4
 )
+
+# Forward pass processes (batch_size, 512) → (batch_size, 256)
+# by iterating through the ModuleList of nodes
 ```
 
 ## Next Steps

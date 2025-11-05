@@ -1,25 +1,46 @@
 import torch
 import torch.nn as nn
 from abc import ABC, abstractmethod
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, List, Tuple
 import warnings
+from ..utils.warnings import warn_default_value, DefaultValueWarning
+
+# Default number of inputs per node if not specified
+DEFAULT_NODE_INPUT_DIM: int = 6
+# Default number of outputs per node if not specified
+DEFAULT_NODE_OUTPUT_DIM: int = 1
+# Threshold for warning about large input dimensions
+# If input_dim > NODE_INPUT_DIM_WARNING_THRESHOLD, warn about memory
+NODE_INPUT_DIM_WARNING_THRESHOLD: int = 10
+# Threshold for warning about large output dimensions
+# If output_dim > NODE_OUTPUT_DIM_WARNING_THRESHOLD, warn about memory
+NODE_OUTPUT_DIM_WARNING_THRESHOLD: int = 10
 
 
 class BaseNode(nn.Module, ABC):
     """
-    Abstract base class for all LUT nodes with automatic gradient handling
+    Abstract base class for all LUT nodes.
+    
+    Architecture:
+    - Nodes process 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
+    - Each node instance is independent
+    - Layers use nn.ModuleList to manage multiple node instances
+    - No 3D tensor processing or layer_size dimension
     """
     
-    def __init__(self, input_dim: int = None, output_dim: int = None, 
-                 layer_size: int = None,
-                 regularizers: dict = None,
-                 init_fn: Optional[Callable] = None, init_kwargs: dict = None):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        **kwargs  # Accept extra kwargs for compatibility but ignore them
+    ) -> None:
         """
         Args:
             input_dim: Number of inputs (e.g., 6 for 6 inputs)
             output_dim: Number of outputs (e.g., 1 for single output, 4 for 4 outputs)
-            layer_size: Number of parallel nodes in the layer (e.g., 128 for 128 parallel nodes)
-                       This controls weight sharing - each node in layer_size will have separate parameters.
             regularizers: Dict of regularization functions to apply.
                          Format: {"name": [reg_fn, weight, kwargs], ...}
                          where reg_fn is callable(node) -> scalar tensor,
@@ -28,13 +49,22 @@ class BaseNode(nn.Module, ABC):
                     Should accept (parameter: torch.Tensor, **kwargs) and modify in-place.
                     This is passed to subclasses for their use - BaseNode does NOT apply it.
             init_kwargs: Optional dict of kwargs to pass to the initializer function
+            **kwargs: Additional arguments (ignored, for compatibility)
         """
         super().__init__()
         
         # Set defaults if not provided
-        self.input_dim = input_dim if input_dim is not None else 6
-        self.output_dim = output_dim if output_dim is not None else 1
-        self.layer_size = layer_size if layer_size is not None else 1
+        if input_dim is None:
+            self.input_dim = DEFAULT_NODE_INPUT_DIM
+            warn_default_value("input_dim", self.input_dim, stacklevel=2)
+        else:
+            self.input_dim = input_dim
+        
+        if output_dim is None:
+            self.output_dim = DEFAULT_NODE_OUTPUT_DIM
+            warn_default_value("output_dim", self.output_dim, stacklevel=2)
+        else:
+            self.output_dim = output_dim
         
         # Validate input_dim
         if not isinstance(self.input_dim, int) or self.input_dim <= 0:
@@ -43,17 +73,10 @@ class BaseNode(nn.Module, ABC):
                 f"Example: input_dim=6"
             )
         
-        # Validate layer_size
-        if not isinstance(self.layer_size, int) or self.layer_size <= 0:
-            raise ValueError(
-                f"layer_size must be a positive integer, but got {self.layer_size}. "
-                f"Example: layer_size=128"
-            )
-        
-        if self.input_dim > 10:
+        if self.input_dim > NODE_INPUT_DIM_WARNING_THRESHOLD:
             warnings.warn(
                 f"input_dim={self.input_dim} is quite large. "
-                f"LUT nodes with >10 inputs may have exponentially large memory requirements (2^{self.input_dim} entries). "
+                f"LUT nodes with >{NODE_INPUT_DIM_WARNING_THRESHOLD} inputs may have exponentially large memory requirements (2^{self.input_dim} entries). "
                 f"Consider using smaller input dimensions or splitting inputs across multiple layers.",
                 UserWarning,
                 stacklevel=2
@@ -66,7 +89,7 @@ class BaseNode(nn.Module, ABC):
                 f"Example: output_dim=1"
             )
         
-        if self.output_dim > 10:
+        if self.output_dim > NODE_OUTPUT_DIM_WARNING_THRESHOLD:
             warnings.warn(
                 f"output_dim={self.output_dim} is quite large. "
                 f"This may increase memory requirements significantly.",
@@ -75,7 +98,11 @@ class BaseNode(nn.Module, ABC):
             )
         
         # Validate and store regularizers
-        self.regularizers = regularizers or {}
+        # Note: Only warn if regularizers is truly missing (None), not if explicitly provided as {}
+        if regularizers is None:
+            self.regularizers = {}
+        else:
+            self.regularizers = regularizers
         
         # Validate init_fn
         if init_fn is not None:
@@ -86,7 +113,13 @@ class BaseNode(nn.Module, ABC):
                 )
         
         self.init_fn = init_fn
-        self.init_kwargs = init_kwargs or {}
+        
+        # Handle init_kwargs with default
+        # Note: Only warn if init_kwargs is truly missing (None), not if explicitly provided as {}
+        if init_kwargs is None:
+            self.init_kwargs = {}
+        else:
+            self.init_kwargs = init_kwargs
         
         # Validate init_kwargs
         if not isinstance(self.init_kwargs, dict):
@@ -130,7 +163,7 @@ class BaseNode(nn.Module, ABC):
                 f"Check that init_fn is compatible with the parameter and init_kwargs are correct."
             )
     
-    def _validate_regularizers(self):
+    def _validate_regularizers(self) -> None:
         """Validate regularizers format - only accepts [fn, weight, kwargs] format"""
         if not self.regularizers:
             return
@@ -179,60 +212,16 @@ class BaseNode(nn.Module, ABC):
         
         self.regularizers = validated
     
-    def _select_independent_luts(self, output_flat: torch.Tensor, batch_size: int, layer_size: int) -> torch.Tensor:
-        """
-        Helper method to select independent LUT outputs when output_dim == layer_size.
-        
-        When a node has output_dim==layer_size, it means we have independent LUTs
-        (one for each position). This method selects the appropriate LUT output for each position.
-        
-        Args:
-            output_flat: Tensor of shape (batch*layer_size, output_dim) or (batch, layer_size, output_dim)
-            batch_size: Batch size
-            layer_size: Number of positions (nodes) in the layer
-        
-        Returns:
-            Tensor of shape (batch, layer_size, 1) with independent LUT outputs selected
-        """
-        has_independent_luts = (self.output_dim == layer_size)
-        
-        if not has_independent_luts or self.output_dim == 1:
-            # Standard case: all positions share same LUT or output_dim=1
-            if output_flat.dim() == 2:
-                return output_flat.view(batch_size, layer_size, self.output_dim)
-            else:
-                return output_flat
-        
-        # Independent LUTs case: select appropriate column for each position
-        if output_flat.dim() == 2:
-            # Shape: (batch*layer_size, output_dim)
-            output_3d = output_flat.view(batch_size, layer_size, self.output_dim)
-        else:
-            # Already 3D: (batch, layer_size, output_dim)
-            output_3d = output_flat
-        
-        # Select diagonal elements: output_3d[:, j, j] for each position j
-        indices = torch.arange(layer_size, device=output_flat.device)
-        output = output_3d[
-            torch.arange(batch_size, device=output_flat.device).unsqueeze(1),
-            torch.arange(layer_size, device=output_flat.device).unsqueeze(0),
-            indices.unsqueeze(0).expand(batch_size, -1)
-        ]
-        
-        # Add last dimension: (batch, layer_size) → (batch, layer_size, 1)
-        return output.unsqueeze(-1)
-    
     @abstractmethod
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass during training mode.
         
         Args:
-            x: Tensor of shape (batch_size, layer_size, input_dim)
-               where layer_size is the number of independent node copies
+            x: Tensor of shape (batch_size, input_dim) - 2D tensor
         
         Returns:
-            Tensor of shape (batch_size, layer_size, output_dim)
+            Tensor of shape (batch_size, output_dim) - 2D tensor
         """
         pass
     
@@ -243,10 +232,10 @@ class BaseNode(nn.Module, ABC):
         Override this method if you need different evaluation behavior.
         
         Args:
-            x: Tensor of shape (batch_size, layer_size, input_dim)
+            x: Tensor of shape (batch_size, input_dim) - 2D tensor
         
         Returns:
-            Tensor of shape (batch_size, layer_size, output_dim)
+            Tensor of shape (batch_size, output_dim) - 2D tensor
         """
         return (self.forward_train(x) > 0.5).float()
     
@@ -254,12 +243,12 @@ class BaseNode(nn.Module, ABC):
         """
         Main forward pass that automatically dispatches to forward_train or forward_eval.
         
-        Expects 3D batched input of multiple independent node copies:
-        - Input shape: (batch_size, layer_size, input_dim)
-          where layer_size is the number of independent node copies
-        - Output shape: (batch_size, layer_size, output_dim)
+        Processes 2D tensors:
+        - Input shape: (batch_size, input_dim)
+        - Output shape: (batch_size, output_dim)
         
-        This allows efficient batch processing across all node copies simultaneously.
+        Each node instance is independent. Layers use nn.ModuleList to manage
+        multiple node instances and iterate through them during forward pass.
         """
         if self.training:
             return self.forward_train(x)
@@ -271,6 +260,9 @@ class BaseNode(nn.Module, ABC):
         Compute regularization term for the node.
         Combines built-in regularization with custom regularizers.
         Override _builtin_regularization() in subclasses for node-specific regularization.
+        
+        Returns:
+            Scalar tensor with total regularization value
         """
         device = next(self.parameters()).device if list(self.parameters()) else 'cpu'
         
@@ -299,10 +291,10 @@ class BaseNode(nn.Module, ABC):
         Returns:
             Scalar tensor with regularization value (default: 0.0)
         """
-        device = next(self.parameters()).device if list(self.parameters()) else 'cpu'
+        device: torch.device = next(self.parameters()).device if list(self.parameters()) else torch.device('cpu')
         return torch.tensor(0.0, device=device)
     
-    def export_bitstream(self) -> list:
+    def export_bitstream(self) -> List[int]:
         """
         Export node configuration as bitstream for FPGA deployment.
         Default: evaluate all binary input combinations using forward_eval.

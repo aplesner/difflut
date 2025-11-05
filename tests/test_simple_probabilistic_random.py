@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from difflut.registry import REGISTRY
 from difflut.utils.modules import GroupSum
+from difflut.nodes.node_config import NodeConfig
 
 # ==================== Configuration ====================
 NUM_NODES = 500
@@ -274,15 +275,16 @@ def main():
     layer_class = REGISTRY.get_layer('random')
     node_class = REGISTRY.get_node('probabilistic')
     
+    node_config = NodeConfig(
+        input_dim=NUM_NODE_INPUTS,
+        output_dim=1
+    )
+    
     layer = layer_class(
         input_size=encoded_dim,
         output_size=NUM_NODES,
         node_type=node_class,
-        node_kwargs={
-            'input_dim': NUM_NODE_INPUTS,
-            'output_dim': 1,
-            'layer_size': NUM_NODES  # Required: layer_size for per-layer-node parameters
-        }
+        node_kwargs=node_config
     )
     print(f"✓ Layer created (random × probabilistic)\n")
     

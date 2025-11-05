@@ -37,6 +37,8 @@ import torch.nn as nn
 from difflut.encoder import ThermometerEncoder
 from difflut.layers import RandomLayer
 from difflut.nodes import LinearLUTNode
+from difflut.nodes.node_config import NodeConfig
+from difflut.utils.modules import GroupSum
 ```
 
 ### Step 2: Create a Simple LUT Network
@@ -47,40 +49,57 @@ class SimpleLUTNetwork(nn.Module):
         super().__init__()
         
         # Step 2a: Encoder transforms continuous inputs to discrete values for LUT indexing
-        # Input: (batch_size, 784) → Output: (batch_size, 784*8=6272)
+        # Input: (batch_size, 784) → Output: (batch_size, 784*8) automatically flattened
+        # Note: flatten=True is the default, encoder automatically flattens to 2D
         self.encoder = ThermometerEncoder(num_bits=8)
-        encoded_size = input_size * 8  # 6272
+        encoded_size = input_size * 8  # 6272 - encoder flattens automatically
         
         # Step 2b: Hidden layer with random connectivity
-        # Input: (batch_size, 6272) → Output: (batch_size, 128)
-        self.hidden = RandomLayer(
-            input_size=encoded_size,        # 6272 input features
-            output_size=hidden_size,        # 128 output nodes
-            node_type=LinearLUTNode,
-            n=4,  # Each LUT has 4 inputs
-            node_kwargs={'input_dim': [4], 'output_dim': [1]}
+        # Create type-safe node configuration
+        node_config = NodeConfig(
+            input_dim=4,        # 4-input LUTs (each node processes (batch, 4) → (batch, 1))
+            output_dim=1        # Single output per LUT
         )
         
-        # Step 2c: Output layer
+        # Input: (batch_size, 6272) → Output: (batch_size, 128)
+        # Creates 128 independent LinearLUTNode instances in nn.ModuleList
+        self.hidden = RandomLayer(
+            input_size=encoded_size,        # 6272 input features
+            output_size=hidden_size,        # 128 output nodes (128 independent LUTs)
+            node_type=LinearLUTNode,
+            n=4,                            # Each LUT has 4 inputs
+            node_kwargs=node_config
+        )
+        
+        # Step 2c: Output layer routes to num_classes nodes
         # Input: (batch_size, 128) → Output: (batch_size, 10)
+        # Creates 10 independent LinearLUTNode instances in nn.ModuleList
         self.output = RandomLayer(
             input_size=hidden_size,         # 128 input features
-            output_size=num_classes,        # 10 output nodes
+            output_size=num_classes,        # 10 output nodes (10 independent LUTs)
             node_type=LinearLUTNode,
-            n=4,  # Each LUT has 4 inputs
-            node_kwargs={'input_dim': [4], 'output_dim': [1]}
+            n=4,                            # Each LUT has 4 inputs
+            node_kwargs=node_config
         )
+        
+        # Step 2d: GroupSum groups output features and sums them
+        # Input: (batch_size, 10) → Output: (batch_size, num_classes=10)
+        # Groups the 10 outputs into num_classes groups and sums within each group
+        self.groupsum = GroupSum(k=num_classes, tau=1.0)
     
     def forward(self, x):
         # Input shape: (batch_size, 1, 28, 28) for MNIST
         
         # Flatten images and encode
         x = x.view(x.size(0), -1)           # → (batch_size, 784)
-        x = self.encoder(x)                 # → (batch_size, 6272)
+        x = self.encoder(x)                 # → (batch_size, 6272) - auto-flattened
         
         # Pass through LUT layers with ReLU activation
         x = torch.relu(self.hidden(x))      # → (batch_size, 128)
         x = self.output(x)                  # → (batch_size, 10)
+        
+        # Group and sum outputs to get final predictions
+        x = self.groupsum(x)                # → (batch_size, 10)
         
         return x
 ```
@@ -97,29 +116,36 @@ print(f"Input shape:        {x.shape}")  # torch.Size([32, 1, 28, 28])
 
 # Manually trace through to see dimensions
 x_flat = x.view(x.size(0), -1)          # torch.Size([32, 784])
-x_encoded = model.encoder(x_flat)       # torch.Size([32, 6272])
+x_encoded = model.encoder(x_flat)       # torch.Size([32, 6272]) - auto-flattened
 x_hidden = torch.relu(model.hidden(x_encoded))  # torch.Size([32, 128])
-output = model.output(x_hidden)         # torch.Size([32, 10])
+x_output = model.output(x_hidden)       # torch.Size([32, 10])
+predictions = model.groupsum(x_output)  # torch.Size([32, 10])
 
-print(f"After encoder:      {x_encoded.shape}")  # torch.Size([32, 6272])
-print(f"After hidden:       {x_hidden.shape}")   # torch.Size([32, 128])
-print(f"Output shape:       {output.shape}")     # torch.Size([32, 10])
+print(f"After encoder:      {x_encoded.shape}")      # torch.Size([32, 6272])
+print(f"After hidden:       {x_hidden.shape}")       # torch.Size([32, 128])
+print(f"After output layer: {x_output.shape}")       # torch.Size([32, 10])
+print(f"After groupsum:     {predictions.shape}")    # torch.Size([32, 10])
 
 # Or use forward pass directly
-output = model(x)
+predictions = model(x)
 
 # Compute loss and backpropagate like normal
 criterion = nn.CrossEntropyLoss()
-loss = criterion(output, torch.randint(0, 10, (32,)))
+loss = criterion(predictions, torch.randint(0, 10, (32,)))
 loss.backward()
 ```
 
 ### Key Dimension Rules
 
-✓ **Encoder output** = input features × num_bits  
-✓ **Layer output** = output_size (number of nodes)  
-✓ **Next layer input** = previous layer output  
+✓ **Encoder input** = (batch_size, input_features)  
+✓ **Encoder output (auto-flattened)** = (batch_size, input_features × num_bits)  
+✓ **Layer output** = (batch_size, output_size) - Each layer has output_size independent nodes  
+✓ **Node processing** = (batch_size, input_dim) → (batch_size, output_dim) - 2D tensors only  
+✓ **GroupSum input** = (batch_size, num_nodes)  
+✓ **GroupSum output** = (batch_size, k_groups)  
 ❌ **Mismatch** = will raise clear error with expected/got dimensions
+
+**Architecture Note**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors. The layer iterates through nodes and concatenates their outputs.
 
 
 
@@ -132,28 +158,7 @@ For a complete training example with real data, check out:
 
 ### Explore Other Components
 
-DiffLUT provides many options to customize your network:
-
-**Different Node Types**:
-- `LinearLUTNode` - Simple linear LUT (fastest)
-- `PolyLUTNode` - Polynomial LUT
-- `NeuralLUTNode` - MLP-based LUT
-- `FourierNode` - Fourier transform-based (GPU-accelerated)
-- `HybridNode` - Hybrid approach (GPU-accelerated)
-
-**Different Encoders**:
-- `ThermometerEncoder` - Thermometer code
-- `GrayEncoder` - Gray code
-- `BinaryEncoder` - Binary representation
-- `GaussianEncoder` - Gaussian distributions
-
-**Different Layer Types**:
-- `RandomLayer` - Random input connectivity
-- `LearnableLayer` - Learns which inputs to use
-- `GroupedLayer` - Semantic input grouping
-- `ResidualLayer` - Skip connections for deeper networks
-
-See [User Guide](USER_GUIDE.md) for comprehensive examples of each.
+DiffLUT provides many options to customize your network. See [User Guide](USER_GUIDE.md) for comprehensive examples of each component.
 
 ### Advanced Topics
 
@@ -162,91 +167,3 @@ See [User Guide](USER_GUIDE.md) for comprehensive examples of each.
 - **GPU Acceleration**: Use CUDA-accelerated nodes for better performance
 - **FPGA Export**: Export trained networks for hardware deployment
 
-## Common Patterns
-
-### Using Different Encoders
-
-```python
-from difflut.encoder import GrayEncoder, BinaryEncoder
-
-# Create and fit encoder on training data
-encoder = GrayEncoder(num_bits=8, feature_wise=True)
-encoder.fit(train_data)  # Fit to learn data statistics
-
-# Use in your model
-encoded = encoder(input_data)
-```
-
-### Mixing Node Types in One Network
-
-```python
-from difflut.nodes import PolyLUTNode, NeuralLUTNode
-
-model = nn.Sequential(
-    RandomLayer(input_size=256, output_size=128, 
-                node_type=LinearLUTNode, n=4,
-                node_kwargs={'input_dim': [4], 'output_dim': [1]}),
-    nn.ReLU(),
-    RandomLayer(input_size=128, output_size=64, 
-                node_type=PolyLUTNode, n=6,
-                node_kwargs={'input_dim': [6], 'output_dim': [1], 'degree': 3}),
-    nn.ReLU(),
-    RandomLayer(input_size=64, output_size=10, 
-                node_type=LinearLUTNode, n=4,
-                node_kwargs={'input_dim': [4], 'output_dim': [1]})
-)
-```
-
-### Using Residual Layers for Deeper Networks
-
-```python
-from difflut.layers import ResidualLayer
-
-# Stack residual LUT layers
-residual_layer = ResidualLayer(
-    input_size=256,
-    output_size=256,
-    base_layer_type=RandomLayer,
-    node_type=LinearLUTNode,
-    n=4,
-    node_kwargs={'input_dim': [4], 'output_dim': [1]},
-    residual_weight=0.5
-)
-```
-
-## Tips & Best Practices
-
-1. **Always fit encoders** on representative training data before using
-2. **Start simple** with `LinearLUTNode` and `RandomLayer`
-3. **Use appropriate `n` values** (typically 4-6 inputs per LUT)
-4. **Batch size matters** for numerical stability in gradient computation
-5. **GPU acceleration** available for Fourier, Hybrid, and other specialized nodes
-
-## Troubleshooting
-
-### Encoder not fitted error
-```python
-# ❌ Wrong: encoder not fitted
-encoder = ThermometerEncoder(num_bits=8)
-x = encoder(data)  # Error!
-
-# ✓ Correct: fit first
-encoder = ThermometerEncoder(num_bits=8)
-encoder.fit(training_data)  # Fit to data
-x = encoder(data)  # Now works
-```
-
-### Device mismatch errors
-```python
-# Ensure model and data are on same device
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-model = model.to(device)
-x = x.to(device)
-```
-
-## More Information
-
-- **Complete Usage Examples**: See [User Guide](USER_GUIDE.md)
-- **Component Details**: Check [Components Guide](USER_GUIDE/components.md)
-- **Registry & Pipelines**: Learn [registry system](USER_GUIDE/registry_pipeline.md)
-- **For Developers**: Read [Developer Guide](DEVELOPER_GUIDE.md)
