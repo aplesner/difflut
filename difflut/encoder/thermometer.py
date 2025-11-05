@@ -1,7 +1,14 @@
 import torch
+from typing import Optional
 import warnings
 from .base_encoder import BaseEncoder
 from ..registry import register_encoder
+from ..utils.warnings import warn_default_value
+
+
+
+# Default number of bits for thermometer encoding
+DEFAULT_THERMOMETER_NUM_BITS: int = 1
 
 @register_encoder("thermometer")
 class ThermometerEncoder(BaseEncoder):
@@ -12,7 +19,7 @@ class ThermometerEncoder(BaseEncoder):
     Example: value=0.6 with 3 bits and thresholds [0.25, 0.5, 0.75] -> [1, 1, 0]
     """
     
-    def __init__(self, num_bits: int = 1, flatten: bool = True):
+    def __init__(self, num_bits: int = DEFAULT_THERMOMETER_NUM_BITS, flatten: bool = True) -> None:
         """
         Args:
             num_bits: Number of threshold bits
@@ -20,6 +27,11 @@ class ThermometerEncoder(BaseEncoder):
                      if False, return 3D (batch_size, input_dim, num_bits)
         """
         super().__init__(num_bits=num_bits, flatten=flatten)
+        
+        # Note: Warnings for using default values are removed here since parameters
+        # are now explicitly provided in configs. Only warn when parameters are
+        # truly missing (not provided in kwargs).
+        
         self.thresholds = None
     
     def _compute_thresholds(self, x: torch.Tensor) -> torch.Tensor:

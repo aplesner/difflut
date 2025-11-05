@@ -11,10 +11,11 @@ Quick reference for tensor dimensions through the DiffLUT pipeline:
 | Component | Input Shape | Output Shape (flatten=True) | Output Shape (flatten=False) | Notes |
 |-----------|-------------|-----|-----|-------|
 | **Encoder** | `(batch_size, input_dim)` | `(batch_size, input_dim * num_bits)` | `(batch_size, input_dim, num_bits)` | Discretizes continuous inputs |
-| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size * output_dim)` | N/A | Routes inputs to nodes |
-| **Layer (internal)** | `(batch_size, input_size)` | `(batch_size, output_size, node_input_dim)` | N/A | Maps to node inputs |
-| **Nodes** | `(batch_size, output_size, node_input_dim)` | `(batch_size, output_size, node_output_dim)` | N/A | Parallel LUT evaluation |
+| **Layer** | `(batch_size, input_size)` | `(batch_size, output_size)` | N/A | Routes inputs to `output_size` independent nodes |
+| **Single Node** | `(batch_size, node_input_dim)` | `(batch_size, node_output_dim)` | N/A | Each node processes 2D tensors independently |
 | **GroupSum** | `(batch_size, num_nodes)` | `(batch_size, k)` | N/A | Groups & sums features |
+
+**Architecture**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors `(batch, input_dim) → (batch, output_dim)`. The layer iterates through nodes and concatenates outputs.
 
 
 
@@ -124,19 +125,19 @@ encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 
 **Use when**: You need standard binary representation.
 
-#### Gaussian Encoder
-Gaussian basis functions for smooth encoding.
+#### Gaussian Thermometer Encoder
+Gaussian basis functions for smooth thermometer-like encoding.
 
 ```python
-from difflut.encoder import GaussianEncoder
+from difflut.encoder import GaussianThermometerEncoder
 
 # Default: flatten output to 2D
-encoder = GaussianEncoder(num_bits=8, sigma=1.0)
+encoder = GaussianThermometerEncoder(num_bits=8, sigma=1.0)
 encoder.fit(train_data)
 encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
 
 # Optional: keep output as 3D
-encoder = GaussianEncoder(num_bits=8, sigma=1.0, flatten=False)
+encoder = GaussianThermometerEncoder(num_bits=8, sigma=1.0, flatten=False)
 encoder.fit(train_data)
 encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 ```
@@ -148,6 +149,28 @@ encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 
 **Use when**: You want smooth, continuous-like encoding with Gaussian basis functions.
 
+#### Distributive Thermometer Encoder
+Distributive thermometer encoding for handling value distributions.
+
+```python
+from difflut.encoder import DistributiveThermometerEncoder
+
+# Default: flatten output to 2D
+encoder = DistributiveThermometerEncoder(num_bits=8)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = DistributiveThermometerEncoder(num_bits=8, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
+```
+
+**Parameters**:
+- `num_bits`: Number of bits per feature
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
+
+**Use when**: Working with distributed data representations.
 #### One-Hot Encoder
 One-hot encoding (sparse representation).
 
@@ -170,6 +193,29 @@ encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
 - `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
 
 **Use when**: You need sparse, interpretable representations.
+
+#### Sign Magnitude Encoder
+Sign-magnitude encoding for representing signed values.
+
+```python
+from difflut.encoder import SignMagnitudeEncoder
+
+# Default: flatten output to 2D
+encoder = SignMagnitudeEncoder(num_bits=8)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim * num_bits)
+
+# Optional: keep output as 3D
+encoder = SignMagnitudeEncoder(num_bits=8, flatten=False)
+encoder.fit(train_data)
+encoded = encoder(data)  # Shape: (batch_size, input_dim, num_bits)
+```
+
+**Parameters**:
+- `num_bits`: Number of bits per feature
+- `flatten`: If True (default), return 2D tensor; if False, return 3D tensor
+
+**Use when**: Handling signed values or data with clear positive/negative distinction.
 
 #### Logarithmic Encoder
 Logarithmic scaling for handling large value ranges.
@@ -232,10 +278,27 @@ Output: Single value (for 1-output nodes)
 
 ### Common Node Parameters
 
-All nodes accept:
-- `input_dim`: List with single integer [n] - number of binary inputs
-- `output_dim`: List with single integer [m] - number of outputs
-- Other node-specific parameters
+All nodes now use type-safe `NodeConfig` for parameter passing:
+
+```python
+from difflut.nodes.node_config import NodeConfig
+
+# Create configuration (integers, not lists)
+config = NodeConfig(
+    input_dim=4,        # Number of binary inputs
+    output_dim=1,       # Number of outputs
+    init_fn=my_init,    # Optional initialization function
+    init_kwargs={},     # Initialization parameters
+    extra_params={}     # Node-specific parameters
+)
+```
+
+**Common parameters:**
+- `input_dim`: Integer n - number of binary inputs
+- `output_dim`: Integer m - number of outputs
+- `init_fn`: Optional initialization function
+- `init_kwargs`: Arguments for initialization
+- `extra_params`: Dict for node-specific parameters
 
 ### Available Node Types
 
@@ -244,8 +307,11 @@ Simple table lookup with differentiable weighting.
 
 ```python
 from difflut.nodes import LinearLUTNode
+from difflut.nodes.node_config import NodeConfig
 
-node = LinearLUTNode(input_dim=[4], output_dim=[1])
+# Create node with 4 inputs and 1 output
+config = NodeConfig(input_dim=4, output_dim=1)
+node = LinearLUTNode(**config.to_dict())
 
 # 4 inputs → 16 possible combinations
 # Learned weights: 16 values
@@ -264,15 +330,17 @@ Polynomial approximation of discrete function.
 
 ```python
 from difflut.nodes import PolyLUTNode
+from difflut.nodes.node_config import NodeConfig
 
-node = PolyLUTNode(
-    input_dim=[6],
-    output_dim=[1],
-    degree=3  # Polynomial degree
+config = NodeConfig(
+    input_dim=6,
+    output_dim=1,
+    extra_params={'degree': 3}
 )
+node = PolyLUTNode(**config.to_dict())
 ```
 
-**Parameters**:
+**Parameters** (in extra_params):
 - `degree`: Polynomial degree (2-5 recommended)
 
 **Characteristics**:
@@ -288,51 +356,78 @@ Multi-layer perceptron inside LUT cell.
 
 ```python
 from difflut.nodes import NeuralLUTNode
+from difflut.nodes.node_config import NodeConfig
 
-node = NeuralLUTNode(
-    input_dim=[4],
-    output_dim=[1],
-    hidden_width=32,  # MLP hidden layer width
-    hidden_layers=2   # Number of hidden layers
+config = NodeConfig(
+    input_dim=4,
+    output_dim=1,
+    extra_params={
+        'hidden_width': 32,
+        'depth': 2,
+        'skip_interval': 2,
+        'activation': 'relu',
+        'tau_start': 1.0,
+        'tau_min': 0.0001,
+        'tau_decay_iters': 1000.0,
+        'ste': False,
+        'grad_factor': 1.0
+    }
 )
+node = NeuralLUTNode(**config.to_dict())
 ```
 
-**Parameters**:
-- `hidden_width`: Width of hidden MLP layers
-- `hidden_layers`: Number of hidden MLP layers
+**Parameters** (in extra_params):
+- `hidden_width`: Width of hidden MLP layers (default: 8)
+- `depth`: Number of MLP layers (default: 2)
+- `skip_interval`: Interval for skip connections in MLP; 0 = no skips (default: 2)
+- `activation`: Activation function - `'relu'`, `'sigmoid'`, or `'leakyrelu'` (default: `'relu'`)
+- `tau_start`: Starting temperature for output scaling (default: 1.0)
+- `tau_min`: Minimum temperature during decay (default: 0.0001)
+- `tau_decay_iters`: Number of iterations for temperature decay (default: 1000.0)
+- `ste`: Use Straight-Through Estimator for discretization (default: False)
+- `grad_factor`: Gradient scaling factor during backward pass (default: 1.0)
 
 **Characteristics**:
 - Most expressive
 - Highest computational cost
 - Best approximation capability
 - Fully differentiable
+- Supports temperature annealing for discretization
 
-**Use when**: You need maximum expressiveness.
+**Use when**: You need maximum expressiveness or want temperature-based annealing.
 
 #### Fourier Node (GPU-accelerated)
 Fourier transform-based node with CUDA support.
 
 ```python
 from difflut.nodes import FourierNode
+from difflut.nodes.node_config import NodeConfig
 
-node = FourierNode(
-    input_dim=[4],
-    output_dim=[1],
-    freq_scale=1.0
+config = NodeConfig(
+    input_dim=4,
+    output_dim=1,
+    extra_params={
+        'use_cuda': True,
+        'max_amplitude': 1.0,
+        'use_all_frequencies': False
+    }
 )
+node = FourierNode(**config.to_dict())
 
 # Move to GPU for acceleration
 node = node.cuda()
 ```
 
-**Parameters**:
-- `freq_scale`: Frequency scaling factor
+**Parameters** (in extra_params):
+- `use_cuda`: Whether to use CUDA kernels (default: True)
+- `max_amplitude`: Maximum amplitude for Fourier coefficients (default: 1.0)
+- `use_all_frequencies`: Whether to use all 2^n frequency vectors (default: False)
 
 **Characteristics**:
 - GPU-accelerated (CUDA)
 - Periodic function learning
 - Fast on GPU
-- Lower gradients (stabilized)
+- Gradient-stabilized
 
 **Use when**: You have GPU and want fast periodic function learning.
 
@@ -341,97 +436,131 @@ Hybrid approach combining LUT and neural components.
 
 ```python
 from difflut.nodes import HybridNode
+from difflut.nodes.node_config import NodeConfig
 
-node = HybridNode(
-    input_dim=[4],
-    output_dim=[1],
-    hybrid_ratio=0.5
+config = NodeConfig(
+    input_dim=4,
+    output_dim=1,
+    extra_params={
+        'use_cuda': True
+    }
 )
+node = HybridNode(**config.to_dict())
 
 # Move to GPU
 node = node.cuda()
 ```
 
-**Parameters**:
-- `hybrid_ratio`: Balance between LUT and neural components (0-1)
+**Parameters** (in extra_params):
+- `use_cuda`: Whether to use CUDA kernels for fast GPU acceleration (default: True)
 
 **Characteristics**:
 - GPU-accelerated
-- Balanced computation/expressiveness
+- Binary forward pass (like DWN) for efficient inference
+- Probabilistic backward pass for smooth training
 - Good for large-scale problems
 - Faster than pure neural LUTs
 
-**Use when**: You want GPU acceleration with good expressiveness.
-
-#### Gradient Stabilized Node (GPU-accelerated)
-Specialized node with gradient normalization for stable training.
-
-```python
-from difflut.nodes import GradientStabilizedNode
-
-node = GradientStabilizedNode(
-    input_dim=[4],
-    output_dim=[1],
-    gradient_scale=1.0
-)
-
-# Move to GPU
-node = node.cuda()
-```
-
-**Parameters**:
-- `gradient_scale`: Gradient scaling factor for stability
-
-**Characteristics**:
-- GPU-accelerated
-- Stabilized gradients
-- Better convergence
-- Especially useful for large networks
-
-**Use when**: You have training stability issues.
-
-#### Probabilistic Node
-Probabilistic LUT with uncertainty.
-
-```python
-from difflut.nodes import ProbabilisticNode
-
-node = ProbabilisticNode(
-    input_dim=[4],
-    output_dim=[1],
-    uncertainty_scale=0.1
-)
-```
-
-**Parameters**:
-- `uncertainty_scale`: Scale of probabilistic uncertainty
-
-**Characteristics**:
-- Provides uncertainty estimates
-- Bayesian interpretation
-- Useful for Bayesian networks
-- Differentiable
-
-**Use when**: You need uncertainty estimates or Bayesian learning.
+**Use when**: You want GPU acceleration with good balance between speed and expressiveness.
 
 #### DWN Node
-Discrete Wavelet Network node.
+Discrete Wavelet Network node for wavelet-based learning.
 
 ```python
 from difflut.nodes import DWNNode
+from difflut.nodes.node_config import NodeConfig
 
-node = DWNNode(
-    input_dim=[4],
-    output_dim=[1]
+config = NodeConfig(
+    input_dim=4, 
+    output_dim=1,
+    extra_params={
+        'use_cuda': True,
+        'clamp_luts': True
+    }
 )
+node = DWNNode(**config.to_dict())
 ```
+
+**Parameters** (in extra_params):
+- `use_cuda`: Whether to use CUDA kernels (default: True)
+- `clamp_luts`: Whether to clamp LUT values to [0, 1] (default: True)
 
 **Characteristics**:
 - Wavelet-based learning
 - Good for multi-scale features
 - Efficient representation
+- Differentiable gradients
 
 **Use when**: You have multi-scale or hierarchical features.
+
+#### DWN Stable Node (GPU-accelerated)
+Gradient-stabilized DWN node with optional CUDA acceleration.
+
+```python
+from difflut.nodes import DWNStableNode
+from difflut.nodes.node_config import NodeConfig
+
+config = NodeConfig(
+    input_dim=4,
+    output_dim=1,
+    extra_params={
+        'use_cuda': True,
+        'gradient_scale': 1.25
+    }
+)
+node = DWNStableNode(**config.to_dict())
+
+# Move to GPU for acceleration
+node = node.cuda()
+```
+
+**Parameters** (in extra_params):
+- `use_cuda`: Whether to use CUDA acceleration (default: True)
+- `gradient_scale`: Gradient scaling factor for stable training (default: 1.25)
+
+**Characteristics**:
+- Gradient-stabilized DWN variant
+- Optional GPU acceleration
+- Better convergence for large networks
+- Stable training with controlled gradient magnitudes
+
+**Use when**: You need stable gradient flow or have GPU available.
+
+#### Probabilistic Node
+Probabilistic LUT with uncertainty estimation.
+
+```python
+from difflut.nodes import ProbabilisticNode
+from difflut.nodes.node_config import NodeConfig
+
+config = NodeConfig(
+    input_dim=4,
+    output_dim=1,
+    extra_params={
+        'temperature': 1.0,
+        'eval_mode': 'expectation',
+        'use_cuda': True
+    }
+)
+node = ProbabilisticNode(**config.to_dict())
+```
+
+**Parameters** (in extra_params):
+- `temperature`: Temperature for sigmoid scaling (default: 1.0)
+- `eval_mode`: Evaluation mode - `'expectation'`, `'deterministic'`, or `'threshold'` (default: `'expectation'`)
+  - `'expectation'`: Expected value computation
+  - `'deterministic'`: Binary thresholding at 0.5
+  - `'threshold'`: Threshold-based evaluation
+- `use_cuda`: Whether to use CUDA kernels for acceleration (default: True)
+
+**Characteristics**:
+- Provides probabilistic outputs and uncertainty estimates
+- Supports multiple evaluation modes
+- GPU acceleration available
+- Bayesian interpretation for uncertainty quantification
+- Differentiable
+
+**Use when**: You need uncertainty estimates or probabilistic outputs.
 
 ---
 
@@ -459,6 +588,33 @@ All layers accept:
 - `node_type`: Node class to use (not string)
 - `n`: Number of inputs per LUT
 - `node_kwargs`: Dict of parameters to pass to nodes
+- `flip_probability` (optional): Probability of bit flips during training for augmentation (default: 0.0)
+- `grad_stabilization` (optional): Gradient stabilization mode - `'none'`, `'layerwise'`, or `'batchwise'` (default: `'none'`)
+  - `'none'`: No gradient stabilization
+  - `'layerwise'`: Normalize gradients per layer
+  - `'batchwise'`: Normalize gradients per batch
+- `grad_target_std` (optional): Target standard deviation for gradient stabilization (default: 1.0)
+- `grad_subtract_mean` (optional): Whether to subtract mean from gradients (default: False)
+- `grad_epsilon` (optional): Small constant for numerical stability in gradient normalization (default: 1e-8)
+
+**Example with layer parameters:**
+```python
+from difflut.layers import RandomLayer
+from difflut.nodes import LinearLUTNode
+from difflut.nodes.node_config import NodeConfig
+
+# Configure with training augmentation and gradient stabilization
+layer = RandomLayer(
+    input_size=512,
+    output_size=256,
+    node_type=LinearLUTNode,
+    n=4,
+    flip_probability=0.01,  # 1% bit flip augmentation
+    grad_stabilization='layerwise',
+    grad_target_std=1.0,
+    node_kwargs=NodeConfig(input_dim=4, output_dim=1)
+)
+```
 
 ### Available Layer Types
 
@@ -512,62 +668,6 @@ layer = LearnableLayer(
 
 **Use when**: You want to learn input connectivity.
 
-#### Grouped Layer
-Divides inputs into groups, each group connected to a subset of outputs.
-
-```python
-from difflut.layers import GroupedLayer
-
-layer = GroupedLayer(
-    input_size=512,
-    output_size=256,
-    num_groups=8,  # 8 input groups
-    node_type=LinearLUTNode,
-    n=4,
-    node_kwargs={'input_dim': [4], 'output_dim': [1]}
-)
-```
-
-**Parameters**:
-- `num_groups`: Number of input groups
-
-**Characteristics**:
-- Semantic/structured connectivity
-- Reduces parameter space
-- Improves interpretability
-- Good for grouped features
-
-**Use when**: Inputs have natural groups (e.g., image regions).
-
-#### Residual Layer
-Adds skip connections for deeper networks.
-
-```python
-from difflut.layers import ResidualLayer
-
-layer = ResidualLayer(
-    input_size=256,
-    output_size=256,
-    base_layer_type=RandomLayer,
-    node_type=LinearLUTNode,
-    n=4,
-    node_kwargs={'input_dim': [4], 'output_dim': [1]},
-    residual_weight=0.5  # Balance between LUT output and skip
-)
-```
-
-**Parameters**:
-- `base_layer_type`: Type of layer to use as base (e.g., RandomLayer)
-- `residual_weight`: Weight for combining outputs
-
-**Characteristics**:
-- Skip connections
-- Easier to train deep networks
-- Helps with vanishing gradients
-- Input and output size must match
-
-**Use when**: Building deeper networks (3+ LUT layers).
-
 ---
 
 ## Stacking Components into Networks
@@ -597,7 +697,7 @@ class SimpleLUT(nn.Module):
         return x
 ```
 
-### Deep Residual Network
+### Deep Network with Multiple Layers
 
 ```python
 class DeepLUTNet(nn.Module):
@@ -605,23 +705,23 @@ class DeepLUTNet(nn.Module):
         super().__init__()
         self.encoder = ThermometerEncoder(num_bits=8)
         
-        # Stack residual layers
-        self.res_layer1 = ResidualLayer(128, 128, RandomLayer, LinearLUTNode, 4,
+        # Stack multiple learnable layers for better representation learning
+        self.layer1 = LearnableLayer(784*8, 256, LinearLUTNode, 4,
                                         node_kwargs={'input_dim': [4], 'output_dim': [1]})
-        self.res_layer2 = ResidualLayer(128, 128, RandomLayer, LinearLUTNode, 4,
+        self.layer2 = LearnableLayer(256, 128, LinearLUTNode, 4,
                                         node_kwargs={'input_dim': [4], 'output_dim': [1]})
-        self.res_layer3 = ResidualLayer(128, 128, RandomLayer, LinearLUTNode, 4,
+        self.layer3 = LearnableLayer(128, 64, LinearLUTNode, 4,
                                         node_kwargs={'input_dim': [4], 'output_dim': [1]})
         
-        self.output = RandomLayer(128, 10, LinearLUTNode, 4,
+        self.output = RandomLayer(64, 10, LinearLUTNode, 4,
                                   node_kwargs={'input_dim': [4], 'output_dim': [1]})
     
     def forward(self, x):
         x = x.view(x.size(0), -1)
         x = self.encoder(x)
-        x = torch.relu(self.res_layer1(x))
-        x = torch.relu(self.res_layer2(x))
-        x = torch.relu(self.res_layer3(x))
+        x = torch.relu(self.layer1(x))
+        x = torch.relu(self.layer2(x))
+        x = torch.relu(self.layer3(x))
         x = self.output(x)
         return x
 ```
@@ -661,7 +761,7 @@ class MixedNodeLUT(nn.Module):
 2. **Fit encoders properly**: Always fit on representative training data
 3. **Match layer dimensions**: Output size of layer n = input size of layer n+1
 4. **Use GPU nodes for large networks**: Fourier, Hybrid for speed
-5. **Use residual layers for depth**: Essential for networks with 3+ LUT layers
+5. **Use LearnableLayer for depth**: Learns better connectivity than Random for deeper networks
 6. **Experiment with n**: Typically 4-6 inputs per LUT gives good trade-offs
 
 ## Next Steps

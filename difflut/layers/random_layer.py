@@ -1,8 +1,119 @@
 import torch
 import torch.nn as nn
-from typing import Type, Dict, Any, Optional
+from typing import Type, Optional, Dict, Any, Tuple, Callable, List
+import warnings
 from .base_layer import BaseLUTLayer
 from ..registry import register_layer
+from ..nodes.node_config import NodeConfig
+from ..utils.warnings import warn_default_value
+
+# Default random seed for reproducible random mapping
+DEFAULT_RANDOM_LAYER_SEED: int = 42
+
+
+# Try to import the compiled CUDA extension for mapping
+try:
+    import mapping_cuda as _mapping_cuda_module
+    _MAPPING_CUDA_AVAILABLE = True
+except ImportError:
+    _MAPPING_CUDA_AVAILABLE = False
+    _mapping_cuda_module = None
+    warnings.warn(
+        "CUDA extension 'mapping_cuda' not available. RandomLayer will use slower PyTorch fallback. "
+        "For better performance, compile the CUDA extension using: "
+        "'cd difflut && python setup.py install'. "
+        "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.layers.random_layer')",
+        RuntimeWarning,
+        stacklevel=2
+    )
+
+# Try to import the compiled CUDA extension for probabilistic nodes
+try:
+    import probabilistic_cuda as _probabilistic_cuda_module
+    _PROBABILISTIC_CUDA_AVAILABLE = True
+except ImportError:
+    _PROBABILISTIC_CUDA_AVAILABLE = False
+    _probabilistic_cuda_module = None
+
+
+class MappingFunction(torch.autograd.Function):
+    """
+    Autograd function wrapper for mapping CUDA kernel.
+    Provides forward and backward passes with automatic differentiation.
+    """
+    @staticmethod
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, indices: torch.Tensor, input_size: int) -> torch.Tensor:
+        """
+        Forward pass using CUDA kernel.
+        
+        Args:
+            input: (batch_size, input_size) float tensor
+            indices: (output_size, n) int16/int32 tensor
+            input_size: int (needed for backward)
+        
+        Returns:
+            output: (batch_size, output_size, n) float tensor
+        """
+        if not _MAPPING_CUDA_AVAILABLE:
+            raise RuntimeError("CUDA extension not available. Use fallback implementation.")
+        
+        # Ensure correct dtypes and contiguity
+        input = input.contiguous().float()
+        indices = indices.contiguous()
+        
+        # Call CUDA forward kernel
+        output = _mapping_cuda_module.forward(input, indices)
+        
+        # Save for backward
+        ctx.save_for_backward(indices)
+        ctx.input_size = input_size
+        
+        return output
+    
+    @staticmethod
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, None, None]:
+        """
+        Backward pass using CUDA kernel.
+        
+        Args:
+            grad_output: (batch_size, output_size, n) gradient tensor
+        
+        Returns:
+            Gradients for (input, indices, input_size)
+        """
+        if not _MAPPING_CUDA_AVAILABLE:
+            raise RuntimeError("CUDA extension not available.")
+        
+        indices, = ctx.saved_tensors
+        input_size = ctx.input_size
+        
+        # Ensure contiguity
+        grad_output = grad_output.contiguous().float()
+        
+        # Call CUDA backward kernel
+        grad_input = _mapping_cuda_module.backward(grad_output, indices, input_size)
+        
+        # Return gradients (None for indices and input_size as they don't need gradients)
+        return grad_input, None, None
+
+
+def mapping_forward_cuda(input: torch.Tensor, indices: torch.Tensor, input_size: int) -> Optional[torch.Tensor]:
+    """
+    Mapping forward pass with automatic differentiation support.
+    
+    Args:
+        input: (batch_size, input_size) tensor
+        indices: (output_size, n) tensor
+        input_size: int
+    
+    Returns:
+        output: (batch_size, output_size, n) tensor
+    """
+    if _MAPPING_CUDA_AVAILABLE and input.is_cuda:
+        return MappingFunction.apply(input, indices, input_size)
+    else:
+        return None
+
 
 @register_layer("random")
 class RandomLayer(BaseLUTLayer):
@@ -10,42 +121,68 @@ class RandomLayer(BaseLUTLayer):
     LUT layer with purely random fixed mapping.
     Each input is used at least once per node before being reused.
     Connections are randomly initialized and remain fixed during training.
+    
+    Uses efficient index_select operations to minimize memory during mapping,
+    avoiding large intermediate tensors.
     """
     
-    def __init__(self, 
-                 input_size: int,
-                 output_size: int, 
-                 node_type: Type[nn.Module],
-                 node_kwargs: Optional[Dict[str, Any]] = None,
-                 seed: int = 42):
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        node_type: Type[nn.Module],
+        node_kwargs: NodeConfig,
+        seed: Optional[int] = DEFAULT_RANDOM_LAYER_SEED,
+        flip_probability: Optional[float] = None,
+        grad_stabilization: Optional[str] = None,
+        grad_target_std: Optional[float] = None,
+        grad_subtract_mean: Optional[bool] = None,
+        grad_epsilon: Optional[float] = None
+    ) -> None:
         """
         Args:
             input_size: Size of input vector (from encoder or previous layer)
                        Should match: (batch_size, input_size)
             output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
             node_type: LUT node class to use
-            node_kwargs: Additional node arguments (should include input_dim and output_dim)
+            node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
+            flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
+            grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
+            grad_target_std: Target standard deviation for gradient rescaling
+            grad_subtract_mean: Whether to subtract mean before rescaling
+            grad_epsilon: Small constant for numerical stability
         """
         self.seed = seed
         
+        # Note: Seed warning removed since seed is now explicitly provided in configs.
+        # Only warn if seed is truly missing (None), not if it equals the default value.
+        
         # Initialize parent (n will be extracted from created nodes)
-        super().__init__(input_size, output_size, node_type, node_kwargs)
+        super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
+                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
         
         # Initialize the random mapping
         self._init_mapping()
     
-    def _init_mapping(self):
+    def _init_mapping(self) -> None:
         """
         Initialize random mapping matrix.
         Ensures each input is used at least once per node before any reuse.
+        
+        Creates an index tensor of shape (output_size, n) where each entry specifies
+        which input index to use. This is more memory efficient than the binary mask.
         """
         # Store current RNG state and set seed for reproducibility
         rng_state = torch.get_rng_state()
         torch.manual_seed(self.seed)
         
-        mapping = torch.empty((self.output_size, self.n), dtype=torch.long)
+        # Create index mapping: (output_size, n)
+        # For each output node and position, store which input index to use
+        # Use int16 for memory efficiency (supports up to 32k input features)
+        dtype = torch.int16 if self.input_size < 32768 else torch.int32
+        mapping_indices = torch.zeros((self.output_size, self.n), dtype=dtype)
 
         for node_idx in range(self.output_size):
             # Calculate how many full cycles we need
@@ -64,11 +201,15 @@ class RandomLayer(BaseLUTLayer):
                 perm = torch.randperm(self.input_size)
                 indices.extend(perm[:remainder].tolist())
             
-            # Store mapping for this node
-            mapping[node_idx, :] = torch.tensor(indices, dtype=torch.long)
+            # Store indices for this node
+            mapping_indices[node_idx] = torch.tensor(indices, dtype=dtype)
         
         # Register as buffer (not a parameter, but saved with model)
-        self.register_buffer('_mapping', mapping)
+        # Shape: (output_size, n) - index mapping (int16/int32)
+        # Memory: output_size * n * 2 bytes (vs input_size * output_size * n * 1 byte for mask)
+        # For typical case: 1000 * 6 * 2 = 12KB (vs 1568 * 1000 * 6 * 1 = 9.4MB)
+        # Reduction: ~99% memory savings for mapping storage!
+        self.register_buffer('_mapping_indices', mapping_indices)
         
         # Restore original RNG state
         torch.set_rng_state(rng_state)
@@ -77,52 +218,96 @@ class RandomLayer(BaseLUTLayer):
         """
         Get mapped inputs using the fixed random mapping.
         
+        Uses custom CUDA kernel when available for optimal performance.
+        Falls back to PyTorch gather operations on CPU or if CUDA extension unavailable.
+        
         Args:
             x: Input tensor of shape (batch_size, input_size)
             
         Returns:
             Mapped inputs of shape (batch_size, output_size, n)
         """
+        # Try CUDA kernel first (fastest, eliminates expand + gather overhead)
+        if _MAPPING_CUDA_AVAILABLE and x.is_cuda:
+            mapped_inputs = mapping_forward_cuda(x, self._mapping_indices, self.input_size)
+            if mapped_inputs is not None:
+                return mapped_inputs
+        
+        # PyTorch fallback - efficient gather-based implementation
+        # MEMORY OPTIMIZATION: Use gather with index tensor
+        # This is more memory efficient than einsum as it:
+        # 1. Doesn't require float conversion of mask
+        # 2. Uses optimized indexing kernels
+        # 3. Avoids intermediate sparse matmul operations
+        
         batch_size = x.shape[0]
         
-        # MEMORY OPTIMIZATION: Avoid expanding (batch_size, output_size, input_size) tensor
-        # which would be massive for large batches (e.g., batch=73728, output_size=3578, n=4704 = 8.6 GB)
-        # 
-        # Shape of self._mapping: (output_size, n) containing indices into input dimension
-        # We want: output[b, o, i] = x[b, mapping[o, i]]
-        #
-        # The batch dimension is independent of the mapping - each sample uses the same mapping.
-        # Use torch.index_select to efficiently gather along the input dimension without 
-        # expanding intermediate tensors.
+        # Expand indices for batch dimension: (1, output_size, n) -> (batch_size, output_size, n)
+        indices_expanded = self._mapping_indices.unsqueeze(0).expand(batch_size, -1, -1)
         
-        # Flatten mapping to (output_size * n,) for single index_select operation
-        mapping_flat = self._mapping.reshape(-1)  # (output_size * n,)  # type: ignore
+        # Convert to long for indexing
+        indices_long = indices_expanded.long()
         
-        # Index select along input dimension: x -> (batch_size, output_size * n)
+        # Gather values: for each (batch, output, pos), get x[batch, indices[output, pos]]
         # x: (batch_size, input_size)
-        # Select the indices from mapping_flat along dimension 1
-        mapped_flat = torch.index_select(x, 1, mapping_flat)  # (batch_size, output_size * n)
+        # We need to gather from input_size dimension using indices
+        # Expand x to match output dimension, then gather along input dimension
         
-        # Reshape to (batch_size, output_size, n)
-        mapped_inputs = mapped_flat.reshape(batch_size, self.output_size, self.n)
+        # Approach: Use batched index_select equivalent via gather
+        # x.unsqueeze(1): (batch_size, 1, input_size)
+        # expand to: (batch_size, output_size, input_size)
+        # then gather along dim=2 using indices: (batch_size, output_size, n)
+        x_expanded = x.unsqueeze(1).expand(-1, self.output_size, -1)
+        mapped_inputs = torch.gather(x_expanded, dim=2, index=indices_long)
         
         return mapped_inputs
     
-    def get_mapping_indices(self) -> torch.Tensor:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Return mapping indices for fused forward pass optimization.
-
+        Forward pass through random mapping and node.
+        
+        Args:
+            x: Input tensor of shape (batch_size, input_size)
+        
         Returns:
-            Tensor of shape (output_size, n) containing indices into input dimension.
-            This is self._mapping, which is already in the correct format.
+            Output tensor of shape (batch_size, output_size * output_dim)
         """
-        return self._mapping  # type: ignore
-
+        # Validate input dimensions
+        self._validate_input_dims(x)
+        
+        # Get mapped inputs: (batch_size, output_size, n)
+        mapped_inputs = self.get_mapping(x)
+        
+        batch_size = mapped_inputs.shape[0]
+        output_dim = self.nodes[0].output_dim
+        
+        # Preallocate output tensor
+        output = torch.empty(
+            (batch_size, self.output_size, output_dim),
+            device=x.device,
+            dtype=x.dtype
+        )
+        
+        # Process each node independently with its slice of mapped inputs
+        for node_idx, node in enumerate(self.nodes):
+            # Extract inputs for this node: (batch_size, n)
+            node_input = mapped_inputs[:, node_idx, :]
+            # Forward through node: (batch_size, n) -> (batch_size, output_dim)
+            output[:, node_idx, :] = node(node_input)
+        
+        # Reshape to 2D for next layer: (batch_size, output_size * output_dim)
+        output = output.view(batch_size, -1)
+        
+        return output
+    
     def get_mapping_matrix(self) -> torch.Tensor:
-        """Get the random mapping matrix for inspection."""
-        return self._mapping.clone()  # type: ignore
-
+        """Get the random mapping matrix for inspection (as indices)."""
+        # Return the index mapping directly
+        return self._mapping_indices.long()
+    
     def extra_repr(self) -> str:
         """String representation for print(model)."""
+        flip_str = f", flip_prob={self.flip_probability}" if self.flip_probability > 0 else ""
+        grad_str = f", grad_stab={self.grad_stabilization}" if self.grad_stabilization != 'none' else ""
         return f"input_size={self.input_size}, output_size={self.output_size}, " \
-               f"n={self.n}, seed={self.seed}, mapping=random"
+               f"n={self.n}, seed={self.seed}, mapping=random{flip_str}{grad_str}"

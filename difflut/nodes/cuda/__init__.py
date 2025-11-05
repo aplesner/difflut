@@ -9,7 +9,7 @@ Node-specific CUDA extension imports and autograd functions are now in their res
 """
 import torch
 
-def is_cuda_available():
+def is_cuda_available() -> bool:
     """Check if CUDA is available for use."""
     return torch.cuda.is_available()
 

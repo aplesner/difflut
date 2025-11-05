@@ -1,11 +1,20 @@
 import torch
 import torch.nn as nn
 import numpy as np
-from typing import Optional, Callable
+from typing import Optional, Callable, Dict, Any, Tuple
 import warnings
 from .base_node import BaseNode
 from ..registry import register_node
+from ..utils.warnings import warn_default_value, CUDAWarning
+
 from .cuda import is_cuda_available
+
+# Default maximum amplitude for Fourier series
+DEFAULT_FOURIER_MAX_AMPLITUDE: float = 1.0
+# Default flag for using all 2^n frequency vectors
+DEFAULT_FOURIER_USE_ALL_FREQUENCIES: bool = False
+# Default flag for using CUDA kernels in Fourier nodes
+DEFAULT_FOURIER_USE_CUDA: bool = True
 
 # Try to import the fourier CUDA extension
 try:
@@ -29,21 +38,21 @@ class FourierFunction(torch.autograd.Function):
     PyTorch autograd function wrapper for Fourier CUDA kernels.
     """
     @staticmethod
-    def forward(ctx, input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval):
+    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, frequencies: torch.Tensor, amplitudes: torch.Tensor, phases: torch.Tensor, bias: torch.Tensor, max_amplitude: float, use_eval: bool) -> torch.Tensor:
         """
-        Forward pass using CUDA kernel with 3D tensors.
+        Forward pass using CUDA kernel with 2D tensors.
         
         Args:
-            input: (batch_size, layer_size, num_inputs) float tensor
+            input: (batch_size, num_inputs) float tensor
             frequencies: (num_frequencies, num_inputs) float tensor
-            amplitudes: (layer_size, num_frequencies, output_dim) float tensor
-            phases: (layer_size, num_frequencies, output_dim) float tensor
-            bias: (layer_size, output_dim) float tensor
+            amplitudes: (num_frequencies, output_dim) float tensor
+            phases: (num_frequencies, output_dim) float tensor
+            bias: (output_dim,) float tensor
             max_amplitude: float - maximum amplitude parameter
             use_eval: bool - whether to use Heaviside function (eval mode)
         
         Returns:
-            output: (batch_size, layer_size, output_dim) float tensor
+            output: (batch_size, output_dim) float tensor
         """
         if not _FOURIER_CUDA_EXT_AVAILABLE:
             raise RuntimeError("Fourier CUDA extension not available. Please compile fourier_cuda extension.")
@@ -55,7 +64,7 @@ class FourierFunction(torch.autograd.Function):
         phases = phases.contiguous().float()
         bias = bias.contiguous().float()
         
-        # Call appropriate CUDA forward kernel (now handles 3D tensors natively)
+        # Call appropriate CUDA forward kernel
         if use_eval:
             output = _fourier_cuda_module.forward_eval(input, frequencies, amplitudes, phases, bias, max_amplitude)
         else:
@@ -68,12 +77,12 @@ class FourierFunction(torch.autograd.Function):
         return output
     
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None, None]:
         """
-        Backward pass using CUDA kernel with 3D tensors.
+        Backward pass using CUDA kernel with 2D tensors.
         
         Args:
-            grad_output: (batch_size, layer_size, output_dim) gradient tensor
+            grad_output: (batch_size, output_dim) gradient tensor
         
         Returns:
             Gradients for (input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval)
@@ -87,7 +96,7 @@ class FourierFunction(torch.autograd.Function):
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
         
-        # Call CUDA backward kernel (now handles 3D tensors natively)
+        # Call CUDA backward kernel
         grad_input, grad_amplitudes, grad_phases, grad_bias = _fourier_cuda_module.backward(
             input, frequencies, amplitudes, phases, grad_output, max_amplitude
         )
@@ -96,28 +105,28 @@ class FourierFunction(torch.autograd.Function):
         return grad_input, None, grad_amplitudes, grad_phases, grad_bias, None, None
 
 
-def fourier_forward(input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval=False):
+def fourier_forward(input: torch.Tensor, frequencies: torch.Tensor, amplitudes: torch.Tensor, phases: torch.Tensor, bias: torch.Tensor, max_amplitude: float, use_eval: bool = False) -> Optional[torch.Tensor]:
     """
     Fourier forward pass with automatic differentiation support.
     
     Args:
-        input: (batch_size, layer_size, num_inputs) tensor
+        input: (batch_size, num_inputs) tensor
         frequencies: (num_frequencies, num_inputs) tensor
-        amplitudes: (layer_size, num_frequencies, output_dim) tensor
-        phases: (layer_size, num_frequencies, output_dim) tensor
-        bias: (layer_size, output_dim) tensor
+        amplitudes: (num_frequencies, output_dim) tensor
+        phases: (num_frequencies, output_dim) tensor
+        bias: (output_dim,) tensor
         max_amplitude: float - maximum amplitude parameter
         use_eval: bool - whether to use Heaviside function for evaluation
     
     Returns:
-        output: (batch_size, layer_size, output_dim) tensor
+        output: (batch_size, output_dim) tensor
     """
     if _FOURIER_CUDA_EXT_AVAILABLE and input.is_cuda:
         return FourierFunction.apply(input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval)
     else:
-        # CPU fallback - Fourier computation with per-layer-node parameters
-        batch_size, layer_size, input_dim = input.shape
-        output_dim = bias.shape[1]
+        # CPU fallback - Fourier computation
+        batch_size, input_dim = input.shape
+        output_dim = bias.shape[0]
         num_frequencies = frequencies.shape[0]
         
         # Input is assumed to already be in [0, 1] range
@@ -128,37 +137,37 @@ def fourier_forward(input, frequencies, amplitudes, phases, bias, max_amplitude,
             x_processed = input  # No sigmoid - input already in [0,1]
         
         # Compute <k, x> for all frequencies
-        # x_processed: (batch_size, layer_size, num_inputs)
+        # x_processed: (batch_size, num_inputs)
         # frequencies: (num_freq, num_inputs)
-        # Result: (batch_size, layer_size, num_freq)
-        dot_products = torch.einsum('bli,fi->blf', x_processed, frequencies)
+        # Result: (batch_size, num_freq)
+        dot_products = torch.matmul(x_processed, frequencies.t())  # (batch_size, num_freq)
         
         # Compute angles: 2π * <k, x>
-        angles = 2 * np.pi * dot_products  # (batch_size, layer_size, num_freq)
+        angles = 2 * np.pi * dot_products  # (batch_size, num_freq)
         
         # Normalize amplitudes to ensure bounded output
-        # amplitudes: (layer_size, num_frequencies, output_dim)
-        # Σ|w_k| ≤ max_amplitude per layer node
-        normalized_amplitudes = amplitudes / (amplitudes.sum(dim=1, keepdim=True) + 1e-8) * max_amplitude
+        # amplitudes: (num_frequencies, output_dim)
+        # Σ|w_k| ≤ max_amplitude
+        normalized_amplitudes = amplitudes / (amplitudes.sum(dim=0, keepdim=True) + 1e-8) * max_amplitude
         
         # Compute: Σ_k |w_k| * cos(2π * <k, x> + φ_k)
-        # angles: (batch_size, layer_size, num_freq)
-        # phases: (layer_size, num_freq, output_dim)
-        # normalized_amplitudes: (layer_size, num_freq, output_dim)
+        # angles: (batch_size, num_freq)
+        # phases: (num_freq, output_dim)
+        # normalized_amplitudes: (num_freq, output_dim)
         
-        # Add phases: (batch_size, layer_size, num_freq, output_dim)
+        # Add phases: (batch_size, num_freq, output_dim)
         phase_shifted_angles = angles.unsqueeze(-1) + phases.unsqueeze(0)
         
         # Compute cosines
-        cosines = torch.cos(phase_shifted_angles)  # (batch_size, layer_size, num_freq, output_dim)
+        cosines = torch.cos(phase_shifted_angles)  # (batch_size, num_freq, output_dim)
         
         # Weighted sum over frequencies
-        # cosines: (batch_size, layer_size, num_freq, output_dim)
-        # normalized_amplitudes: (layer_size, num_freq, output_dim)
-        output = torch.einsum('blfo,lfo->blo', cosines, normalized_amplitudes)
+        # cosines: (batch_size, num_freq, output_dim)
+        # normalized_amplitudes: (num_freq, output_dim)
+        output = torch.einsum('bfo,fo->bo', cosines, normalized_amplitudes)
         
-        # Add bias: (layer_size, output_dim)
-        output = output + bias.unsqueeze(0)
+        # Add bias: (output_dim,)
+        output = output + bias
         
         # Clamp to [0, 1]
         output = torch.clamp(output, 0.0, 1.0)
@@ -180,27 +189,27 @@ class FourierNode(BaseNode):
     - x is the input vector
     - The output is guaranteed to be real and bounded in [0, 1]
     
+    Processes 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
+    
     The Hermitian symmetry ensures the imaginary parts cancel, giving a real output.
     The weights are normalized to keep the amplitude bounded.
-    
-    Now supports per-layer-node parameters for better memory access patterns.
     """
     
-    def __init__(self, 
-                 input_dim: int = None,
-                 output_dim: int = None,
-                 layer_size: int = None,
-                 use_all_frequencies: bool = True,
-                 max_amplitude: float = 0.5,
-                 use_cuda: bool = True,
-                 regularizers: dict = None,
-                 init_fn: Optional[Callable] = None,
-                 init_kwargs: dict = None):
+    def __init__(
+        self,
+        input_dim: Optional[int] = None,
+        output_dim: Optional[int] = None,
+        use_all_frequencies: bool = DEFAULT_FOURIER_USE_ALL_FREQUENCIES,
+        max_amplitude: float = DEFAULT_FOURIER_MAX_AMPLITUDE,
+        use_cuda: bool = DEFAULT_FOURIER_USE_CUDA,
+        init_fn: Optional[Callable[[torch.Tensor], None]] = None,
+        init_kwargs: Optional[Dict[str, Any]] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None
+    ) -> None:
         """
         Args:
             input_dim: Input dimensions (e.g., 6)
             output_dim: Output dimensions (e.g., 1)
-            layer_size: Number of parallel nodes in the layer (e.g., 128)
             use_all_frequencies: If True, use all 2^n frequency vectors.
                                 If False, use only a subset for efficiency.
             max_amplitude: Maximum amplitude of oscillation (default 0.5 for [0,1] output)
@@ -209,8 +218,39 @@ class FourierNode(BaseNode):
             init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, layer_size=layer_size,
+        super().__init__(input_dim=input_dim, output_dim=output_dim,
                          regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
+        
+        # Determine which implementation is being used and warn accordingly
+        if use_cuda and _FOURIER_CUDA_EXT_AVAILABLE and is_cuda_available():
+            # Using CUDA implementation
+            pass  # Optimal configuration, no warning needed
+        elif use_cuda and not _FOURIER_CUDA_EXT_AVAILABLE:
+            # User requested CUDA but it's not available
+            implementation = "PyTorch GPU (fallback from CUDA)"
+            warnings.warn(
+                f"FourierNode: Using {implementation}. "
+                f"CUDA extension was requested (use_cuda=True) but is not compiled. "
+                f"Compile with: cd difflut && python setup.py install",
+                CUDAWarning,
+                stacklevel=2
+            )
+        elif not use_cuda:
+            # use_cuda=False, using CPU
+            implementation = "PyTorch CPU"
+            warnings.warn(
+                f"FourierNode: Using {implementation}. "
+                f"Set use_cuda=True in config and compile CUDA extension for better performance.",
+                CUDAWarning,
+                stacklevel=2
+            )
+        
+        # Warn if using default values
+        if use_all_frequencies == DEFAULT_FOURIER_USE_ALL_FREQUENCIES:
+            warn_default_value("use_all_frequencies", use_all_frequencies, stacklevel=2)
+        if max_amplitude == DEFAULT_FOURIER_MAX_AMPLITUDE:
+            warn_default_value("max_amplitude", max_amplitude, stacklevel=2)
+        
         self.use_all_frequencies = use_all_frequencies
         self.max_amplitude = max_amplitude
         self.use_cuda = use_cuda and is_cuda_available()
@@ -238,75 +278,68 @@ class FourierNode(BaseNode):
         self.register_buffer('frequencies', frequencies)  # Shape: (num_freq, num_inputs)
         
         # Initialize complex weights as separate real and imaginary parts
-        # Now with per-layer-node parameters
-        # Shape: (layer_size, num_frequencies, output_dim)
+        # Shape: (num_frequencies, output_dim)
         
         # Amplitudes (always positive) - create with defaults, then apply init_fn if provided
-        self.amplitudes = nn.Parameter(torch.rand(self.layer_size, self.num_frequencies, self.num_outputs) * 0.1)
+        self.amplitudes = nn.Parameter(torch.rand(self.num_frequencies, self.num_outputs) * 0.1)
         self._apply_init_fn(self.amplitudes, name="amplitudes")
         
         # Phases (in radians)
         self.phases = nn.Parameter(
-            torch.rand(self.layer_size, self.num_frequencies, self.num_outputs) * 2 * np.pi - np.pi
+            torch.rand(self.num_frequencies, self.num_outputs) * 2 * np.pi - np.pi
         )
         self._apply_init_fn(self.phases, name="phases")
         
         # Bias term (initialized at 0.5 to center output in [0, 1])
-        # Shape: (layer_size, output_dim)
-        self.bias = nn.Parameter(torch.full((self.layer_size, self.num_outputs), 0.5))
+        # Shape: (output_dim,)
+        self.bias = nn.Parameter(torch.full((self.num_outputs,), 0.5))
         self._apply_init_fn(self.bias, name="bias")
     
     def _compute_output(self, x: torch.Tensor) -> torch.Tensor:
         """
-        Compute the Fourier sum with per-layer-node parameters.
+        Compute the Fourier sum.
         
         Args:
-            x: Input tensor (batch_size, layer_size, num_inputs) in [0, 1]
+            x: Input tensor (batch_size, num_inputs) in [0, 1]
         Returns:
-            Output tensor (batch_size, layer_size, output_dim)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
+        batch_size, input_dim = x.shape
         
         # Input is assumed to already be in [0, 1] range
         
         # Compute <k, x> for all frequencies
-        # x: (batch_size, layer_size, num_inputs)
+        # x: (batch_size, num_inputs)
         # frequencies: (num_freq, num_inputs)
-        # Result: (batch_size, layer_size, num_freq)
-        dot_products = torch.einsum('bli,fi->blf', x, self.frequencies)
+        # Result: (batch_size, num_freq)
+        dot_products = torch.matmul(x, self.frequencies.t())  # (batch_size, num_freq)
         
         # Compute angles: 2π * <k, x>
-        angles = 2 * np.pi * dot_products  # (batch_size, layer_size, num_freq)
+        angles = 2 * np.pi * dot_products  # (batch_size, num_freq)
         
         # Normalize amplitudes to ensure bounded output
-        # amplitudes: (layer_size, num_frequencies, output_dim)
-        # Σ|w_k| ≤ max_amplitude per layer node
-        normalized_amplitudes = self.amplitudes / (self.amplitudes.sum(dim=1, keepdim=True) + 1e-8) * self.max_amplitude
+        # amplitudes: (num_frequencies, output_dim)
+        # Σ|w_k| ≤ max_amplitude
+        normalized_amplitudes = self.amplitudes / (self.amplitudes.sum(dim=0, keepdim=True) + 1e-8) * self.max_amplitude
         
         # Compute: Σ_k |w_k| * cos(2π * <k, x> + φ_k)
-        # angles: (batch_size, layer_size, num_freq)
-        # phases: (layer_size, num_freq, output_dim)
-        # normalized_amplitudes: (layer_size, num_freq, output_dim)
+        # angles: (batch_size, num_freq)
+        # phases: (num_freq, output_dim)
+        # normalized_amplitudes: (num_freq, output_dim)
         
-        # Add phases: (batch_size, layer_size, num_freq, output_dim)
+        # Add phases: (batch_size, num_freq, output_dim)
         phase_shifted_angles = angles.unsqueeze(-1) + self.phases.unsqueeze(0)
         
         # Compute cosines
-        cosines = torch.cos(phase_shifted_angles)  # (batch_size, layer_size, num_freq, output_dim)
+        cosines = torch.cos(phase_shifted_angles)  # (batch_size, num_freq, output_dim)
         
         # Weighted sum over frequencies
-        # cosines: (batch_size, layer_size, num_freq, output_dim)
-        # normalized_amplitudes: (layer_size, num_freq, output_dim)
-        output = torch.einsum('blfo,lfo->blo', cosines, normalized_amplitudes)
+        # cosines: (batch_size, num_freq, output_dim)
+        # normalized_amplitudes: (num_freq, output_dim)
+        output = torch.einsum('bfo,fo->bo', cosines, normalized_amplitudes)
         
-        # Add bias: (layer_size, output_dim)
-        output = output + self.bias.unsqueeze(0)
+        # Add bias: (output_dim,)
+        output = output + self.bias
         
         # Clamp to [0, 1]
         output = torch.clamp(output, 0.0, 1.0)
@@ -319,17 +352,11 @@ class FourierNode(BaseNode):
         Uses CUDA kernels if available, otherwise falls back to Python implementation.
         
         Args:
-            x: Input tensor (batch_size, layer_size, num_inputs)
+            x: Input tensor (batch_size, num_inputs)
         Returns:
-            Output tensor (batch_size, layer_size, output_dim)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
+        batch_size, input_dim = x.shape
         
         # Use CUDA-accelerated forward if available, otherwise Python fallback
         if self.use_cuda and x.is_cuda and _FOURIER_CUDA_EXT_AVAILABLE:
@@ -349,17 +376,11 @@ class FourierNode(BaseNode):
         Uses CUDA kernels if available with Heaviside in the kernel.
         
         Args:
-            x: Input tensor (batch_size, layer_size, num_inputs)
+            x: Input tensor (batch_size, num_inputs)
         Returns:
-            Output tensor (batch_size, layer_size, output_dim)
+            Output tensor (batch_size, output_dim)
         """
-        batch_size, layer_size, input_dim = x.shape
-        
-        # Verify layer_size matches
-        if layer_size != self.layer_size:
-            raise ValueError(
-                f"Input layer_size {layer_size} does not match node's layer_size {self.layer_size}"
-            )
+        batch_size, input_dim = x.shape
         
         # Use CUDA-accelerated forward_eval if available
         if self.use_cuda and x.is_cuda and _FOURIER_CUDA_EXT_AVAILABLE:

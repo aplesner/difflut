@@ -9,9 +9,9 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
 ## ✨ Features
 
 - **Modular Architecture**: Encoders, LUT nodes, and layers as composable building blocks
-- **Multiple Node Types**: LinearLUT, PolyLUT, NeuralLUT, DWN, Probabilistic, Fourier, Hybrid, Gradient-Stabilized
-- **Input Encoders**: Thermometer, Gaussian, Gray, OneHot, Binary, Logarithmic, and more
-- **Flexible Layers**: Random, Learnable, Grouped, and Residual connectivity patterns
+- **Multiple Node Types**: LinearLUT, PolyLUT, NeuralLUT, DWN, DWNStable, Probabilistic, Fourier, Hybrid
+- **Input Encoders**: Thermometer, Gaussian, Distributive, Gray, OneHot, Binary, SignMagnitude, Logarithmic
+- **Flexible Layers**: Random and Learnable connectivity patterns
 - **CUDA Acceleration**: Optional GPU support for compute-intensive nodes
 - **FPGA Export**: Tools for deploying trained networks to FPGAs
 - **Component Registry**: Easy discovery and instantiation of components
@@ -30,6 +30,7 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
   - [Creating Components](docs/DEVELOPER_GUIDE/creating_components.md) - Implement custom nodes/encoders/layers
   - [Packaging & Distribution](docs/DEVELOPER_GUIDE/packaging.md) - Build and publish DiffLUT
   - [Contributing](docs/DEVELOPER_GUIDE/contributing.md) - Development setup and guidelines
+  - [Tests](docs/DEVELOPER_GUIDE/tests.md) - Test setup and guidelines
 
 ## 📦 Package Structure
 
@@ -60,11 +61,11 @@ If you use DiffLUT in your research, please cite:
 
 ```bibtex
 @software{difflut2025,
-  title={DiffLUT: Differentiable LUT Networks for Efficient FPGA Deployment},
-  author={B\"uhrer, Simon Jonas},
+  title={DiffLUT: Differentiable Lookup Table Networks},
+  author={B\"uhrer, Simon Jonas and Plesner, Andreas and Aczel, Till},
   year={2025},
   institution={ETH Zurich, Distributed Computing Group},
-  url={https://gitlab.ethz.ch/disco-students/hs25/difflut}
+  url={https://github.com/aplesner/difflut}
 }
 ```
 
@@ -74,13 +75,12 @@ MIT License - See [LICENSE](LICENSE) file for details.
 
 ## 👤 Contact
 
-- **Author**: Simon Jonas Bührer
-- **Email**: sbuehrer@ethz.ch
+- **Authors**: Simon Jonas Bührer, Andreas Plesner, and Till Aczel
+- **Emails**: {sbuehrer,aplesner,taczel}@ethz.ch
 - **Institution**: ETH Zurich, Distributed Computing Group
-- **Issues**: https://gitlab.ethz.ch/disco-students/hs25/difflut/-/issues
+- **Issues**: https://github.com/aplesner/difflut/-/issues
 
 ## 🔗 Related Projects
 
 Part of the **DiffLUT Research Framework**:
 - **Parent Project**: Full experiment pipeline with Hydra configs and SLURM scripts
-- **Repository**: https://gitlab.ethz.ch/disco-students/hs25/difflut

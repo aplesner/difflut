@@ -1,6 +1,18 @@
 import torch
 import torch.nn as nn
 import warnings
+from typing import Optional
+from .warnings import warn_default_value
+
+# Default number of output groups (typically number of classes)
+# GroupSum will divide input features into k groups and sum within each group
+DEFAULT_GROUPSUM_K: int = 1
+# Default temperature/tau parameter for scaling grouped output
+# Divides the grouped sum by tau to adjust output magnitude
+DEFAULT_GROUPSUM_TAU: float = 1.0
+# Default flag for whether to randomly permute input features before grouping
+# If True, adds randomness to which features are grouped together
+DEFAULT_GROUPSUM_USE_RANDPERM: bool = False
 
 
 class GroupSum(nn.Module):
@@ -18,25 +30,49 @@ class GroupSum(nn.Module):
     The input is reshaped to (batch_size, k, group_size) where
     group_size = num_features // k, then summed across groups.
     """
-    def __init__(self, k, tau=1, use_randperm=False):
+    def __init__(
+        self,
+        k: Optional[int] = None,
+        tau: Optional[float] = None,
+        use_randperm: Optional[bool] = None,
+    ) -> None:
         """
         Args:
-            k: Number of output groups (number of classes)
-            tau: Temperature parameter for scaling output
-            use_randperm: If True, randomly permute input features before grouping
+            k: Number of output groups (number of classes). If None, uses DEFAULT_GROUPSUM_K.
+            tau: Temperature parameter for scaling output. If None, uses DEFAULT_GROUPSUM_TAU.
+            use_randperm: If True, randomly permute input features before grouping. 
+                         If None, uses DEFAULT_GROUPSUM_USE_RANDPERM.
         """
         super().__init__()
-        self.k = k  # Number of output groups
-        self.tau = tau
-        self.use_randperm = use_randperm
+        
+        # Set k with default and warning
+        if k is None:
+            self.k = DEFAULT_GROUPSUM_K
+            warn_default_value("k (GroupSum)", self.k, stacklevel=2)
+        else:
+            self.k = k
+        
+        # Set tau with default and warning
+        if tau is None:
+            self.tau = DEFAULT_GROUPSUM_TAU
+            warn_default_value("tau (GroupSum)", self.tau, stacklevel=2)
+        else:
+            self.tau = tau
+        
+        # Set use_randperm with default and warning
+        if use_randperm is None:
+            self.use_randperm = DEFAULT_GROUPSUM_USE_RANDPERM
+            warn_default_value("use_randperm (GroupSum)", self.use_randperm, stacklevel=2)
+        else:
+            self.use_randperm = use_randperm
         
         # Validate parameters
-        if not isinstance(k, int) or k <= 0:
-            raise ValueError(f"k must be a positive integer, got {k}")
-        if not isinstance(tau, (int, float)) or tau <= 0:
-            raise ValueError(f"tau must be a positive number, got {tau}")
+        if not isinstance(self.k, int) or self.k <= 0:
+            raise ValueError(f"k must be a positive integer, got {self.k}")
+        if not isinstance(self.tau, (int, float)) or self.tau <= 0:
+            raise ValueError(f"tau must be a positive number, got {self.tau}")
         
-    def _validate_input_dim(self, x: torch.Tensor):
+    def _validate_input_dim(self, x: torch.Tensor) -> None:
         """
         Validate that input dimensions are compatible.
         
@@ -76,7 +112,7 @@ class GroupSum(nn.Module):
                 stacklevel=3
             )
         
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass: group input features and sum within groups.
         

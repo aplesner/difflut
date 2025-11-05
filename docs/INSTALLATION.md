@@ -6,7 +6,7 @@ This guide covers installing DiffLUT for development or use.
 
 - **Python**: 3.7 or higher
 - **PyTorch**: 1.9 or higher
-- **CUDA** (optional): Required for GPU acceleration on CUDA-capable nodes (Fourier, Hybrid, Gradient-Stabilized)
+- **CUDA** (optional): Required for GPU acceleration on CUDA-capable nodes (Fourier, Hybrid, DWN, DWNStable, Probabilistic)
 
 ## Basic Installation
 
@@ -38,9 +38,9 @@ CUDA kernels for the following nodes are compiled automatically if CUDA is avail
 
 - **Fourier Node**: `fourier_cuda`
 - **Hybrid Node**: `hybrid_cuda`
-- **Gradient-Stabilized Node**: `gradient_stabilized_cuda`
-- **Probabilistic Node**: `probabilistic_cuda`
+- **DWN Node**: `efd_cuda`
 - **DWN Stable Node**: `dwn_stable_cuda`
+- **Probabilistic Node**: `probabilistic_cuda`
 
 If CUDA is not available, CPU fallback implementations are used automatically.
 
