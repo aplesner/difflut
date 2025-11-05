@@ -85,23 +85,23 @@ jobs:
       matrix:
         include:
           - python-version: '3.10'
-            cuda-version: '12.6'
-            torch-version: 'torch==2.4.0+cu126'
+            cuda-version: '12.4'
+            torch-version: 'torch==2.4.0'
           - python-version: '3.10'
-            cuda-version: '12.6'
-            torch-version: 'torch==2.5.0+cu126'
+            cuda-version: '12.4'
+            torch-version: 'torch==2.5.0'
           - python-version: '3.11'
             cuda-version: '12.6'
-            torch-version: 'torch==2.6.0+cu126'
+            torch-version: 'torch==2.6.0'
           - python-version: '3.11'
             cuda-version: '12.6'
-            torch-version: 'torch==2.7.0+cu126'
+            torch-version: 'torch==2.7.0'
           - python-version: '3.12'
-            cuda-version: '12.6'
-            torch-version: 'torch==2.8.0+cu126'
+            cuda-version: '12.8'
+            torch-version: 'torch==2.8.0'
           - python-version: '3.12'
-            cuda-version: '12.6'
-            torch-version: 'torch==2.9.0+cu126'
+            cuda-version: '12.8'
+            torch-version: 'torch==2.9.0'
 
     steps:
     - uses: actions/checkout@v4
@@ -139,13 +139,30 @@ jobs:
       run: |
         set -eux
         # pick the correct PyTorch index for the CUDA version
-        if [[ "${{ matrix.cuda-version }}" == 11* ]]; then
-          INDEX_URL="https://download.pytorch.org/whl/cu118"
-        elif [[ "${{ matrix.cuda-version }}" == "12.1" ]]; then
-          INDEX_URL="https://download.pytorch.org/whl/cu121"
-        else
-          INDEX_URL="https://download.pytorch.org/whl/cu126"
-        fi
+        case "${{ matrix.cuda-version }}" in
+          11.8)
+            INDEX_URL="https://download.pytorch.org/whl/cu118"
+            ;;
+          12.1)
+            INDEX_URL="https://download.pytorch.org/whl/cu121"
+            ;;
+          12.4)
+            INDEX_URL="https://download.pytorch.org/whl/cu124"
+            ;;
+          12.6)
+            INDEX_URL="https://download.pytorch.org/whl/cu126"
+            ;;
+          12.8)
+            INDEX_URL="https://download.pytorch.org/whl/cu128"
+            ;;
+          12.9)
+            INDEX_URL="https://download.pytorch.org/whl/cu129"
+            ;;
+          *)
+            echo "Unsupported CUDA version: ${{ matrix.cuda-version }}"
+            exit 1
+            ;;
+        esac
         pip install ${{ matrix.torch-version }} torchvision torchaudio --index-url "$INDEX_URL"
 
     - name: Install DiffLUT (GPU)
