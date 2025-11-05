@@ -14,14 +14,18 @@ jobs:
       matrix:
         include:
           # Python 3.10+ required for PEP 604 union type syntax (X | Y)
-          - python-version: '3.9'
-            torch-version: 'torch==2.3.1'
           - python-version: '3.10'
-            torch-version: 'torch==2.4.1'
-          - python-version: '3.11'
+            torch-version: 'torch==2.4.0'
+          - python-version: '3.10'
             torch-version: 'torch==2.5.0'
-          - python-version: '3.12'
+          - python-version: '3.11'
             torch-version: 'torch==2.6.0'
+          - python-version: '3.11'
+            torch-version: 'torch==2.7.0'
+          - python-version: '3.12'
+            torch-version: 'torch==2.8.0'
+          - python-version: '3.12'
+            torch-version: 'torch==2.9.0'
 
     steps:
     - uses: actions/checkout@v4
@@ -82,10 +86,19 @@ jobs:
         include:
           - python-version: '3.10'
             cuda-version: '12.6'
+            torch-version: 'torch==2.4.0+cu126'
+          - python-version: '3.10'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.5.0+cu126'
+          - python-version: '3.11'
+            cuda-version: '12.6'
             torch-version: 'torch==2.6.0+cu126'
           - python-version: '3.11'
             cuda-version: '12.6'
-            torch-version: 'torch==2.7.1+cu126'
+            torch-version: 'torch==2.7.0+cu126'
+          - python-version: '3.12'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.8.0+cu126'
           - python-version: '3.12'
             cuda-version: '12.6'
             torch-version: 'torch==2.9.0+cu126'
