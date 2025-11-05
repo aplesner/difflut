@@ -14,16 +14,14 @@ jobs:
       matrix:
         include:
           # Python 3.10+ required for PEP 604 union type syntax (X | Y)
+          - python-version: '3.9'
+            torch-version: 'torch==2.3.1'
           - python-version: '3.10'
-            torch-version: 'torch==2.0.1'
+            torch-version: 'torch==2.4.1'
           - python-version: '3.11'
-            torch-version: 'torch==2.0.1'
-          - python-version: '3.11'
-            torch-version: 'torch==2.2.0'
+            torch-version: 'torch==2.5.0'
           - python-version: '3.12'
-            torch-version: 'torch==2.2.0'
-          - python-version: '3.12'
-            torch-version: 'torch==2.4.0'
+            torch-version: 'torch==2.6.0'
 
     steps:
     - uses: actions/checkout@v4
@@ -81,14 +79,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.10', '3.11']
         include:
           - python-version: '3.10'
-            cuda-version: '11.8'
-            torch-version: 'torch==2.0.1'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.4.1'
           - python-version: '3.11'
-            cuda-version: '12.1'
-            torch-version: 'torch==2.2.0'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.5.0'
+          - python-version: '3.12'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.6.0'
 
     steps:
     - uses: actions/checkout@v4
@@ -128,8 +128,10 @@ jobs:
         # pick the correct PyTorch index for the CUDA version
         if [[ "${{ matrix.cuda-version }}" == 11* ]]; then
           INDEX_URL="https://download.pytorch.org/whl/cu118"
-        else
+        elif [[ "${{ matrix.cuda-version }}" == "12.1" ]]; then
           INDEX_URL="https://download.pytorch.org/whl/cu121"
+        else
+          INDEX_URL="https://download.pytorch.org/whl/cu126"
         fi
         pip install ${{ matrix.torch-version }} torchvision torchaudio --index-url "$INDEX_URL"
 
