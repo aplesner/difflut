@@ -1,0 +1,123 @@
+name: Version Management
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - '.bumpversion.cfg'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'difflut/__init__.py'
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install bump2version
+      run: |
+        pip install bump2version
+
+    - name: Validate version consistency
+      run: |
+        # Extract versions from each file
+        SETUP_VERSION=$(grep "version=" setup.py | head -1 | sed "s/.*version='//;s/'.*//")
+        PYPROJECT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        INIT_VERSION=$(grep "__version__" difflut/__init__.py | sed "s/.*__version__ = '//;s/'.*//")
+        
+        echo "setup.py version: $SETUP_VERSION"
+        echo "pyproject.toml version: $PYPROJECT_VERSION"
+        echo "difflut/__init__.py version: $INIT_VERSION"
+        
+        # Check if all versions match
+        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ] || [ "$PYPROJECT_VERSION" != "$INIT_VERSION" ]; then
+          echo "❌ Version mismatch detected!"
+          exit 1
+        fi
+        
+        echo "✅ All versions are consistent: $SETUP_VERSION"
+
+  check-version-bump:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Check version bump in PR
+      run: |
+        # Get current version from main branch
+        git fetch origin main:main
+        MAIN_VERSION=$(git show main:pyproject.toml | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//')
+        PR_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        
+        echo "Main branch version: $MAIN_VERSION"
+        echo "PR version: $PR_VERSION"
+        
+        if [ "$MAIN_VERSION" = "$PR_VERSION" ]; then
+          echo "⚠️  Version not bumped in PR. Consider using bump2version to increment the version."
+          echo ""
+          echo "Usage: bump2version [major|minor|patch]"
+          echo "  bump2version patch   # 1.1.2 → 1.1.3"
+          echo "  bump2version minor   # 1.1.2 → 1.2.0"
+          echo "  bump2version major   # 1.1.2 → 2.0.0"
+        fi
+
+  sync-versions:
+    runs-on: ubuntu-latest
+    needs: validate-version
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Sync versions across files
+      run: |
+        cd difflut
+        
+        # Extract version from pyproject.toml (source of truth)
+        VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        
+        # Update setup.py
+        sed -i "s/version='[^']*'/version='$VERSION'/g" setup.py
+        
+        # Update __init__.py
+        sed -i "s/__version__ = '[^']*'/__version__ = '$VERSION'/g" difflut/__init__.py
+        
+        echo "✅ All versions synced to: $VERSION"
+
+    - name: Create Pull Request for version sync
+      if: github.event_name == 'push'
+      uses: peter-evans/create-pull-request@v5
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        commit-message: 'chore: sync versions across files'
+        title: 'Sync versions across files'
+        body: |
+          Automatic version synchronization across setup.py, pyproject.toml, and __init__.py
+          
+          This PR was auto-generated to ensure version consistency.
+        branch: chore/sync-versions
+        delete-branch: true
+        labels: 'automation'
