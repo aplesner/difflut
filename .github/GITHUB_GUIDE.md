@@ -84,20 +84,20 @@ DiffLUT uses **semantic versioning** (SemVer) with automated version management 
 | **MINOR** | New features that are backward compatible | `1.2.3` → `1.3.0` |
 | **PATCH** | Bug fixes and minor improvements | `1.2.3` → `1.2.4` |
 
-### 🤖 Automatic Version Bumping
+### 🚨 Version Bump Requirement
 
-The version management workflow **automatically bumps the patch version** if you forget to do it manually. This ensures every merge increments the version.
+The version management workflow **requires you to bump the version** before merging to main. If you forget, the CI will fail and warn you.
 
 **What happens:**
 1. You create a PR without bumping the version
 2. CI detects version hasn't changed from `main`
-3. **Warning**: PR comment alerts you about auto-bump
-4. When merged to `main`, version is auto-bumped (patch)
-5. New version is committed and tagged
+3. **CI fails** with a clear warning message
+4. PR comment tells you exactly what to do
+5. You bump the version and push again
 
-### 🔧 Manual Version Bumping (Recommended)
+### 🔧 How to Bump Version (Required)
 
-Before creating a PR, manually bump the version based on your changes:
+Before creating a PR, **always bump the version** based on your changes:
 
 ```bash
 # For bug fixes and minor improvements (default)
@@ -115,6 +115,11 @@ bump2version major   # 1.2.3 → 2.0.0
 - Creates a git commit with message: `Bump version: X.Y.Z → X.Y.Z+1`
 - Creates a git tag: `vX.Y.Z+1`
 - Ensures version consistency across all files
+
+**After bumping, push with tags:**
+```bash
+git push --follow-tags
+```
 
 ### 📝 Version Files
 
@@ -136,7 +141,7 @@ DiffLUT has two main workflows in `.github/workflows/`:
 ├── GITHUB_GUIDE.md
 └── workflows/
     ├── tests.yml              # Runs tests on CPU and GPU
-    └── version-management.yml # Auto-bumps version if needed
+    └── version-management.yml # Enforces version bumping
 ```
 
 ### 🧪 Tests Workflow (`tests.yml`)
@@ -165,25 +170,34 @@ DiffLUT has two main workflows in `.github/workflows/`:
 
 **What it does:**
 1. **Version Check** - Compares your branch version with `main` branch version
-2. **Auto-Bump** - If versions match, automatically bumps patch version
-3. **Warning** - Posts comment on PR if auto-bump occurred
-4. **Commit** - Creates commit with bumped version (only on push to `main`)
-5. **Tag** - Creates git tag for the new version
+2. **Fail if Not Bumped** - CI fails if versions are the same
+3. **Warning** - Posts clear comment on PR with instructions
+4. **Enforce** - Prevents merging without version bump
 
 **Behavior:**
-- **Pull Request**: Warns you if version needs bumping
-- **Push to Main**: Automatically commits and pushes version bump
+- **Pull Request**: Fails CI and posts comment if version not bumped
+- **Push to Main**: Fails if version wasn't bumped
 
 **Example PR Comment:**
 ```
-⚠️ Version Bump Warning
+⚠️ Version Bump Required
 
-The version was not manually bumped. Auto-bumped from `1.2.3` → `1.2.4`.
+The version has not been bumped from the main branch.
 
-If you want a minor or major version bump instead, run:
-bump2version minor  # for feature additions
-bump2version major  # for breaking changes
+Please run one of the following commands before merging:
+bump2version patch  # for bug fixes (1.1.3 → 1.1.4)
+bump2version minor  # for new features (1.1.3 → 1.2.0)
+bump2version major  # for breaking changes (1.1.3 → 2.0.0)
+
+Then commit and push the changes:
+git push --follow-tags
 ```
+
+**Why this approach?**
+- Simple and predictable
+- No automated commits to worry about
+- Forces developers to think about version semantics
+- No permission issues with GitHub Actions
 
 ---
 
