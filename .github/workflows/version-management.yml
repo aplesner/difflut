@@ -3,9 +3,11 @@ name: Version Management
 on:
   push:
     branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 jobs:
-  validate-and-bump:
+  check-and-bump:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -22,63 +24,65 @@ jobs:
       run: |
         pip install bump2version
 
-    - name: Validate version consistency
+    - name: Check version and auto-bump if needed
+      id: version_check
       run: |
-        # Extract versions from each file
-        SETUP_VERSION=$(grep "version=" setup.py | head -1 | sed "s/.*version='//;s/'.*//")
-        PYPROJECT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
-        INIT_VERSION=$(grep "__version__ = " difflut/__init__.py | head -1 | sed "s/.*__version__ = '//;s/'.*//")
-        
-        echo "setup.py version: $SETUP_VERSION"
-        echo "pyproject.toml version: $PYPROJECT_VERSION"
-        echo "difflut/__init__.py version: $INIT_VERSION"
-        
-        # Check if versions match
-        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ] || [ "$SETUP_VERSION" != "$INIT_VERSION" ]; then
-          echo "❌ Version mismatch detected!"
-          exit 1
-        fi
-        
-        echo "✅ All versions are consistent: $SETUP_VERSION"
-
-    - name: Auto-bump patch version
-      id: auto_bump
-      run: |
-        # Get the version from the previous commit (before this merge)
-        git fetch origin main:refs/remotes/origin/main
-        PREV_VERSION=$(git show HEAD~1:pyproject.toml 2>/dev/null | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//' || echo "")
+        # Extract current branch version
         CURRENT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        echo "Current branch version: $CURRENT_VERSION"
         
-        echo "Previous version: $PREV_VERSION"
-        echo "Current version: $CURRENT_VERSION"
+        # Get main branch version
+        git fetch origin main:refs/remotes/origin/main || true
+        MAIN_VERSION=$(git show origin/main:pyproject.toml 2>/dev/null | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//' || echo "")
+        echo "Main branch version: $MAIN_VERSION"
         
-        # If versions are the same, auto-bump patch version
-        if [ "$PREV_VERSION" = "$CURRENT_VERSION" ] && [ -n "$PREV_VERSION" ]; then
+        # If versions are the same, we need to bump
+        if [ "$CURRENT_VERSION" = "$MAIN_VERSION" ] && [ -n "$MAIN_VERSION" ]; then
+          echo "⚠️  WARNING: Version not bumped! Current: $CURRENT_VERSION, Main: $MAIN_VERSION"
           echo "⚡ Auto-bumping patch version..."
           
           # Configure git
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Bump patch version (bump2version handles git add and commit)
-          bump2version patch
+          # Bump patch version
+          bump2version patch --allow-dirty
           
           # Get new version
           NEW_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
-          echo "bumped=true" >> $GITHUB_OUTPUT
+          echo "needs_bump=true" >> $GITHUB_OUTPUT
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "old_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "✅ Version auto-bumped: $CURRENT_VERSION → $NEW_VERSION"
         else
-          # Version was manually changed (minor/major bump)
-          if [ "$PREV_VERSION" != "$CURRENT_VERSION" ]; then
-            echo "✅ Version already bumped manually: $PREV_VERSION → $CURRENT_VERSION"
+          echo "needs_bump=false" >> $GITHUB_OUTPUT
+          if [ "$CURRENT_VERSION" != "$MAIN_VERSION" ]; then
+            echo "✅ Version already bumped: $MAIN_VERSION → $CURRENT_VERSION"
           else
-            echo "ℹ️  No previous version found or first push"
+            echo "ℹ️  First push or no main branch to compare"
           fi
-          echo "bumped=false" >> $GITHUB_OUTPUT
         fi
 
-    - name: Push version bump
-      if: steps.auto_bump.outputs.bumped == 'true'
+    - name: Push version bump (only on push to main)
+      if: steps.version_check.outputs.needs_bump == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
-        git push origin HEAD:main --tags
+        git push origin HEAD:main --follow-tags
+        echo "✅ Version bump committed and pushed to main"
+
+    - name: Comment on PR (only on pull requests)
+      if: steps.version_check.outputs.needs_bump == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '⚠️ **Version Bump Warning**\n\n' +
+                  'The version was not manually bumped. Auto-bumped from `${{ steps.version_check.outputs.old_version }}` → `${{ steps.version_check.outputs.new_version }}`.\n\n' +
+                  'If you want a **minor** or **major** version bump instead, run:\n' +
+                  '```bash\n' +
+                  'bump2version minor  # for feature additions\n' +
+                  'bump2version major  # for breaking changes\n' +
+                  '```'
+          })
