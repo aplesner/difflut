@@ -76,7 +76,7 @@ This will:
 ## 🏗️ Container Architecture
 
 ### Base Image
-- **PyTorch:** 2.4.0
+- **PyTorch:** 2.9.0
 - **CUDA:** 12.8
 - **cuDNN:** 9
 - **Python:** 3.11
