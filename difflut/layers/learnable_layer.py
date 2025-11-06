@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from typing import Type, Optional, Tuple
 import warnings
 from .base_layer import BaseLUTLayer
+from .layer_config import LayerConfig
 from ..registry import register_layer
 from ..nodes.node_config import NodeConfig
 from ..utils.warnings import warn_default_value
@@ -258,15 +259,16 @@ class LearnableLayer(BaseLUTLayer):
     selection during training, or argmax for hard selection during evaluation.
     """
     
-    def __init__(self, 
+    def __init__(self,
                  input_size: int,
-                 output_size: int, 
+                 output_size: int,
                  node_type: Type[nn.Module],
                  node_kwargs: NodeConfig,
                  tau: float = None,
                  tau_start: float = None,
                  tau_min: float = None,
                  tau_decay_iters: float = None,
+                 layer_config: Optional[LayerConfig] = None,
                  flip_probability: float = None,
                  grad_stabilization: str = None,
                  grad_target_std: float = None,
@@ -285,6 +287,7 @@ class LearnableLayer(BaseLUTLayer):
             tau_start: Starting value for tau (used for exponential decay)
             tau_min: Minimum value tau can decay to
             tau_decay_iters: Number of iterations for tau to decay by factor of 10
+            layer_config: LayerConfig object with training parameters (flip_probability, grad_stabilization, etc.)
             flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
             grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
             grad_target_std: Target standard deviation for gradient rescaling
@@ -319,8 +322,8 @@ class LearnableLayer(BaseLUTLayer):
             )
         
         # Initialize parent with nodes (n will be extracted from created nodes)
-        super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
-                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
+        super().__init__(input_size, output_size, node_type, node_kwargs, layer_config,
+                        flip_probability, grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
         
         # Warn about parameter count after n is known
         total_connections = output_size * self.n

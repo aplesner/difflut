@@ -25,27 +25,23 @@ def test_0_imports():
 
     # Test basic imports
     try:
-        print("\n[1/6] Importing torch...")
+        print("\n[1/5] Importing torch...")
         import torch
         print(f"      ✓ PyTorch {torch.__version__}")
 
-        print("\n[2/6] Importing difflut...")
+        print("\n[2/5] Importing difflut...")
         import difflut
         print(f"      ✓ difflut {difflut.__version__}")
 
-        print("\n[3/6] Importing difflut.nodes...")
+        print("\n[3/5] Importing difflut.nodes...")
         from difflut.nodes import DWNNode, LinearLUTNode
         print("      ✓ DWNNode, LinearLUTNode")
 
-        print("\n[4/6] Importing difflut.layers...")
-        from difflut.layers import RandomLayer
-        print("      ✓ RandomLayer")
+        print("\n[4/5] Importing difflut.layers...")
+        from difflut.layers import RandomLayer, ConvolutionalLayer
+        print("      ✓ RandomLayer, ConvolutionalLayer")
 
-        print("\n[5/6] Importing difflut.models...")
-        from difflut.models import feedforward_core
-        print("      ✓ feedforward_core")
-
-        print("\n[6/6] Checking CUDA extensions...")
+        print("\n[5/5] Checking CUDA extensions...")
         try:
             import efd_cuda
             print("      ✓ efd_cuda (standard) available")

@@ -4,16 +4,17 @@
 # - NVIDIA A100 (8.0), A6000 (8.6)
 # - RTX 3090 (8.6), Titan RTX (7.5), Titan XP (6.1)
 # - V100 (7.0), RTX 2080 Ti (7.5)
-# Base Image: pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+# Base Image: pytorch/pytorch:2.9.0-cuda12.8-cudnn9-runtime
 ###############################################################################
 Bootstrap: docker
-From: pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel
+From: pytorch/pytorch:2.9.0-cuda12.8-cudnn9-devel
 Stage: build
 
 %setup
     # Copy entire difflut package (including nested structure and setup.py)
+    # Note: Build command is run from project root
     mkdir -p ${APPTAINER_ROOTFS}/opt/difflut
-    cp setup.py pyproject.toml test_import.py ${APPTAINER_ROOTFS}/opt/difflut/
+    cp setup.py pyproject.toml apptainer/test_import.py requirements.txt ${APPTAINER_ROOTFS}/opt/difflut/
     cp -r difflut ${APPTAINER_ROOTFS}/opt/difflut/
 
 %post
@@ -30,11 +31,15 @@ Stage: build
     ##################################################
     # CUDA Architecture Configuration
     ##################################################
-    # We omit the 3090s, A100s and A6000s for faster compile times
-    # If you want to include them, uncomment the line below
-    # export TORCH_CUDA_ARCH_LIST="6.1;7.0;7.5"
-    # export TORCH_CUDA_ARCH_LIST="6.1;7.0;7.5;8.0;8.6"
-    export TORCH_CUDA_ARCH_LIST="8.6"
+    # TORCH_CUDA_ARCH_LIST is set by build_container.sh via environment variable
+    # If not set (e.g., building manually), default to 8.6
+    if [ -z "$TORCH_CUDA_ARCH_LIST" ]; then
+        export TORCH_CUDA_ARCH_LIST="8.6"
+        echo "Using default CUDA architecture: 8.6"
+    else
+        echo "Using CUDA architectures from environment: $TORCH_CUDA_ARCH_LIST"
+    fi
+
     export CUDA_HOME=/usr/local/cuda
     export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
 
@@ -42,27 +47,14 @@ Stage: build
     # Python Packages
     ##################################################
     pip3 install --no-cache-dir --upgrade pip
-    pip3 install --no-cache-dir \
-        tqdm \
-        scikit-learn \
-        numpy \
-        matplotlib \
-        pandas \
-        wandb \
-        omegaconf \
-        hydra-core \
-        tonic \
-        aedat \
-        lightning \
-        jupyterlab \
-        ipywidgets \
-        notebook \
-        ipykernel \
-        nvidia-ml-py \
-        pydantic 
-        
-    # Verify the hydra installation
+
+    # Install dependencies from requirements.txt
+    cd /opt/difflut
+    pip3 install --no-cache-dir -r requirements.txt
+
+    # Verify key package installations
     python3 -c "import hydra; print('Hydra version:', hydra.__version__)"
+    python3 -c "import torch; print('PyTorch version:', torch.__version__)"
 
     ##################################################
     # Install DiffLUT with CUDA Extensions
@@ -71,7 +63,6 @@ Stage: build
     echo "Building DiffLUT with CUDA extensions..."
     echo "=============================================="
 
-    cd /opt/difflut
     ls -l .
 
     # Set MAX_JOBS to number of CPU cores minus 2 for parallel build
@@ -111,7 +102,7 @@ Stage: build
 ###############################################################################
 
 Bootstrap: docker
-From: pytorch/pytorch:2.4.0-cuda12.4-cudnn9-runtime
+From: pytorch/pytorch:2.9.0-cuda12.8-cudnn9-runtime
 Stage: final
 
 %files from build
@@ -158,7 +149,7 @@ Stage: final
     echo "Python version: $(python --version)"
     echo "$(python -c 'import torch; print(f"PyTorch version: {torch.__version__}", "CUDA available: {torch.cuda.is_available()}", "CUDA version: {torch.version.cuda}", "GPU detected: {torch.cuda.get_device_name(0)}", sep="\n")')"
     echo "===================================================================="
-    echo "Usage: singularity exec --nv --bind <host_path>:<container_path> <image.sif> python script.py"
+    echo "Usage: apptainer exec --nv --bind <host_path>:<container_path> <image.sif> python script.py"
 
     echo "Starting Jupyter Lab..."
     python3 -m notebook --no-browser --port 5998 --ip $(hostname -f)

@@ -13,6 +13,6 @@ bash helper_scripts/remote_sync_container.sh
 apptainer exec \
     --nv \
     --bind "${SCRATCH_STORAGE_DIR}" \
-    "${SINGULARITY_CONTAINER_SCRATCH}" \
+    "${APPTAINER_CONTAINER_SCRATCH}" \
     "$@"
     

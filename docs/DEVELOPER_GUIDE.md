@@ -59,7 +59,7 @@ difflut/
   - Building source/wheel distributions
   - CUDA kernel compilation
   - Publishing to PyPI
-  - Docker/Singularity containers
+  - Docker/Apptainer containers
   - Deployment best practices
 
 ### For Contributing

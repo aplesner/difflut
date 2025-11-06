@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Minimal gradient flow test with ConvolutionalLUTLayer.
+Minimal gradient flow test with ConvolutionalLayer.
 
 Creates synthetic data: 10% white pixels (class 0) vs 90% white pixels (class 1).
 Trains a simple model: ConvLayer → RandomLayer → GroupSum
 Verifies that gradients flow correctly through the fused kernels.
 
 Usage:
-    python test_gradient_flow.py
+    python tests/test_gradient_flow.py
 """
 
 import torch
@@ -78,7 +78,7 @@ def create_synthetic_data(num_samples, image_size=28, white_prob_class0=0.1, whi
 def train_and_test():
     """Train simple model and report results."""
     print("="*80)
-    print("  GRADIENT FLOW TEST: ConvolutionalLUTLayer")
+    print("  GRADIENT FLOW TEST: ConvolutionalLayer")
     print("="*80)
 
     # Check CUDA
@@ -91,9 +91,9 @@ def train_and_test():
 
     # Import here to avoid issues if difflut not installed
     try:
-        from convolutional_lut import ConvolutionalLUTLayer
-        from difflut.layers.random_layer import RandomLayer
-        from difflut.nodes.dwn_node import DWNNode
+        from difflut.layers import ConvolutionalLayer, ConvolutionConfig, RandomLayer
+        from difflut.nodes import DWNNode
+        from difflut.nodes.node_config import NodeConfig
         from difflut.utils.modules import GroupSum
     except ImportError as e:
         print(f"✗ Import failed: {e}")
@@ -104,18 +104,28 @@ def train_and_test():
     print("Building model...")
     print("-"*80)
 
-    # Conv layer: 1→32 channels, 5x5 receptive field
-    conv_layer = ConvolutionalLUTLayer(
+    # Create convolution configuration
+    conv_config = ConvolutionConfig(
         tree_depth=2,
         in_channels=1,
         out_channels=32,
         receptive_field=5,
         stride=1,
         padding=0,
-        node_type='dwn',
-        layer_type='random',
-        n_inputs_per_node=6,
+        chunk_size=16,
         seed=42
+    )
+
+    # Create node configuration
+    node_config = NodeConfig(input_dim=6, output_dim=1)
+
+    # Conv layer: 1→32 channels, 5x5 receptive field
+    conv_layer = ConvolutionalLayer(
+        convolution_config=conv_config,
+        node_type=DWNNode,
+        node_kwargs=node_config,
+        layer_type=RandomLayer,
+        n_inputs_per_node=6
     )
 
     # Feedforward layer: flatten conv output → 100 nodes
@@ -124,7 +134,7 @@ def train_and_test():
         input_size=32 * 24 * 24,
         output_size=100,
         node_type=DWNNode,
-        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        node_kwargs=node_config,
         seed=43
     )
 
@@ -218,7 +228,7 @@ def train_and_test():
         print("  ✓ GRADIENT FLOW TEST PASSED")
         print("="*80)
         print("\n✓ Model trained successfully with fused kernels!")
-        print("  Gradients flow correctly through ConvolutionalLUTLayer.\n")
+        print("  Gradients flow correctly through ConvolutionalLayer.\n")
         return 0
     else:
         print("  ⚠ TRAINING COMPLETED BUT ACCURACY LOW")

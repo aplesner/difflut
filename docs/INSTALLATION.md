@@ -143,10 +143,10 @@ pip install difflut-1.1.0.tar.gz
 
 ## Docker
 
-A containerized environment is available via Singularity:
+A containerized environment is available via Apptainer:
 
 ```bash
-singularity run --nv pytorch_universal_minimal.sif
+apptainer run --nv pytorch_universal_minimal.sif
 ```
 
 The `--nv` flag enables GPU support. See `containers/` for container definitions.

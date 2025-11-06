@@ -1,0 +1,26 @@
+# Core dependencies (already in base pytorch image, but listed for reference)
+torch>=1.9.0
+numpy
+
+# Scientific computing and visualization
+scikit-learn
+matplotlib
+pandas
+
+# Experiment tracking and configuration
+wandb
+omegaconf
+hydra-core
+
+# Training framework
+lightning
+
+# Jupyter and notebooks
+jupyterlab
+ipywidgets
+notebook
+ipykernel
+
+# Monitoring and utilities
+pydantic
+tqdm

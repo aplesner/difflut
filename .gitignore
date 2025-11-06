@@ -44,6 +44,7 @@ data/
 *.tmp
 *.bak
 *.txt
+!requirements.txt
 
 # Installer logs
 pip-log.txt
@@ -99,8 +100,9 @@ $RECYCLE.BIN/
 # Linux
 *~
 
-# Apptainer 
-*.sif
+# Apptainer/Apptainer containers
+apptainer/*.sif
+apptainer/build_logs/
 
 # Ignore files used for development purposes
 helper_scripts/

@@ -72,11 +72,6 @@ from .encoder import (
     LogarithmicEncoder,
 )
 
-from .models import (
-    feedforward_core,
-    feedforward,
-)
-
 from .utils import (
     GroupSum,
     # Warning utilities
@@ -110,7 +105,6 @@ __all__ = [
     'NeuralLUTNode',
     'PolyLUTNode',
     'ProbabilisticNode',
-    'ProbabilisticStableNode',
     'HybridNode',
     'FourierNode',
     'DWNStableNode',
@@ -129,10 +123,6 @@ __all__ = [
     'SignMagnitudeEncoder',
     'LogarithmicEncoder',
 
-    # Models
-    'feedforward_core',
-    'feedforward',
-    
     # Utils
     'GroupSum',
     

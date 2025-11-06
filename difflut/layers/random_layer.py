@@ -3,6 +3,7 @@ import torch.nn as nn
 from typing import Type, Optional, Dict, Any, Tuple, Callable, List
 import warnings
 from .base_layer import BaseLUTLayer
+from .layer_config import LayerConfig
 from ..registry import register_layer
 from ..nodes.node_config import NodeConfig
 from ..utils.warnings import warn_default_value
@@ -133,6 +134,7 @@ class RandomLayer(BaseLUTLayer):
         node_type: Type[nn.Module],
         node_kwargs: NodeConfig,
         seed: Optional[int] = DEFAULT_RANDOM_LAYER_SEED,
+        layer_config: Optional[LayerConfig] = None,
         flip_probability: Optional[float] = None,
         grad_stabilization: Optional[str] = None,
         grad_target_std: Optional[float] = None,
@@ -148,6 +150,7 @@ class RandomLayer(BaseLUTLayer):
             node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
+            layer_config: LayerConfig object with training parameters (flip_probability, grad_stabilization, etc.)
             flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
             grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
             grad_target_std: Target standard deviation for gradient rescaling
@@ -155,13 +158,13 @@ class RandomLayer(BaseLUTLayer):
             grad_epsilon: Small constant for numerical stability
         """
         self.seed = seed
-        
+
         # Note: Seed warning removed since seed is now explicitly provided in configs.
         # Only warn if seed is truly missing (None), not if it equals the default value.
-        
+
         # Initialize parent (n will be extracted from created nodes)
-        super().__init__(input_size, output_size, node_type, node_kwargs, flip_probability,
-                        grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
+        super().__init__(input_size, output_size, node_type, node_kwargs, layer_config,
+                        flip_probability, grad_stabilization, grad_target_std, grad_subtract_mean, grad_epsilon)
         
         # Initialize the random mapping
         self._init_mapping()
