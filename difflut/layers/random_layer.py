@@ -3,15 +3,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
-from typing import Type, Optional, Dict, Any, Tuple, Callable, List
-import warnings
-from .base_layer import BaseLUTLayer
-from .layer_config import LayerConfig
-from ..registry import register_layer
+
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
 from ..utils.warnings import warn_default_value
 from .base_layer import BaseLUTLayer
+from .layer_config import LayerConfig
 
 # Default random seed for reproducible random mapping
 DEFAULT_RANDOM_LAYER_SEED: int = 42
@@ -186,7 +183,8 @@ class RandomLayer(BaseLUTLayer):
             node_type,
             node_kwargs,
             layer_config,
-            flip_probability, grad_stabilization,
+            flip_probability,
+            grad_stabilization,
             grad_target_std,
             grad_subtract_mean,
             grad_epsilon,

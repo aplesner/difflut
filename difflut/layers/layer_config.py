@@ -71,7 +71,7 @@ class LayerConfig:
     """
 
     flip_probability: float = 0.0
-    grad_stabilization: str = 'none'
+    grad_stabilization: str = "none"
     grad_target_std: float = 1.0
     grad_subtract_mean: bool = False
     grad_epsilon: float = 1e-8
@@ -79,14 +79,16 @@ class LayerConfig:
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         # Validate flip_probability
-        if not isinstance(self.flip_probability, (int, float)) or not (0.0 <= self.flip_probability <= 1.0):
+        if not isinstance(self.flip_probability, (int, float)) or not (
+            0.0 <= self.flip_probability <= 1.0
+        ):
             raise ValueError(
                 f"flip_probability must be a float in [0, 1], got {self.flip_probability}. "
                 f"Example: flip_probability=0.1 for 10% bit flipping during training."
             )
 
         # Validate grad_stabilization
-        valid_grad_modes = ['none', 'layerwise', 'batchwise']
+        valid_grad_modes = ["none", "layerwise", "batchwise"]
         if self.grad_stabilization not in valid_grad_modes:
             raise ValueError(
                 f"grad_stabilization must be one of {valid_grad_modes}, got '{self.grad_stabilization}'. "
@@ -107,14 +109,14 @@ class LayerConfig:
                 f"Used for numerical stability in variance calculation"
             )
 
-    def copy(self) -> 'LayerConfig':
+    def copy(self) -> "LayerConfig":
         """Create a copy of this configuration."""
         return LayerConfig(
             flip_probability=self.flip_probability,
             grad_stabilization=self.grad_stabilization,
             grad_target_std=self.grad_target_std,
             grad_subtract_mean=self.grad_subtract_mean,
-            grad_epsilon=self.grad_epsilon
+            grad_epsilon=self.grad_epsilon,
         )
 
     def __repr__(self) -> str:
@@ -122,7 +124,7 @@ class LayerConfig:
         params = []
         if self.flip_probability > 0:
             params.append(f"flip_probability={self.flip_probability}")
-        if self.grad_stabilization != 'none':
+        if self.grad_stabilization != "none":
             params.append(f"grad_stabilization='{self.grad_stabilization}'")
             params.append(f"grad_target_std={self.grad_target_std}")
             if self.grad_subtract_mean:

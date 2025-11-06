@@ -302,7 +302,7 @@ class BaseNode(nn.Module, ABC):
 
         # Call standard forward pass
         return self.forward(mapped_inputs)
-    
+
     def regularization(self) -> torch.Tensor:
         """
         Compute regularization term for the node.

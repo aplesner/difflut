@@ -47,6 +47,7 @@ except ImportError:
 # Try to import the fused CUDA extension (for memory-efficient mapping)
 try:
     import efd_fused_cuda as _efd_fused_cuda_module
+
     _FUSED_CUDA_EXT_AVAILABLE = True
 except ImportError:
     _FUSED_CUDA_EXT_AVAILABLE = False
@@ -380,7 +381,7 @@ class DWNNode(BaseNode):
 
         # Binarize output: [0, 1] -> {0, 1} using threshold at 0.5
         output = (output >= 0.5).float()
-        
+
         return output
 
     def forward_with_mapping(self, x: torch.Tensor, mapping_indices: torch.Tensor) -> torch.Tensor:
@@ -423,8 +424,7 @@ class DWNNode(BaseNode):
         if self.use_cuda and x.is_cuda and _FUSED_CUDA_EXT_AVAILABLE:
             # Fused path: no intermediate tensor materialized
             output = EFDFusedFunction.apply(
-                x, mapping_indices, self.luts,
-                self.alpha.item(), self.beta.item()
+                x, mapping_indices, self.luts, self.alpha.item(), self.beta.item()
             )
         else:
             # Fallback to base implementation (materializes mapped_inputs)

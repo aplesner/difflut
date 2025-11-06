@@ -32,7 +32,7 @@ LAYER_UNDERUSE_WARNING_DIVISOR: int = 10
 LAYER_MAX_NODE_INPUT_DIM: int = 15
 
 
-class LUTLayerMixin:
+class LUTLayerMixin(nn.Module):
     """
     Mixin providing shared functionality for LUT layers:
     - Bit flip augmentation
@@ -87,7 +87,9 @@ class LUTLayerMixin:
                 self.flip_probability = flip_probability
 
             # Validate flip_probability
-            if not isinstance(self.flip_probability, (int, float)) or not (0.0 <= self.flip_probability <= 1.0):
+            if not isinstance(self.flip_probability, (int, float)) or not (
+                0.0 <= self.flip_probability <= 1.0
+            ):
                 raise ValueError(
                     f"flip_probability must be a float in [0, 1], got {self.flip_probability}. "
                     f"Example: flip_probability=0.1 for 10% bit flipping during training."
@@ -337,7 +339,7 @@ class LUTLayerMixin:
         return grad
 
 
-class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
+class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
     """
     Base class for LUT layers with proper gradient flow.
 
@@ -360,7 +362,7 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
         grad_stabilization: Optional[str] = None,
         grad_target_std: Optional[float] = None,
         grad_subtract_mean: Optional[bool] = None,
-        grad_epsilon: Optional[float] = None
+        grad_epsilon: Optional[float] = None,
     ) -> None:
         super().__init__()
 
@@ -378,33 +380,38 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
             )
 
         # Initialize mixin parameters
-        self._init_lut_layer_mixin(layer_config, flip_probability, grad_stabilization, grad_target_std,
-                                    grad_subtract_mean, grad_epsilon)
+        self._init_lut_layer_mixin(
+            layer_config,
+            flip_probability,
+            grad_stabilization,
+            grad_target_std,
+            grad_subtract_mean,
+            grad_epsilon,
+        )
 
         self.input_size = input_size
         self.output_size = output_size
 
         # Create a ModuleList of individual node instances
         # Each node operates independently on (batch_size, input_dim) -> (batch_size, output_dim)
-        self.nodes = nn.ModuleList([
-            node_type(**node_kwargs.to_dict())
-            for _ in range(output_size)
-        ])
+        self.nodes = nn.ModuleList([node_type(**node_kwargs.to_dict()) for _ in range(output_size)])
 
         # Extract n (number of inputs per node) and output_dim from first node
-        self.n = self.nodes[0].num_inputs
-        self.output_dim_per_node = self.nodes[0].num_outputs
+        self.n: int = self.nodes[0].num_inputs  # pyright: ignore[reportAttributeAccessIssue]
+        self.output_dim_per_node: int = self.nodes[
+            0
+        ].num_outputs  # pyright: ignore[reportAttributeAccessIssue]
 
         # Warn if configuration seems unusual
         self._validate_layer_config()
-    
+
     def _validate_layer_config(self) -> None:
         """
         Validate that layer configuration makes sense.
         Generate warnings for unusual but valid configurations.
         """
         total_connections = self.output_size * self.n
-        
+
         # Warning 1: Very large mapping
         if total_connections > self.input_size * LAYER_REUSE_WARNING_THRESHOLD:
             warnings.warn(
@@ -413,9 +420,9 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
                 f"{total_connections // self.input_size}x on average. This may lead to overfitting. "
                 f"Consider using more input features or fewer nodes (output_size={self.output_size}, n={self.n}).",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
-        
+
         # Warning 2: Very small mapping
         if self.output_size * self.n < self.input_size // LAYER_UNDERUSE_WARNING_DIVISOR:
             warnings.warn(
@@ -423,9 +430,9 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
                 f"{self.input_size} input features. Most input features will be unused. "
                 f"Consider using more nodes (output_size={self.output_size}) or larger node input dimension (n={self.n}).",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
-        
+
         # Warning 3: Large node input dimension
         if self.n > LAYER_MAX_NODE_INPUT_DIM:
             warnings.warn(
@@ -433,16 +440,16 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
                 f"LUT nodes with >15 inputs may have exponentially large memory requirements (2^{self.n} entries). "
                 f"Consider reducing node input dimension or splitting across more layers.",
                 UserWarning,
-                stacklevel=2
+                stacklevel=2,
             )
-    
+
     def _validate_input_dims(self, x: torch.Tensor) -> None:
         """
         Validate that input has expected dimensions.
-        
+
         Args:
             x: Input tensor
-            
+
         Raises:
             ValueError: If input dimensions are invalid
         """
@@ -453,9 +460,9 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
                 f"Input should come from an Encoder (batch_size, encoded_dim) "
                 f"or previous Layer (batch_size, num_nodes * num_output_per_node)."
             )
-        
+
         batch_size, feat_size = x.shape
-        
+
         if feat_size != self.input_size:
             raise ValueError(
                 f"BaseLUTLayer expected input with {self.input_size} features, "
@@ -463,17 +470,15 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
                 f"Ensure that the input source (Encoder or previous Layer) outputs exactly "
                 f"{self.input_size} features."
             )
-        
+
         if batch_size == 0:
-            raise ValueError(
-                f"BaseLUTLayer requires non-empty batch, got batch_size={batch_size}"
-            )
-    
+            raise ValueError(f"BaseLUTLayer requires non-empty batch, got batch_size={batch_size}")
+
     @abstractmethod
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
         """
         Get mapped inputs for all nodes.
-        
+
         Returns:
             3D tensor of shape (batch_size, output_size, n) where each node gets its
             n-dimensional mapped input. This 3D structure is kept for memory efficiency
@@ -499,7 +504,7 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
         Default: Returns None (fused path not supported, uses materialized path)
         """
         return None
-    
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the layer with multiple independent nodes.
@@ -565,7 +570,7 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
         )
 
         for node in self.nodes:
-            if hasattr(node, "regularization"):
+            if hasattr(node, "regularization") and callable(node.regularization):
                 total_reg = total_reg + node.regularization()
 
         return total_reg

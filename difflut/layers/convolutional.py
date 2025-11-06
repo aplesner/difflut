@@ -1,32 +1,32 @@
-
-
 # Convolutional kernel for LUT-based models
+from typing import Any, Callable, Optional, Type
+
 import torch
 import torch.nn as nn
 
-from typing import Type, Optional, Any, Callable
-from ..registry import register_convolutional_layer
 from ..nodes.node_config import NodeConfig
+from ..registry import register_convolutional_layer
 from ..utils.warnings import warn_default_value
-
 from .base_layer import LUTLayerMixin
 from .layer_config import LayerConfig
+
 
 class ConvolutionConfig:
     """
     Configuration for ConvolutionalLUTLayer.
     """
+
     def __init__(
-            self,
-            tree_depth: int = 2,
-            in_channels: int | None = None,
-            out_channels: int | None = None,
-            receptive_field: int | tuple[int, int] = 5,
-            stride: int | tuple[int, int] = 1,
-            padding: int | tuple[int, int] = 0,
-            chunk_size: int = 32,
-            seed: int = 42,
-        ):
+        self,
+        tree_depth: int = 2,
+        in_channels: int | None = None,
+        out_channels: int | None = None,
+        receptive_field: int | tuple[int, int] = 5,
+        stride: int | tuple[int, int] = 1,
+        padding: int | tuple[int, int] = 0,
+        chunk_size: int = 32,
+        seed: int = 42,
+    ):
         assert in_channels is not None, "in_channels must be specified"
         assert out_channels is not None, "out_channels must be specified"
 
@@ -53,24 +53,30 @@ class ConvolutionalLayer(nn.Module, LUTLayerMixin):
     """
 
     def __init__(
-            self,
-            convolution_config: ConvolutionConfig,
-            node_type: Type[nn.Module],
-            node_kwargs: NodeConfig,
-            layer_type: Type[nn.Module],
-            n_inputs_per_node: int = 6,
-            layer_config: Optional[LayerConfig] = None,
-            flip_probability: Optional[float] = None,
-            grad_stabilization: Optional[str] = None,
-            grad_target_std: Optional[float] = None,
-            grad_subtract_mean: Optional[bool] = None,
-            grad_epsilon: Optional[float] = None
-        ):
+        self,
+        convolution_config: ConvolutionConfig,
+        node_type: Type[nn.Module],
+        node_kwargs: NodeConfig,
+        layer_type: Type[nn.Module],
+        n_inputs_per_node: int = 6,
+        layer_config: Optional[LayerConfig] = None,
+        flip_probability: Optional[float] = None,
+        grad_stabilization: Optional[str] = None,
+        grad_target_std: Optional[float] = None,
+        grad_subtract_mean: Optional[bool] = None,
+        grad_epsilon: Optional[float] = None,
+    ):
         super().__init__()
 
         # Initialize LUTLayerMixin for bit flip and gradient stabilization
-        self._init_lut_layer_mixin(layer_config, flip_probability, grad_stabilization, grad_target_std,
-                                    grad_subtract_mean, grad_epsilon)
+        self._init_lut_layer_mixin(
+            layer_config,
+            flip_probability,
+            grad_stabilization,
+            grad_target_std,
+            grad_subtract_mean,
+            grad_epsilon,
+        )
 
         self.tree_depth = convolution_config.tree_depth
         self.in_channels = convolution_config.in_channels
@@ -83,12 +89,14 @@ class ConvolutionalLayer(nn.Module, LUTLayerMixin):
         self.layer_type = layer_type
         self.n_inputs_per_node = n_inputs_per_node
         self.seed = convolution_config.seed
-        self.chunk_size = min(convolution_config.chunk_size, self.out_channels)  # Don't exceed out_channels
-
-        
+        self.chunk_size = min(
+            convolution_config.chunk_size, self.out_channels
+        )  # Don't exceed out_channels
 
         # Build tree architecture
-        hidden_layers = [self.n_inputs_per_node ** (self.tree_depth - i) for i in range(self.tree_depth + 1)]
+        hidden_layers = [
+            self.n_inputs_per_node ** (self.tree_depth - i) for i in range(self.tree_depth + 1)
+        ]
         self.hidden_layers = hidden_layers
 
         # OPTIMIZATION: Create first layers in chunks for memory/speed balance
@@ -107,7 +115,7 @@ class ConvolutionalLayer(nn.Module, LUTLayerMixin):
                 input_size=self.input_size,
                 output_size=hidden_layers[1] * actual_chunk_size,
                 node_type=node_type,
-                node_kwargs=node_kwargs
+                node_kwargs=node_kwargs,
             )
 
             self.first_layer_chunks.append(layer)
@@ -135,7 +143,9 @@ class ConvolutionalLayer(nn.Module, LUTLayerMixin):
             self.trees.append(tree_layers)
 
         # For convolution, we use the unfold operation to extract patches
-        self.unfold = nn.Unfold(kernel_size=self.receptive_field, padding=self.padding, stride=self.stride)
+        self.unfold = nn.Unfold(
+            kernel_size=self.receptive_field, padding=self.padding, stride=self.stride
+        )
 
     def _pair(self, x: int | tuple[int, int]) -> tuple[int, int]:
         if isinstance(x, int):
@@ -216,7 +226,7 @@ class ConvolutionalLayer(nn.Module, LUTLayerMixin):
         output = output.view(batch_size, self.out_channels, out_h, out_w)
 
         # Register gradient stabilization hook if enabled
-        if self.grad_stabilization != 'none' and self.training and output.requires_grad:
+        if self.grad_stabilization != "none" and self.training and output.requires_grad:
             # Flatten spatial dimensions for gradient stabilization
             # (batch, channels, h, w) -> (batch, channels*h*w)
             def grad_hook(grad):
@@ -227,7 +237,7 @@ class ConvolutionalLayer(nn.Module, LUTLayerMixin):
                 grad_stabilized = self._apply_gradient_stabilization(grad_flat)
                 # Reshape back to original
                 return grad_stabilized.view(original_shape)
+
             output.register_hook(grad_hook)
 
         return output
-        
