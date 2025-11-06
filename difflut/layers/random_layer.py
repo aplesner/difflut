@@ -1,13 +1,13 @@
 import warnings
-from typing import Any, Callable, Dict, List, Optional, Tuple, Type
+from typing import Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
 
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
-from ..utils.warnings import warn_default_value
 from .base_layer import BaseLUTLayer
+from .layer_config import LayerConfig
 
 # Default random seed for reproducible random mapping
 DEFAULT_RANDOM_LAYER_SEED: int = 42
@@ -147,6 +147,7 @@ class RandomLayer(BaseLUTLayer):
         node_type: Type[nn.Module],
         node_kwargs: NodeConfig,
         seed: Optional[int] = DEFAULT_RANDOM_LAYER_SEED,
+        layer_config: Optional[LayerConfig] = None,
         flip_probability: Optional[float] = None,
         grad_stabilization: Optional[str] = None,
         grad_target_std: Optional[float] = None,
@@ -162,6 +163,7 @@ class RandomLayer(BaseLUTLayer):
             node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
                         Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
             seed: Random seed for reproducible mapping
+            layer_config: LayerConfig object with training parameters (flip_probability, grad_stabilization, etc.)
             flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
             grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
             grad_target_std: Target standard deviation for gradient rescaling
@@ -179,6 +181,7 @@ class RandomLayer(BaseLUTLayer):
             output_size,
             node_type,
             node_kwargs,
+            layer_config,
             flip_probability,
             grad_stabilization,
             grad_target_std,

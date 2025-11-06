@@ -76,7 +76,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name='difflut',
-    version='1.1.3',
+    version='1.3.0',
     description='Differentiable LUT-based neural networks for efficient FPGA deployment',
     long_description=long_description,
     long_description_content_type='text/markdown',

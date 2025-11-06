@@ -4,16 +4,20 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "difflut"
-version = "1.1.3"
+version = "1.3.0"
 description = "Differentiable LUT-based neural networks for efficient FPGA deployment"
 readme = "README.md"
 requires-python = ">=3.10"  # Required for PEP 604 union type syntax (X | Y)
 license = {text = "MIT"}
 authors = [
-    {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"}
+    {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"},
+    {name = "Andreas Plesner", email = "aplesner@ethz.ch"},
+    {name = "Till Aczel", email = "taczel@ethz.ch"}
 ]
 maintainers = [
-    {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"}
+    {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"},
+    {name = "Andreas Plesner", email = "aplesner@ethz.ch"},
+    {name = "Till Aczel", email = "taczel@ethz.ch"}
 ]
 keywords = ["deep-learning", "neural-networks", "lut", "fpga", "pytorch", "hardware-acceleration"]
 classifiers = [

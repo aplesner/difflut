@@ -7,6 +7,7 @@ import torch.nn as nn
 
 from ..nodes.node_config import NodeConfig
 from ..utils.warnings import warn_default_value
+from .layer_config import LayerConfig
 
 # Default bit-flip probability for training augmentation
 # If flip_probability > 0, randomly flip this fraction of bits during training
@@ -31,203 +32,119 @@ LAYER_UNDERUSE_WARNING_DIVISOR: int = 10
 LAYER_MAX_NODE_INPUT_DIM: int = 15
 
 
-class BaseLUTLayer(nn.Module, ABC):
+class LUTLayerMixin(nn.Module):
     """
-    Base class for LUT layers with proper gradient flow.
+    Mixin providing shared functionality for LUT layers:
+    - Bit flip augmentation
+    - Gradient stabilization
+    - Parameter validation and defaults
 
-    Dimension Specification:
-    - Input: (batch_size, input_size)
-    - Output: (batch_size, output_size * output_dim_per_node)
-
-    Each node processes: (batch_size, node_input_dim) → (batch_size, output_dim_per_node)
-    The layer uses nn.ModuleList with output_size independent node instances.
+    This mixin should be used with nn.Module as a parent class.
     """
 
-    def __init__(
+    def _init_lut_layer_mixin(
         self,
-        input_size: int,
-        output_size: int,
-        node_type: Type[nn.Module],
-        node_kwargs: NodeConfig,
+        layer_config: Optional[LayerConfig] = None,
         flip_probability: Optional[float] = None,
         grad_stabilization: Optional[str] = None,
         grad_target_std: Optional[float] = None,
         grad_subtract_mean: Optional[bool] = None,
         grad_epsilon: Optional[float] = None,
     ) -> None:
-        super().__init__()
-
-        # Validate parameters
-        if not isinstance(input_size, int) or input_size <= 0:
-            raise ValueError(
-                f"input_size must be a positive integer, got {input_size}. "
-                f"This typically comes from an encoder output or previous layer output."
-            )
-
-        if not isinstance(output_size, int) or output_size <= 0:
-            raise ValueError(
-                f"output_size must be a positive integer, got {output_size}. "
-                f"This is the number of nodes in the layer."
-            )
-
-        # Set flip_probability with default
-        if flip_probability is None:
-            self.flip_probability = DEFAULT_LAYER_FLIP_PROBABILITY
-            warn_default_value("flip_probability", self.flip_probability, stacklevel=2)
-        else:
-            self.flip_probability = flip_probability
-
-        # Validate flip_probability
-        if not isinstance(self.flip_probability, (int, float)) or not (
-            0.0 <= self.flip_probability <= 1.0
-        ):
-            raise ValueError(
-                f"flip_probability must be a float in [0, 1], got {self.flip_probability}. "
-                f"Example: flip_probability=0.1 for 10% bit flipping during training."
-            )
-
-        # Set grad_stabilization with default
-        if grad_stabilization is None:
-            self.grad_stabilization = DEFAULT_LAYER_GRAD_STABILIZATION
-            warn_default_value("grad_stabilization", self.grad_stabilization, stacklevel=2)
-        else:
-            self.grad_stabilization = grad_stabilization
-
-        # Validate gradient stabilization parameters
-        valid_grad_modes = ["none", "layerwise", "batchwise"]
-        if self.grad_stabilization not in valid_grad_modes:
-            raise ValueError(
-                f"grad_stabilization must be one of {valid_grad_modes}, got '{self.grad_stabilization}'. "
-                f"'layerwise': normalize per layer, 'batchwise': normalize per batch sample, 'none': disabled"
-            )
-
-        # Set grad_target_std with default
-        if grad_target_std is None:
-            self.grad_target_std = DEFAULT_LAYER_GRAD_TARGET_STD
-            warn_default_value("grad_target_std", self.grad_target_std, stacklevel=2)
-        else:
-            self.grad_target_std = grad_target_std
-
-        if not isinstance(self.grad_target_std, (int, float)) or self.grad_target_std <= 0:
-            raise ValueError(
-                f"grad_target_std must be a positive number, got {self.grad_target_std}. "
-                f"Example: grad_target_std=1.0 for unit variance"
-            )
-
-        # Set grad_subtract_mean with default
-        if grad_subtract_mean is None:
-            self.grad_subtract_mean = DEFAULT_LAYER_GRAD_SUBTRACT_MEAN
-            warn_default_value("grad_subtract_mean", self.grad_subtract_mean, stacklevel=2)
-        else:
-            self.grad_subtract_mean = grad_subtract_mean
-
-        # Set grad_epsilon with default
-        if grad_epsilon is None:
-            self.grad_epsilon = DEFAULT_LAYER_GRAD_EPSILON
-            warn_default_value("grad_epsilon", self.grad_epsilon, stacklevel=2)
-        else:
-            self.grad_epsilon = grad_epsilon
-
-        if not isinstance(self.grad_epsilon, (int, float)) or self.grad_epsilon <= 0:
-            raise ValueError(
-                f"grad_epsilon must be a positive number, got {self.grad_epsilon}. "
-                f"Used for numerical stability in variance calculation"
-            )
-
-        self.input_size = input_size
-        self.output_size = output_size
-
-        # Create a ModuleList of individual node instances
-        # Each node operates independently on (batch_size, input_dim) -> (batch_size, output_dim)
-        self.nodes = nn.ModuleList([node_type(**node_kwargs.to_dict()) for _ in range(output_size)])
-
-        # Extract n (number of inputs per node) and output_dim from first node
-        self.n = self.nodes[0].num_inputs
-        self.output_dim_per_node = self.nodes[0].num_outputs
-
-        # Warn if configuration seems unusual
-        self._validate_layer_config()
-
-    def _validate_layer_config(self) -> None:
         """
-        Validate that layer configuration makes sense.
-        Generate warnings for unusual but valid configurations.
-        """
-        total_connections = self.output_size * self.n
+        Initialize mixin parameters. Call this from your __init__.
 
-        # Warning 1: Very large mapping
-        if total_connections > self.input_size * LAYER_REUSE_WARNING_THRESHOLD:
-            warnings.warn(
-                f"BaseLUTLayer: Creating {total_connections} node input connections from only "
-                f"{self.input_size} input features. Each input feature will be reused "
-                f"{total_connections // self.input_size}x on average. This may lead to overfitting. "
-                f"Consider using more input features or fewer nodes (output_size={self.output_size}, n={self.n}).",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        # Warning 2: Very small mapping
-        if self.output_size * self.n < self.input_size // LAYER_UNDERUSE_WARNING_DIVISOR:
-            warnings.warn(
-                f"BaseLUTLayer: Creating only {total_connections} node inputs from "
-                f"{self.input_size} input features. Most input features will be unused. "
-                f"Consider using more nodes (output_size={self.output_size}) or larger node input dimension (n={self.n}).",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        # Warning 3: Large node input dimension
-        if self.n > LAYER_MAX_NODE_INPUT_DIM:
-            warnings.warn(
-                f"BaseLUTLayer: Node input dimension (n={self.n}) is quite large. "
-                f"LUT nodes with >15 inputs may have exponentially large memory requirements (2^{self.n} entries). "
-                f"Consider reducing node input dimension or splitting across more layers.",
-                UserWarning,
-                stacklevel=2,
-            )
-
-    def _validate_input_dims(self, x: torch.Tensor) -> None:
-        """
-        Validate that input has expected dimensions.
+        Can accept either a LayerConfig object OR individual parameters (backward compatible).
+        If layer_config is provided, individual parameters are ignored.
 
         Args:
-            x: Input tensor
-
-        Raises:
-            ValueError: If input dimensions are invalid
+            layer_config: LayerConfig object with all training parameters
+            flip_probability: Probability of flipping bits during training [0, 1]
+            grad_stabilization: Mode for gradient stabilization ('none', 'layerwise', 'batchwise')
+            grad_target_std: Target standard deviation for gradient rescaling
+            grad_subtract_mean: Whether to subtract mean before rescaling
+            grad_epsilon: Small constant for numerical stability
         """
-        if x.dim() != 2:
-            raise ValueError(
-                f"BaseLUTLayer expects 2D input (batch_size, input_size), "
-                f"but got shape {x.shape} with {x.dim()} dimensions. "
-                f"Input should come from an Encoder (batch_size, encoded_dim) "
-                f"or previous Layer (batch_size, num_nodes * num_output_per_node)."
-            )
+        # If LayerConfig is provided, use it
+        if layer_config is not None:
+            if not isinstance(layer_config, LayerConfig):
+                raise TypeError(
+                    f"layer_config must be a LayerConfig instance, got {type(layer_config)}. "
+                    f"Use: layer_config=LayerConfig(flip_probability=0.1, ...)"
+                )
+            self.flip_probability = layer_config.flip_probability
+            self.grad_stabilization = layer_config.grad_stabilization
+            self.grad_target_std = layer_config.grad_target_std
+            self.grad_subtract_mean = layer_config.grad_subtract_mean
+            self.grad_epsilon = layer_config.grad_epsilon
+        else:
+            # Backward compatible: use individual parameters
+            # Set flip_probability with default
+            if flip_probability is None:
+                self.flip_probability = DEFAULT_LAYER_FLIP_PROBABILITY
+                warn_default_value("flip_probability", self.flip_probability, stacklevel=2)
+            else:
+                self.flip_probability = flip_probability
 
-        batch_size, feat_size = x.shape
+            # Validate flip_probability
+            if not isinstance(self.flip_probability, (int, float)) or not (
+                0.0 <= self.flip_probability <= 1.0
+            ):
+                raise ValueError(
+                    f"flip_probability must be a float in [0, 1], got {self.flip_probability}. "
+                    f"Example: flip_probability=0.1 for 10% bit flipping during training."
+                )
 
-        if feat_size != self.input_size:
-            raise ValueError(
-                f"BaseLUTLayer expected input with {self.input_size} features, "
-                f"but got {feat_size} features. Shape: {x.shape}. "
-                f"Ensure that the input source (Encoder or previous Layer) outputs exactly "
-                f"{self.input_size} features."
-            )
+            # Set grad_stabilization with default
+            if grad_stabilization is None:
+                self.grad_stabilization = DEFAULT_LAYER_GRAD_STABILIZATION
+                warn_default_value("grad_stabilization", self.grad_stabilization, stacklevel=2)
+            else:
+                self.grad_stabilization = grad_stabilization
 
-        if batch_size == 0:
-            raise ValueError(f"BaseLUTLayer requires non-empty batch, got batch_size={batch_size}")
+            # Validate gradient stabilization parameters
+            valid_grad_modes = ["none", "layerwise", "batchwise"]
+            if self.grad_stabilization not in valid_grad_modes:
+                raise ValueError(
+                    f"grad_stabilization must be one of {valid_grad_modes}, got '{self.grad_stabilization}'. "
+                    f"'layerwise': normalize per layer, 'batchwise': normalize per batch sample, 'none': disabled"
+                )
 
-    @abstractmethod
-    def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Get mapped inputs for all nodes.
+            # Set grad_target_std with default
+            if grad_target_std is None:
+                self.grad_target_std = DEFAULT_LAYER_GRAD_TARGET_STD
+                warn_default_value("grad_target_std", self.grad_target_std, stacklevel=2)
+            else:
+                self.grad_target_std = grad_target_std
 
-        Returns:
-            3D tensor of shape (batch_size, output_size, n) where each node gets its
-            n-dimensional mapped input. This 3D structure is kept for memory efficiency
-            even though each node processes independently.
-        """
-        pass
+            if not isinstance(self.grad_target_std, (int, float)) or self.grad_target_std <= 0:
+                raise ValueError(
+                    f"grad_target_std must be a positive number, got {self.grad_target_std}. "
+                    f"Example: grad_target_std=1.0 for unit variance"
+                )
+
+            # Set grad_subtract_mean with default
+            if grad_subtract_mean is None:
+                self.grad_subtract_mean = DEFAULT_LAYER_GRAD_SUBTRACT_MEAN
+                warn_default_value("grad_subtract_mean", self.grad_subtract_mean, stacklevel=2)
+            else:
+                self.grad_subtract_mean = grad_subtract_mean
+
+            # Set grad_epsilon with default
+            if grad_epsilon is None:
+                self.grad_epsilon = DEFAULT_LAYER_GRAD_EPSILON
+                warn_default_value("grad_epsilon", self.grad_epsilon, stacklevel=2)
+            else:
+                self.grad_epsilon = grad_epsilon
+
+            if not isinstance(self.grad_epsilon, (int, float)) or self.grad_epsilon <= 0:
+                raise ValueError(
+                    f"grad_epsilon must be a positive number, got {self.grad_epsilon}. "
+                    f"Used for numerical stability in variance calculation"
+                )
+
+        # Initialize buffer for bit flip masks (amortize allocation cost)
+        self._flip_mask_buffer = None
 
     def _apply_bit_flip(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -421,6 +338,173 @@ class BaseLUTLayer(nn.Module, ABC):
 
         return grad
 
+
+class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
+    """
+    Base class for LUT layers with proper gradient flow.
+
+    Dimension Specification:
+    - Input: (batch_size, input_size)
+    - Output: (batch_size, output_size * output_dim_per_node)
+
+    Each node processes: (batch_size, node_input_dim) → (batch_size, output_dim_per_node)
+    The layer uses nn.ModuleList with output_size independent node instances.
+    """
+
+    def __init__(
+        self,
+        input_size: int,
+        output_size: int,
+        node_type: Type[nn.Module],
+        node_kwargs: NodeConfig,
+        layer_config: Optional[LayerConfig] = None,
+        flip_probability: Optional[float] = None,
+        grad_stabilization: Optional[str] = None,
+        grad_target_std: Optional[float] = None,
+        grad_subtract_mean: Optional[bool] = None,
+        grad_epsilon: Optional[float] = None,
+    ) -> None:
+        super().__init__()
+
+        # Validate parameters
+        if not isinstance(input_size, int) or input_size <= 0:
+            raise ValueError(
+                f"input_size must be a positive integer, got {input_size}. "
+                f"This typically comes from an encoder output or previous layer output."
+            )
+
+        if not isinstance(output_size, int) or output_size <= 0:
+            raise ValueError(
+                f"output_size must be a positive integer, got {output_size}. "
+                f"This is the number of nodes in the layer."
+            )
+
+        # Initialize mixin parameters
+        self._init_lut_layer_mixin(
+            layer_config,
+            flip_probability,
+            grad_stabilization,
+            grad_target_std,
+            grad_subtract_mean,
+            grad_epsilon,
+        )
+
+        self.input_size = input_size
+        self.output_size = output_size
+
+        # Create a ModuleList of individual node instances
+        # Each node operates independently on (batch_size, input_dim) -> (batch_size, output_dim)
+        self.nodes = nn.ModuleList([node_type(**node_kwargs.to_dict()) for _ in range(output_size)])
+
+        # Extract n (number of inputs per node) and output_dim from first node
+        self.n: int = self.nodes[0].num_inputs  # pyright: ignore[reportAttributeAccessIssue]
+        self.output_dim_per_node: int = self.nodes[
+            0
+        ].num_outputs  # pyright: ignore[reportAttributeAccessIssue]
+
+        # Warn if configuration seems unusual
+        self._validate_layer_config()
+
+    def _validate_layer_config(self) -> None:
+        """
+        Validate that layer configuration makes sense.
+        Generate warnings for unusual but valid configurations.
+        """
+        total_connections = self.output_size * self.n
+
+        # Warning 1: Very large mapping
+        if total_connections > self.input_size * LAYER_REUSE_WARNING_THRESHOLD:
+            warnings.warn(
+                f"BaseLUTLayer: Creating {total_connections} node input connections from only "
+                f"{self.input_size} input features. Each input feature will be reused "
+                f"{total_connections // self.input_size}x on average. This may lead to overfitting. "
+                f"Consider using more input features or fewer nodes (output_size={self.output_size}, n={self.n}).",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        # Warning 2: Very small mapping
+        if self.output_size * self.n < self.input_size // LAYER_UNDERUSE_WARNING_DIVISOR:
+            warnings.warn(
+                f"BaseLUTLayer: Creating only {total_connections} node inputs from "
+                f"{self.input_size} input features. Most input features will be unused. "
+                f"Consider using more nodes (output_size={self.output_size}) or larger node input dimension (n={self.n}).",
+                UserWarning,
+                stacklevel=2,
+            )
+
+        # Warning 3: Large node input dimension
+        if self.n > LAYER_MAX_NODE_INPUT_DIM:
+            warnings.warn(
+                f"BaseLUTLayer: Node input dimension (n={self.n}) is quite large. "
+                f"LUT nodes with >15 inputs may have exponentially large memory requirements (2^{self.n} entries). "
+                f"Consider reducing node input dimension or splitting across more layers.",
+                UserWarning,
+                stacklevel=2,
+            )
+
+    def _validate_input_dims(self, x: torch.Tensor) -> None:
+        """
+        Validate that input has expected dimensions.
+
+        Args:
+            x: Input tensor
+
+        Raises:
+            ValueError: If input dimensions are invalid
+        """
+        if x.dim() != 2:
+            raise ValueError(
+                f"BaseLUTLayer expects 2D input (batch_size, input_size), "
+                f"but got shape {x.shape} with {x.dim()} dimensions. "
+                f"Input should come from an Encoder (batch_size, encoded_dim) "
+                f"or previous Layer (batch_size, num_nodes * num_output_per_node)."
+            )
+
+        batch_size, feat_size = x.shape
+
+        if feat_size != self.input_size:
+            raise ValueError(
+                f"BaseLUTLayer expected input with {self.input_size} features, "
+                f"but got {feat_size} features. Shape: {x.shape}. "
+                f"Ensure that the input source (Encoder or previous Layer) outputs exactly "
+                f"{self.input_size} features."
+            )
+
+        if batch_size == 0:
+            raise ValueError(f"BaseLUTLayer requires non-empty batch, got batch_size={batch_size}")
+
+    @abstractmethod
+    def get_mapping(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Get mapped inputs for all nodes.
+
+        Returns:
+            3D tensor of shape (batch_size, output_size, n) where each node gets its
+            n-dimensional mapped input. This 3D structure is kept for memory efficiency
+            even though each node processes independently.
+        """
+        pass
+
+    def get_mapping_indices(self) -> torch.Tensor | None:
+        """
+        Get mapping indices without materializing mapped values.
+
+        This is an optional optimization that allows nodes to perform fused
+        forward passes where indexing happens inside CUDA kernels, avoiding
+        materialization of large (batch, output_size, n) intermediate tensors.
+
+        Returns:
+            Tensor of shape (output_size, n) containing indices into input dimension,
+            or None if this layer doesn't support index-based mapping.
+
+            For RandomLayer: returns self._mapping
+            For LearnableLayer: returns argmax(W).reshape(output_size, n) during eval
+
+        Default: Returns None (fused path not supported, uses materialized path)
+        """
+        return None
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the layer with multiple independent nodes.
@@ -486,7 +570,7 @@ class BaseLUTLayer(nn.Module, ABC):
         )
 
         for node in self.nodes:
-            if hasattr(node, "regularization"):
+            if hasattr(node, "regularization") and callable(node.regularization):
                 total_reg = total_reg + node.regularization()
 
         return total_reg

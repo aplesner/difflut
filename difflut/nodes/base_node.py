@@ -257,6 +257,52 @@ class BaseNode(nn.Module, ABC):
         else:
             return self.forward_eval(x)
 
+    def forward_with_mapping(self, x: torch.Tensor, mapping_indices: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass with fused mapping (memory optimization).
+
+        Instead of receiving pre-materialized mapped_inputs (batch, layer_size, input_dim),
+        this method receives the raw input and mapping indices, allowing nodes to perform
+        indexing inside optimized CUDA kernels and avoid materializing large intermediate tensors.
+
+        Default implementation: materializes mapped_inputs and calls forward().
+        Nodes with fused CUDA kernels should override this method for memory efficiency.
+
+        Args:
+            x: Input tensor of shape (batch_size, input_size)
+               Raw 2D input from encoder or previous layer
+            mapping_indices: Mapping indices of shape (layer_size, input_dim)
+                           Contains indices into input_size dimension, values in [0, input_size)
+                           Defines which inputs to select for each node
+
+        Returns:
+            Output tensor of shape (batch_size, layer_size, output_dim)
+
+        Memory Impact:
+            - Materialized: Creates (batch, layer_size, input_dim) tensor → high memory
+            - Fused (in subclass): Performs indexing in CUDA kernel → minimal memory
+
+        Example:
+            # Materialized path (default):
+            mapped = x[batch_idx, mapping_indices]  # (batch, layer_size, input_dim)
+            output = forward(mapped)
+
+            # Fused path (in DWNNode override):
+            output = cuda_kernel(x, mapping_indices, luts)  # No intermediate tensor
+        """
+        batch_size = x.shape[0]
+
+        # Materialize mapped_inputs using advanced indexing
+        # Shape: (batch_size, 1, 1) broadcasts with (layer_size, input_dim)
+        batch_idx = torch.arange(batch_size, device=x.device).view(-1, 1, 1)
+
+        # Advanced indexing: x[batch, mapping[layer, dim]]
+        # Result: (batch_size, layer_size, input_dim)
+        mapped_inputs = x[batch_idx, mapping_indices]
+
+        # Call standard forward pass
+        return self.forward(mapped_inputs)
+
     def regularization(self) -> torch.Tensor:
         """
         Compute regularization term for the node.

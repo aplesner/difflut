@@ -306,7 +306,7 @@ See `VERSION.md` for details.
 
 ## Container Support
 
-A containerized environment is available via Singularity:
+A containerized environment is available via Apptainer:
 
 ```bash
 # Run with GPU support

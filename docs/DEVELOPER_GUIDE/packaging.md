@@ -9,7 +9,7 @@ DiffLUT supports multiple distribution formats:
 - **Source Distribution** (`.tar.gz`) - For development and source inspection
 - **Wheel Distribution** (`.whl`) - For binary installation
 - **PyPI** - For public package repository
-- **Docker/Singularity** - For containerized environments
+- **Docker/Apptainer** - For containerized environments
 
 ## Prerequisites
 
@@ -235,11 +235,11 @@ docker build -t difflut:latest .
 docker run --gpus all -it difflut:latest
 ```
 
-### Singularity Container
+### Apptainer Container
 
-Create `Singularity.def`:
+Create `Apptainer.def`:
 
-```singularity
+```apptainer
 Bootstrap: docker
 From: pytorch/pytorch:2.0-cuda11.8-cudnn8-runtime
 
@@ -262,8 +262,8 @@ From: pytorch/pytorch:2.0-cuda11.8-cudnn8-runtime
 Build and run:
 
 ```bash
-singularity build difflut.sif Singularity.def
-singularity run --nv difflut.sif python -c "import difflut; print('✓ DiffLUT loaded')"
+apptainer build difflut.sif Apptainer.def
+apptainer run --nv difflut.sif python -c "import difflut; print('✓ DiffLUT loaded')"
 ```
 
 ## Version Management
@@ -563,7 +563,7 @@ python -m build
 - **Setuptools**: https://setuptools.pypa.io/
 - **Twine**: https://twine.readthedocs.io/
 - **Docker Docs**: https://docs.docker.com/
-- **Singularity Docs**: https://sylabs.io/guides/3.0/user-guide/
+- **Apptainer Docs**: https://sylabs.io/guides/3.0/user-guide/
 
 ## Next Steps
 
