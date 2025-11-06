@@ -6,26 +6,26 @@ instead of using raw dictionaries. Supports all common node parameters as well
 as node-specific parameters.
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Callable, Dict, Any, Union
+from dataclasses import asdict, dataclass, field
+from typing import Any, Callable, Dict, Optional, Union
 
 
 @dataclass
 class NodeConfig:
     """
     Configuration for LUT node initialization.
-    
+
     This class provides type-safe configuration for all node types with proper
     defaults and documentation. It can be converted to/from dictionaries for
     unified API compatibility.
-    
+
     Common Parameters (all nodes):
         input_dim: Number of inputs per node (e.g., 6 for 6-input LUT)
         output_dim: Number of outputs per node (e.g., 1 for single output)
         regularizers: Dict of regularization functions
         init_fn: Initialization function for parameters
         init_kwargs: Keyword arguments for initialization function
-    
+
     Node-Specific Parameters:
         DWN/DWNStable:
             - use_cuda: Whether to use CUDA kernels
@@ -33,15 +33,15 @@ class NodeConfig:
             - beta: Hamming distance decay (DWN only)
             - clamp_luts: Clamp LUT values to [0,1] (DWN only)
             - gradient_scale: Gradient scaling factor (DWNStable only)
-        
+
         Fourier:
             - use_all_frequencies: Use all 2^n frequency vectors
             - max_amplitude: Maximum amplitude of oscillation
             - use_cuda: Whether to use CUDA kernels
-        
+
         Hybrid:
             - use_cuda: Whether to use CUDA kernels
-        
+
         NeuralLUT:
             - hidden_width: Width of hidden layers
             - depth: Number of MLP layers
@@ -52,15 +52,15 @@ class NodeConfig:
             - tau_decay_iters: Temperature decay iterations
             - ste: Use Straight-Through Estimator
             - grad_factor: Gradient scaling factor
-        
+
         PolyLUT:
             - degree: Maximum polynomial degree
-        
+
         Probabilistic:
             - temperature: Temperature for sigmoid scaling
             - eval_mode: Evaluation mode ("expectation" or other)
             - use_cuda: Whether to use CUDA kernels
-    
+
     Example:
         ```python
         # Create configuration
@@ -70,7 +70,7 @@ class NodeConfig:
             init_fn=my_init_fn,
             init_kwargs={'scale': 0.1}
         )
-        
+
         # Use in layer
         layer = RandomLayer(
             input_size=100,
@@ -80,7 +80,7 @@ class NodeConfig:
         )
         ```
     """
-    
+
     # ========================================================================
     # Common parameters (used by all nodes via BaseNode)
     # ========================================================================
@@ -89,49 +89,49 @@ class NodeConfig:
     regularizers: Optional[Dict[str, Any]] = None
     init_fn: Optional[Callable] = None
     init_kwargs: Optional[Dict[str, Any]] = None
-    
+
     # ========================================================================
     # Node-specific parameters (stored in extra_params)
     # ========================================================================
     # These are not explicit fields to keep the dataclass clean, but are
     # stored in extra_params and can be accessed via to_dict()
     extra_params: Dict[str, Any] = field(default_factory=dict)
-    
+
     def __post_init__(self) -> None:
         """Validate configuration after initialization."""
         if self.regularizers is None:
             self.regularizers = {}
         if self.init_kwargs is None:
             self.init_kwargs = {}
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert configuration to dictionary for node initialization.
-        
+
         Returns:
             Dictionary with all non-None parameters including extra_params
         """
         # Start with standard dataclass fields
         result = {}
-        
+
         # Add common parameters if not None
         if self.input_dim is not None:
-            result['input_dim'] = self.input_dim
+            result["input_dim"] = self.input_dim
         if self.output_dim is not None:
-            result['output_dim'] = self.output_dim
+            result["output_dim"] = self.output_dim
         if self.regularizers:
-            result['regularizers'] = self.regularizers
+            result["regularizers"] = self.regularizers
         if self.init_fn is not None:
-            result['init_fn'] = self.init_fn
+            result["init_fn"] = self.init_fn
         if self.init_kwargs:
-            result['init_kwargs'] = self.init_kwargs
-        
+            result["init_kwargs"] = self.init_kwargs
+
         # Add extra parameters (node-specific)
         result.update(self.extra_params)
-        
+
         return result
-    
-    def copy(self) -> 'NodeConfig':
+
+    def copy(self) -> "NodeConfig":
         """Create a deep copy of this configuration."""
         return NodeConfig(
             input_dim=self.input_dim,
@@ -139,9 +139,9 @@ class NodeConfig:
             regularizers=self.regularizers.copy() if self.regularizers else None,
             init_fn=self.init_fn,
             init_kwargs=self.init_kwargs.copy() if self.init_kwargs else None,
-            extra_params=self.extra_params.copy()
+            extra_params=self.extra_params.copy(),
         )
-    
+
     def __repr__(self) -> str:
         """String representation showing all parameters."""
         params = []
@@ -154,5 +154,5 @@ class NodeConfig:
         if self.extra_params:
             extra_str = ", ".join(f"{k}={v}" for k, v in self.extra_params.items())
             params.append(extra_str)
-        
+
         return f"NodeConfig({', '.join(params)})"

@@ -1,0 +1,66 @@
+name: Version Management
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Check version bump
+      id: version_check
+      run: |
+        # Extract current branch version
+        CURRENT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        echo "Current branch version: $CURRENT_VERSION"
+        
+        # Get main branch version
+        git fetch origin main:refs/remotes/origin/main || true
+        MAIN_VERSION=$(git show origin/main:pyproject.toml 2>/dev/null | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//' || echo "")
+        echo "Main branch version: $MAIN_VERSION"
+        
+        # Check if version was bumped
+        if [ "$CURRENT_VERSION" = "$MAIN_VERSION" ] && [ -n "$MAIN_VERSION" ]; then
+          echo "needs_bump=true" >> $GITHUB_OUTPUT
+          echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+          echo "⚠️  WARNING: Version not bumped! Current: $CURRENT_VERSION, Main: $MAIN_VERSION"
+          echo "::warning::Version not bumped from main branch. Please run 'bump2version patch/minor/major' before merging."
+          exit 1
+        else
+          echo "needs_bump=false" >> $GITHUB_OUTPUT
+          if [ "$CURRENT_VERSION" != "$MAIN_VERSION" ]; then
+            echo "✅ Version bumped: $MAIN_VERSION → $CURRENT_VERSION"
+          else
+            echo "ℹ️  First push or no main branch to compare"
+          fi
+        fi
+
+    - name: Comment on PR (only on pull requests)
+      if: failure() && github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '⚠️ **Version Bump Required**\n\n' +
+                  'The version has not been bumped from the main branch.\n\n' +
+                  'Please run one of the following commands before merging:\n' +
+                  '```bash\n' +
+                  'bump2version patch  # for bug fixes (1.1.3 → 1.1.4)\n' +
+                  'bump2version minor  # for new features (1.1.3 → 1.2.0)\n' +
+                  'bump2version major  # for breaking changes (1.1.3 → 2.0.0)\n' +
+                  '```\n\n' +
+                  'Then commit and push the changes:\n' +
+                  '```bash\n' +
+                  'git push --follow-tags\n' +
+                  '```'
+          })

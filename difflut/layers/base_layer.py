@@ -1,8 +1,10 @@
+import warnings
+from abc import ABC, abstractmethod
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+
 import torch
 import torch.nn as nn
-from abc import ABC, abstractmethod
-from typing import Union, Dict, Any, Optional, Type, Tuple, Callable, List
-import warnings
+
 from ..nodes.node_config import NodeConfig
 from ..utils.warnings import warn_default_value
 from .layer_config import LayerConfig
@@ -12,7 +14,7 @@ from .layer_config import LayerConfig
 DEFAULT_LAYER_FLIP_PROBABILITY: float = 0.0
 # Default gradient stabilization mode
 # Options: 'none', 'layerwise', 'batchwise'
-DEFAULT_LAYER_GRAD_STABILIZATION: str = 'none'
+DEFAULT_LAYER_GRAD_STABILIZATION: str = "none"
 # Default target standard deviation for gradient stabilization
 # Used when grad_stabilization is not 'none'
 DEFAULT_LAYER_GRAD_TARGET_STD: float = 1.0
@@ -28,7 +30,6 @@ LAYER_REUSE_WARNING_THRESHOLD: int = 10
 LAYER_UNDERUSE_WARNING_DIVISOR: int = 10
 # Maximum recommended node input dimension before warning
 LAYER_MAX_NODE_INPUT_DIM: int = 15
-
 
 
 class LUTLayerMixin:
@@ -48,7 +49,7 @@ class LUTLayerMixin:
         grad_stabilization: Optional[str] = None,
         grad_target_std: Optional[float] = None,
         grad_subtract_mean: Optional[bool] = None,
-        grad_epsilon: Optional[float] = None
+        grad_epsilon: Optional[float] = None,
     ) -> None:
         """
         Initialize mixin parameters. Call this from your __init__.
@@ -81,7 +82,7 @@ class LUTLayerMixin:
             # Set flip_probability with default
             if flip_probability is None:
                 self.flip_probability = DEFAULT_LAYER_FLIP_PROBABILITY
-                warn_default_value("flip_probability", self.flip_probability, stacklevel=3)
+                warn_default_value("flip_probability", self.flip_probability, stacklevel=2)
             else:
                 self.flip_probability = flip_probability
 
@@ -95,12 +96,12 @@ class LUTLayerMixin:
             # Set grad_stabilization with default
             if grad_stabilization is None:
                 self.grad_stabilization = DEFAULT_LAYER_GRAD_STABILIZATION
-                warn_default_value("grad_stabilization", self.grad_stabilization, stacklevel=3)
+                warn_default_value("grad_stabilization", self.grad_stabilization, stacklevel=2)
             else:
                 self.grad_stabilization = grad_stabilization
 
             # Validate gradient stabilization parameters
-            valid_grad_modes = ['none', 'layerwise', 'batchwise']
+            valid_grad_modes = ["none", "layerwise", "batchwise"]
             if self.grad_stabilization not in valid_grad_modes:
                 raise ValueError(
                     f"grad_stabilization must be one of {valid_grad_modes}, got '{self.grad_stabilization}'. "
@@ -110,7 +111,7 @@ class LUTLayerMixin:
             # Set grad_target_std with default
             if grad_target_std is None:
                 self.grad_target_std = DEFAULT_LAYER_GRAD_TARGET_STD
-                warn_default_value("grad_target_std", self.grad_target_std, stacklevel=3)
+                warn_default_value("grad_target_std", self.grad_target_std, stacklevel=2)
             else:
                 self.grad_target_std = grad_target_std
 
@@ -123,14 +124,14 @@ class LUTLayerMixin:
             # Set grad_subtract_mean with default
             if grad_subtract_mean is None:
                 self.grad_subtract_mean = DEFAULT_LAYER_GRAD_SUBTRACT_MEAN
-                warn_default_value("grad_subtract_mean", self.grad_subtract_mean, stacklevel=3)
+                warn_default_value("grad_subtract_mean", self.grad_subtract_mean, stacklevel=2)
             else:
                 self.grad_subtract_mean = grad_subtract_mean
 
             # Set grad_epsilon with default
             if grad_epsilon is None:
                 self.grad_epsilon = DEFAULT_LAYER_GRAD_EPSILON
-                warn_default_value("grad_epsilon", self.grad_epsilon, stacklevel=3)
+                warn_default_value("grad_epsilon", self.grad_epsilon, stacklevel=2)
             else:
                 self.grad_epsilon = grad_epsilon
 
@@ -176,16 +177,16 @@ class LUTLayerMixin:
         batch_size, input_size = x.shape
 
         # Preallocate or reuse buffer (amortize allocation cost)
-        if (self._flip_mask_buffer is None or
-            self._flip_mask_buffer.shape[0] < batch_size or
-            self._flip_mask_buffer.shape[1] < input_size):
+        if (
+            self._flip_mask_buffer is None
+            or self._flip_mask_buffer.shape[0] < batch_size
+            or self._flip_mask_buffer.shape[1] < input_size
+        ):
             # Allocate buffer large enough for future batches
             buffer_batch = max(batch_size, 256)  # Support up to 256 batch size
             buffer_features = input_size
             self._flip_mask_buffer = torch.empty(
-                (buffer_batch, buffer_features),
-                dtype=torch.bool,
-                device=x.device
+                (buffer_batch, buffer_features), dtype=torch.bool, device=x.device
             )
 
         # Get view of buffer matching current batch (no allocation)
@@ -195,9 +196,13 @@ class LUTLayerMixin:
         # Note: bernoulli with tensor input requires float for output
         mask_float = mask.float()
         torch.bernoulli(
-            torch.full((batch_size, input_size), self.flip_probability,
-                      device=x.device, dtype=torch.float32),
-            out=mask_float
+            torch.full(
+                (batch_size, input_size),
+                self.flip_probability,
+                device=x.device,
+                dtype=torch.float32,
+            ),
+            out=mask_float,
         )
         mask = mask_float.bool()
 
@@ -205,7 +210,7 @@ class LUTLayerMixin:
         # Only create tensor for the difference (sparse operation)
         # Delta: (1-x) - x = 1 - 2x for flipped positions
         flip_delta = torch.zeros_like(x)
-        flip_delta[mask] = (1.0 - 2.0 * x[mask])
+        flip_delta[mask] = 1.0 - 2.0 * x[mask]
 
         # CRITICAL: Detach noise from gradient graph
         # Forward: Model sees flipped bits (x + delta = x + (1-2x) = 1-x for masked positions)
@@ -274,7 +279,7 @@ class LUTLayerMixin:
         Returns:
             Rescaled gradient with same shape
         """
-        if self.grad_stabilization == 'none' or not self.training:
+        if self.grad_stabilization == "none" or not self.training:
             return grad
 
         if grad is None:
@@ -283,7 +288,7 @@ class LUTLayerMixin:
         # Clone to avoid modifying in-place during autograd
         grad_work = grad.clone()
 
-        if self.grad_stabilization == 'layerwise':
+        if self.grad_stabilization == "layerwise":
             # Layer-wise: normalize across all elements in the layer
             # Shape: (batch_size, output_size) → treat as one layer
 
@@ -296,15 +301,17 @@ class LUTLayerMixin:
             variance = grad_work.pow(2).mean()
 
             # Compute scale factor
-            scale = torch.sqrt(torch.tensor(self.grad_target_std, device=grad.device) /
-                             (variance + self.grad_epsilon))
+            scale = torch.sqrt(
+                torch.tensor(self.grad_target_std, device=grad.device)
+                / (variance + self.grad_epsilon)
+            )
 
             # Rescale in-place
             grad_work.mul_(scale)
 
             return grad_work
 
-        elif self.grad_stabilization == 'batchwise':
+        elif self.grad_stabilization == "batchwise":
             # Batch-wise: normalize per sample across the layer dimension
             # Shape: (batch_size, output_size) → normalize each batch element independently
 
@@ -317,8 +324,10 @@ class LUTLayerMixin:
             variance = grad_work.pow(2).mean(dim=1, keepdim=True)  # (batch_size, 1)
 
             # Compute scale factor
-            scale = torch.sqrt(torch.tensor(self.grad_target_std, device=grad.device) /
-                             (variance + self.grad_epsilon))
+            scale = torch.sqrt(
+                torch.tensor(self.grad_target_std, device=grad.device)
+                / (variance + self.grad_epsilon)
+            )
 
             # Rescale in-place
             grad_work.mul_(scale)
@@ -494,14 +503,14 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the layer with multiple independent nodes.
-        
-        Accepts 2D input (batch_size, input_size) and maps it to 
+
+        Accepts 2D input (batch_size, input_size) and maps it to
         (batch_size, output_size, n) where each of the output_size nodes processes
         its n-dimensional input independently. Each node in self.nodes ModuleList
         processes (batch_size, n) -> (batch_size, output_dim_per_node).
-        
+
         During training, applies bit-flip augmentation if flip_probability > 0.
-        
+
         Args:
             x: Input tensor of shape (batch_size, input_size)
                - From Encoder: (batch_size, encoded_dim)
@@ -514,17 +523,17 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
         """
         # Validate input dimensions
         self._validate_input_dims(x)
-        
+
         # Apply bit-flip augmentation during training
         if self.training and self.flip_probability > 0.0:
             x = self._apply_bit_flip(x)
-        
+
         # Get mapped inputs: (batch_size, output_size, n)
         # where n = node.num_inputs
         mapped_inputs = self.get_mapping(x)
-        
+
         batch_size = mapped_inputs.shape[0]
-        
+
         # Process each node independently
         # Each node: (batch_size, n) -> (batch_size, output_dim_per_node)
         # Stack outputs: (batch_size, output_size, output_dim_per_node)
@@ -535,26 +544,28 @@ class BaseLUTLayer(nn.Module, LUTLayerMixin, ABC):
             # Process through node: (batch_size, n) -> (batch_size, output_dim_per_node)
             node_output = node(node_input)
             node_outputs.append(node_output)
-        
+
         # Stack along node dimension: (batch_size, output_size, output_dim_per_node)
         output = torch.stack(node_outputs, dim=1)
-        
+
         # Reshape to 2D for next layer: (batch_size, output_size * output_dim_per_node)
         # In most cases output_dim_per_node=1, so this flattens to (batch_size, output_size)
         output = output.view(batch_size, -1)
-        
+
         # Register gradient stabilization hook if enabled
-        if self.grad_stabilization != 'none' and self.training and output.requires_grad:
+        if self.grad_stabilization != "none" and self.training and output.requires_grad:
             output.register_hook(self._apply_gradient_stabilization)
-        
+
         return output
-    
+
     def regularization(self) -> torch.Tensor:
         """Compute total regularization across all nodes"""
-        total_reg = torch.tensor(0.0, device=next(self.parameters()).device if list(self.parameters()) else 'cpu')
-        
+        total_reg = torch.tensor(
+            0.0, device=next(self.parameters()).device if list(self.parameters()) else "cpu"
+        )
+
         for node in self.nodes:
-            if hasattr(node, 'regularization'):
+            if hasattr(node, "regularization"):
                 total_reg = total_reg + node.regularization()
-        
+
         return total_reg

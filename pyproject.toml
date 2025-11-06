@@ -1,33 +1,101 @@
-# pyproject.toml
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=45", "wheel", "torch>=1.9.0"]
 build-backend = "setuptools.build_meta"
-
-[build-system.cmake.cmake-minimum-required]
-version = "3.15"
 
 [project]
 name = "difflut"
-version = "1.0.10"
-description = "Differentiable LUT-based neural networks"
+version = "1.1.3"
+description = "Differentiable LUT-based neural networks for efficient FPGA deployment"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.10"  # Required for PEP 604 union type syntax (X | Y)
 license = {text = "MIT"}
 authors = [
-    {name = "Simon Buehrer"}
+    {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"}
+]
+maintainers = [
+    {name = "Simon Buehrer", email = "sbuehrer@ethz.ch"}
+]
+keywords = ["deep-learning", "neural-networks", "lut", "fpga", "pytorch", "hardware-acceleration"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
 ]
 
 dependencies = [
     "torch>=1.9.0",
-    "numpy",
+    "numpy>=1.19.0",
 ]
 
+[project.optional-dependencies]
+# GPU support - builds with CUDA extensions
+gpu = []
+
+# CPU-only - skips CUDA build
+cpu = []
+
+# Development dependencies
+dev = [
+    "bump2version>=1.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "isort>=5.10.0",
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "jupyter>=1.0.0",
+    "matplotlib>=3.3.0",
+    "torchvision>=0.10.0",
+]
+
+# All optional dependencies
+all = [
+    "bump2version>=1.0.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=3.0.0",
+    "black>=22.0.0",
+    "flake8>=4.0.0",
+    "isort>=5.10.0",
+    "sphinx>=4.0.0",
+    "sphinx-rtd-theme>=1.0.0",
+    "jupyter>=1.0.0",
+    "matplotlib>=3.3.0",
+    "torchvision>=0.10.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/aplesner/difflut"
+Documentation = "https://github.com/aplesner/difflut/tree/main/docs"
+Repository = "https://github.com/aplesner/difflut"
+Issues = "https://github.com/aplesner/difflut/issues"
+
 [tool.setuptools]
-# Optimize build caching
-py-modules = []
 include-package-data = true
 
-[tool.ccache]
-# Enable ccache for faster rebuilds if available
-enabled = true
-max_size = "5G"
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["difflut*"]
+exclude = ["tests*", "examples*", "docs*", "build*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py37', 'py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"

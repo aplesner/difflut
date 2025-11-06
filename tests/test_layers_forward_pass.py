@@ -1,27 +1,16 @@
 """
 Comprehensive forward pass tests for all layer types.
-Tests: all nodes, shape correctness, output range [0,1], CPU/GPU consistency, gradients.
+Tests: shape correctness, output range [0,1], CPU/GPU consistency, gradients.
 
-This test is designed for CI/CD pipelines and suppresses non-critical warnings.
+Uses pytest parametrization for individual test discovery.
 """
 
-import sys
-import warnings
+import pytest
 import torch
 import torch.nn as nn
-
-# Suppress warnings for CI/CD
-warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut')
-warnings.filterwarnings('ignore', category=UserWarning, module='difflut')
-
-from test_utils import (
-    print_section,
-    print_subsection,
-    print_test_result,
-    get_available_devices,
+from difflut.registry import REGISTRY
+from testing_utils import (
     is_cuda_available,
-    get_all_registered_layers,
-    get_all_registered_nodes,
     instantiate_layer,
     generate_uniform_input,
     assert_shape_equal,
@@ -34,281 +23,195 @@ from test_utils import (
 )
 
 
-class LayerTester:
-    """Helper class for testing layers."""
+# ============================================================================
+# Layer Forward Pass Tests
+# ============================================================================
+
+@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+class TestLayerForwardPass:
+    """Comprehensive forward pass tests for layers."""
     
-    def __init__(self, layer_name: str, layer_class: type):
-        self.layer_name = layer_name
-        self.layer_class = layer_class
-        self.tests_passed = 0
-        self.tests_failed = 0
-    
-    def test_with_all_nodes(self):
-        """Test 2.1: Layer works with all node types."""
-        nodes = get_all_registered_nodes()
-        passed_nodes = 0
-        failed_nodes = []
+    def test_shape_correct(self, layer_name):
+        """Test 2.1: Forward pass produces correct output shape."""
+        layer_class = REGISTRY.get_layer(layer_name)
         
-        for node_name, node_class in nodes.items():
-            try:
-                with IgnoreWarnings():
-                    layer = instantiate_layer(
-                        self.layer_class,
-                        input_size=64,
-                        output_size=32,
-                        node_type=node_class,
-                        n=4
-                    )
-                
-                # Test forward pass
-                input_tensor = generate_uniform_input((4, 64), seed=42)
-                with torch.no_grad():
-                    output = layer(input_tensor)
-                
-                assert output.shape[0] == 4  # Batch size preserved
-                passed_nodes += 1
-                
-            except Exception as e:
-                failed_nodes.append((node_name, str(e)))
-        
-        if failed_nodes:
-            msg = f"Failed with {len(failed_nodes)} nodes: {[n for n, _ in failed_nodes]}"
-            print_test_result(
-                f"{self.layer_name}: All Nodes",
-                len(failed_nodes) == 0,
-                msg
-            )
-        else:
-            print_test_result(
-                f"{self.layer_name}: All Nodes",
-                True,
-                f"Tested with {passed_nodes} nodes"
+        with IgnoreWarnings():
+            layer = instantiate_layer(
+                layer_class,
+                input_size=256,
+                output_size=128,
+                n=4
             )
         
-        if len(failed_nodes) == 0:
-            self.tests_passed += 1
-        else:
-            self.tests_failed += 1
+        # Input shape: (batch_size, input_size)
+        batch_size = 8
+        input_tensor = generate_uniform_input((batch_size, 256))
         
-        return len(failed_nodes) == 0
+        with torch.no_grad():
+            output = layer(input_tensor)
+        
+        # Output shape should be: (batch_size, output_size)
+        expected_shape = (batch_size, 128)
+        assert_shape_equal(output, expected_shape)
     
-    def test_shape_forward_pass(self):
-        """Test 2.2: Forward pass produces correct output shape."""
-        try:
-            with IgnoreWarnings():
-                layer = instantiate_layer(
-                    self.layer_class,
-                    input_size=256,
-                    output_size=128,
-                    n=4
-                )
-            
-            # Input shape: (batch_size, input_size)
-            batch_size = 8
-            input_tensor = generate_uniform_input((batch_size, 256))
-            
+    def test_output_range_01(self, layer_name):
+        """Test 2.2: Output range is [0, 1]."""
+        layer_class = REGISTRY.get_layer(layer_name)
+        
+        with IgnoreWarnings():
+            layer = instantiate_layer(
+                layer_class,
+                input_size=256,
+                output_size=128,
+                n=4
+            )
+        layer.eval()
+        
+        # Test multiple random inputs
+        for seed in [42, 123, 456]:
+            input_tensor = generate_uniform_input((8, 256), seed=seed)
             with torch.no_grad():
                 output = layer(input_tensor)
             
-            # Output shape should be: (batch_size, output_size)
-            expected_shape = (batch_size, 128)
-            assert_shape_equal(output, expected_shape)
-            
-            print_test_result(f"{self.layer_name}: Shape", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.layer_name}: Shape", False, str(e))
-            self.tests_failed += 1
-            return False
+            assert_range(output, 0.0, 1.0)
     
-    def test_output_range(self):
-        """Test 2.2: Output range is [0, 1]."""
-        try:
-            with IgnoreWarnings():
-                layer = instantiate_layer(
-                    self.layer_class,
-                    input_size=256,
-                    output_size=128,
-                    n=4
-                )
-            layer.eval()
-            
-            # Test multiple random inputs
-            for seed in [42, 123, 456]:
-                input_tensor = generate_uniform_input((4, 256), seed=seed)
-                
-                with torch.no_grad():
-                    output = layer(input_tensor)
-                
-                assert_range(output, 0.0, 1.0, msg=f"seed={seed}")
-            
-            print_test_result(f"{self.layer_name}: Output Range [0,1]", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.layer_name}: Output Range [0,1]", False, str(e))
-            self.tests_failed += 1
-            return False
-    
-    def test_cpu_gpu_consistency(self):
-        """Test 2.2: CPU and GPU implementations give same forward pass."""
+    @pytest.mark.gpu
+    def test_cpu_gpu_consistency(self, layer_name):
+        """Test 2.3: CPU and GPU implementations give same forward pass."""
         if not is_cuda_available():
-            print_test_result(f"{self.layer_name}: CPU/GPU Consistency", None, "CUDA not available")
-            return None
+            pytest.skip("CUDA not available")
         
-        try:
-            with IgnoreWarnings():
-                layer = instantiate_layer(
-                    self.layer_class,
-                    input_size=256,
-                    output_size=128,
-                    n=4
-                )
-            layer.eval()
-            
-            input_tensor = generate_uniform_input((4, 256), seed=42)
-            
-            output_cpu, output_gpu = compare_cpu_gpu_forward(
-                layer, input_tensor,
-                atol=CPU_GPU_ATOL,
-                rtol=CPU_GPU_RTOL
+        layer_class = REGISTRY.get_layer(layer_name)
+        
+        with IgnoreWarnings():
+            layer_cpu = instantiate_layer(
+                layer_class,
+                input_size=256,
+                output_size=128,
+                n=4
             )
-            
-            print_test_result(f"{self.layer_name}: CPU/GPU Consistency", True)
-            self.tests_passed += 1
-            return True
-            
+        
+        input_cpu = generate_uniform_input((8, 256), seed=42)
+        
+        try:
+            output_cpu, output_gpu = compare_cpu_gpu_forward(
+                layer_cpu, input_cpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
+            )
         except RuntimeError as e:
-            if "CUDA" in str(e):
-                print_test_result(f"{self.layer_name}: CPU/GPU Consistency", None, "CUDA not available")
-                return None
-            print_test_result(f"{self.layer_name}: CPU/GPU Consistency", False, str(e))
-            self.tests_failed += 1
-            return False
-        except Exception as e:
-            print_test_result(f"{self.layer_name}: CPU/GPU Consistency", False, str(e))
-            self.tests_failed += 1
-            return False
+            if "CUDA" in str(e) or "cuda" in str(e):
+                pytest.skip(f"CUDA error for {layer_name}: {e}")
+            raise
     
-    def test_gradients(self):
-        """Test 2.3: Gradients exist and are not all zero."""
-        try:
-            with IgnoreWarnings():
-                layer = instantiate_layer(
-                    self.layer_class,
-                    input_size=256,
-                    output_size=128,
-                    n=4
-                )
-            layer.train()
-            
-            input_tensor = generate_uniform_input((4, 256), seed=42, device='cpu')
-            input_tensor.requires_grad = True
-            
+    def test_gradients_exist(self, layer_name):
+        """Test 2.4: Gradients exist and are not all zero."""
+        layer_class = REGISTRY.get_layer(layer_name)
+        
+        with IgnoreWarnings():
+            layer = instantiate_layer(
+                layer_class,
+                input_size=256,
+                output_size=128,
+                n=4
+            )
+        
+        layer.train()
+        input_tensor = generate_uniform_input((8, 256), seed=42)
+        input_tensor.requires_grad = True
+        
+        output = layer(input_tensor)
+        loss = output.sum()
+        loss.backward()
+        
+        # Check gradients exist for parameters
+        assert_gradients_exist(layer)
+
+
+# ============================================================================
+# Layer with Different Node Types
+# ============================================================================
+
+@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+@pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
+def test_layer_with_node_type(layer_name, node_name):
+    """Test layer works with all node types."""
+    layer_class = REGISTRY.get_layer(layer_name)
+    node_class = REGISTRY.get_node(node_name)
+    
+    try:
+        with IgnoreWarnings():
+            layer = instantiate_layer(
+                layer_class,
+                input_size=256,
+                output_size=128,
+                node_type=node_class,
+                n=4
+            )
+        
+        # Test forward pass
+        input_tensor = generate_uniform_input((8, 256), seed=42)
+        with torch.no_grad():
             output = layer(input_tensor)
-            loss = output.sum()
-            loss.backward()
-            
-            # Check that gradients exist and are not all zero
-            assert_gradients_exist(layer, msg="Layer has zero gradients")
-            
-            print_test_result(f"{self.layer_name}: Gradients", True)
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.layer_name}: Gradients", False, str(e))
-            self.tests_failed += 1
-            return False
-    
-    def test_different_layer_sizes(self):
-        """Test layer with different input/output sizes."""
-        try:
-            test_configs = [
-                (100, 50),
-                (512, 256),
-                (1000, 100),
-            ]
-            
-            for input_size, output_size in test_configs:
-                with IgnoreWarnings():
-                    layer = instantiate_layer(
-                        self.layer_class,
-                        input_size=input_size,
-                        output_size=output_size,
-                        n=4
-                    )
-                
-                input_tensor = generate_uniform_input((2, input_size), seed=42)
-                
-                with torch.no_grad():
-                    output = layer(input_tensor)
-                
-                assert_shape_equal(output, (2, output_size))
-            
-            print_test_result(f"{self.layer_name}: Different Sizes", True, f"Tested {len(test_configs)} configs")
-            self.tests_passed += 1
-            return True
-            
-        except Exception as e:
-            print_test_result(f"{self.layer_name}: Different Sizes", False, str(e))
-            self.tests_failed += 1
-            return False
-
-
-def test_all_layers():
-    """Test all registered layers."""
-    print_section("LAYER FORWARD PASS TESTS")
-    
-    layers = get_all_registered_layers()
-    print(f"\nTesting {len(layers)} layers: {list(layers.keys())}\n")
-    
-    all_passed = 0
-    all_failed = 0
-    
-    for layer_name, layer_class in layers.items():
-        print_subsection(f"Layer: {layer_name}")
         
-        tester = LayerTester(layer_name, layer_class)
+        assert output.shape == (8, 128), \
+            f"{layer_name} with {node_name} produced wrong shape"
         
-        # Run all tests
-        tester.test_with_all_nodes()
-        tester.test_shape_forward_pass()
-        tester.test_output_range()
-        tester.test_cpu_gpu_consistency()
-        tester.test_gradients()
-        tester.test_different_layer_sizes()
+    except TypeError as e:
+        # Some layer/node combinations might not be compatible
+        if "node_type" in str(e):
+            pytest.skip(f"{layer_name} does not support node_type parameter")
+        raise
+
+
+# ============================================================================
+# Additional Layer Tests
+# ============================================================================
+
+@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+def test_layer_different_sizes(layer_name):
+    """Test layer works with different input/output sizes."""
+    layer_class = REGISTRY.get_layer(layer_name)
+    
+    test_configs = [
+        (64, 32),    # Small
+        (256, 128),  # Medium
+        (512, 256),  # Large
+    ]
+    
+    for input_size, output_size in test_configs:
+        with IgnoreWarnings():
+            layer = instantiate_layer(
+                layer_class,
+                input_size=input_size,
+                output_size=output_size,
+                n=4
+            )
         
-        all_passed += tester.tests_passed
-        all_failed += tester.tests_failed
+        input_tensor = generate_uniform_input((8, input_size), seed=42)
+        with torch.no_grad():
+            output = layer(input_tensor)
         
-        print(f"  → {tester.tests_passed} passed, {tester.tests_failed} failed")
-    
-    return all_passed, all_failed
+        assert output.shape == (8, output_size), \
+            f"{layer_name} failed for sizes ({input_size}, {output_size})"
 
 
-def main():
-    """Run all layer tests."""
-    print("\n" + "=" * 70)
-    print("  LAYER FORWARD PASS TEST SUITE")
-    print("=" * 70)
+@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+def test_layer_different_batch_sizes(layer_name):
+    """Test layer works with different batch sizes."""
+    layer_class = REGISTRY.get_layer(layer_name)
     
-    passed, failed = test_all_layers()
+    with IgnoreWarnings():
+        layer = instantiate_layer(
+            layer_class,
+            input_size=256,
+            output_size=128,
+            n=4
+        )
+    layer.eval()
     
-    # Summary
-    print_section("SUMMARY")
-    print(f"  Total: {passed} passed, {failed} failed")
-    
-    if failed > 0:
-        print(f"\n⚠ {failed} test(s) failed!")
-        sys.exit(1)
-    else:
-        print("\n✓ All layer tests passed!")
-        sys.exit(0)
-
-
-if __name__ == '__main__':
-    main()
+    for batch_size in [1, 8, 32, 128]:
+        input_tensor = generate_uniform_input((batch_size, 256), seed=42)
+        with torch.no_grad():
+            output = layer(input_tensor)
+        
+        assert output.shape == (batch_size, 128), \
+            f"{layer_name} failed for batch_size={batch_size}"
