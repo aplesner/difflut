@@ -1,12 +1,13 @@
+import itertools
+import warnings
+from typing import Any, Callable, Dict, Optional, Tuple
+
 import torch
 import torch.nn as nn
-import itertools
-from typing import Optional, Callable, Dict, Any, Tuple
-import warnings
-from .base_node import BaseNode
-from ..registry import register_node
-from ..utils.warnings import warn_default_value, CUDAWarning
 
+from ..registry import register_node
+from ..utils.warnings import CUDAWarning, warn_default_value
+from .base_node import BaseNode
 from .cuda import is_cuda_available
 
 # Default temperature for probabilistic sigmoid scaling
@@ -20,6 +21,7 @@ DEFAULT_PROBABILISTIC_USE_CUDA: bool = True
 # Try to import the compiled CUDA extension
 try:
     import probabilistic_cuda as _probabilistic_cuda_module
+
     _CUDA_EXT_AVAILABLE = True
 except ImportError:
     _CUDA_EXT_AVAILABLE = False
@@ -30,7 +32,7 @@ except ImportError:
         "'cd difflut && python setup.py install'. "
         "To suppress this warning: warnings.filterwarnings('ignore', category=RuntimeWarning, module='difflut.nodes.probabilistic_node')",
         RuntimeWarning,
-        stacklevel=2
+        stacklevel=2,
     )
 
 
@@ -39,87 +41,105 @@ class ProbabilisticFunction(torch.autograd.Function):
     PyTorch autograd function wrapper for Probabilistic CUDA kernels.
     Processes 2D tensors.
     """
+
     @staticmethod
-    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, raw_weights: torch.Tensor, temperature: float) -> torch.Tensor:
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        input: torch.Tensor,
+        raw_weights: torch.Tensor,
+        temperature: float,
+    ) -> torch.Tensor:
         """
         Forward pass using CUDA kernel.
-        
+
         Args:
             input: (batch_size, input_dim) float tensor in [0, 1]
             raw_weights: (output_dim, 2^input_dim) float tensor - raw LUT weights (before sigmoid)
             temperature: scalar float
-        
+
         Returns:
             output: (batch_size, output_dim) float tensor
         """
         if not _CUDA_EXT_AVAILABLE:
-            raise RuntimeError("CUDA extension not available. Please compile probabilistic_cuda extension.")
-        
+            raise RuntimeError(
+                "CUDA extension not available. Please compile probabilistic_cuda extension."
+            )
+
         # Ensure correct dtypes and contiguity
         input = input.contiguous().float()
         raw_weights = raw_weights.contiguous().float()
-        
+
         # Convert temperature to tensor (C++ binding expects torch.Tensor)
         # Use torch.as_tensor to avoid unnecessary copy warning
         if isinstance(temperature, torch.Tensor):
             temperature_tensor = temperature.to(device=input.device, dtype=torch.float32)
         else:
-            temperature_tensor = torch.as_tensor(temperature, dtype=torch.float32, device=input.device)
-        
+            temperature_tensor = torch.as_tensor(
+                temperature, dtype=torch.float32, device=input.device
+            )
+
         # Call CUDA forward kernel
         output = _probabilistic_cuda_module.forward(input, raw_weights, temperature_tensor)
-        
+
         # Save for backward
         ctx.save_for_backward(input, raw_weights)
         ctx.temperature = temperature
-        
+
         return output
-    
+
     @staticmethod
-    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], None]:
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], None]:
         """
         Backward pass using CUDA kernel.
-        
+
         Args:
             grad_output: (batch_size, output_dim) gradient tensor
-        
+
         Returns:
             Gradients for (input, raw_weights, temperature)
         """
         if not _CUDA_EXT_AVAILABLE:
-            raise RuntimeError("CUDA extension not available. Please compile probabilistic_cuda extension.")
-        
+            raise RuntimeError(
+                "CUDA extension not available. Please compile probabilistic_cuda extension."
+            )
+
         input, raw_weights = ctx.saved_tensors
         temperature = ctx.temperature
-        
+
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
-        
+
         # Convert temperature to tensor (C++ binding expects torch.Tensor)
         # Use torch.as_tensor to avoid unnecessary copy warning
         if isinstance(temperature, torch.Tensor):
             temperature_tensor = temperature.to(device=input.device, dtype=torch.float32)
         else:
-            temperature_tensor = torch.as_tensor(temperature, dtype=torch.float32, device=input.device)
-        
+            temperature_tensor = torch.as_tensor(
+                temperature, dtype=torch.float32, device=input.device
+            )
+
         # Call CUDA backward kernel
         grad_input, grad_weights = _probabilistic_cuda_module.backward(
             input, raw_weights, temperature_tensor, grad_output
         )
-        
+
         # Return gradients (None for temperature as it doesn't need gradient)
         return grad_input, grad_weights, None
 
 
-def probabilistic_forward(input: torch.Tensor, raw_weights: torch.Tensor, temperature: float) -> Optional[torch.Tensor]:
+def probabilistic_forward(
+    input: torch.Tensor, raw_weights: torch.Tensor, temperature: float
+) -> Optional[torch.Tensor]:
     """
     Probabilistic forward pass with automatic differentiation support.
-    
+
     Args:
         input: (batch_size, input_dim) tensor in [0, 1]
         raw_weights: (output_dim, 2^input_dim) tensor - raw weights before sigmoid
         temperature: scalar float
-    
+
     Returns:
         output: (batch_size, output_dim) tensor
     """
@@ -129,13 +149,14 @@ def probabilistic_forward(input: torch.Tensor, raw_weights: torch.Tensor, temper
         # CPU fallback handled in forward_train
         return None
 
+
 @register_node("probabilistic")
 class ProbabilisticNode(BaseNode):
     """
     Probabilistic LUT node with continuous inputs in [0,1].
     Uses probabilistic forward pass and autograd for gradients.
     """
-    
+
     def __init__(
         self,
         input_dim: Optional[int] = None,
@@ -145,7 +166,7 @@ class ProbabilisticNode(BaseNode):
         regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
         temperature: float = DEFAULT_PROBABILISTIC_TEMPERATURE,
         eval_mode: str = DEFAULT_PROBABILISTIC_EVAL_MODE,
-        use_cuda: bool = DEFAULT_PROBABILISTIC_USE_CUDA
+        use_cuda: bool = DEFAULT_PROBABILISTIC_USE_CUDA,
     ) -> None:
         """
         Args:
@@ -158,13 +179,18 @@ class ProbabilisticNode(BaseNode):
             eval_mode: Evaluation mode
             use_cuda: Whether to use CUDA kernels (if available)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim, 
-                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
-        self.register_buffer('temperature', torch.tensor(float(temperature)))
+        super().__init__(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            regularizers=regularizers,
+            init_fn=init_fn,
+            init_kwargs=init_kwargs,
+        )
+        self.register_buffer("temperature", torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
         self.use_cuda = use_cuda and is_cuda_available()
-        
+
         # Determine which implementation is being used and warn accordingly
         if self.use_cuda and _CUDA_EXT_AVAILABLE and is_cuda_available():
             # Using CUDA implementation
@@ -177,7 +203,7 @@ class ProbabilisticNode(BaseNode):
                 f"CUDA extension was requested (use_cuda=True) but is not compiled. "
                 f"Compile with: cd difflut && python setup.py install",
                 CUDAWarning,
-                stacklevel=2
+                stacklevel=2,
             )
         elif use_cuda and is_cuda_available():
             # User requested CUDA but couldn't use it (shouldn't happen if _CUDA_EXT_AVAILABLE but doesn't hurt to check)
@@ -190,21 +216,22 @@ class ProbabilisticNode(BaseNode):
                 f"ProbabilisticNode: Using {implementation}. "
                 f"Set use_cuda=True in config and compile CUDA extension for better performance.",
                 CUDAWarning,
-                stacklevel=2
+                stacklevel=2,
             )
-        
+
         # Store raw weights (logits) - single node instance
         # Shape: (2**input_dim, output_dim)
         self.raw_weights = nn.Parameter(torch.randn(2**self.input_dim, self.output_dim))
         self._apply_init_fn(self.raw_weights, name="raw_weights")
-        
+
         # Precompute all binary combinations (LSB-first order) - for CPU fallback
         binary_combinations = []
         for i in range(2**self.input_dim):
             bits = [((i >> j) & 1) for j in range(self.input_dim)]  # LSB first
             binary_combinations.append(bits)
-        self.register_buffer('binary_combinations',
-                            torch.tensor(binary_combinations, dtype=torch.float32))
+        self.register_buffer(
+            "binary_combinations", torch.tensor(binary_combinations, dtype=torch.float32)
+        )
 
     @property
     def weights(self) -> torch.Tensor:
@@ -228,7 +255,7 @@ class ProbabilisticNode(BaseNode):
         """
         if a.dim() == 1:
             a = a.unsqueeze(0).expand(x.shape[0], -1)
-        
+
         # Compute probability
         prob = x * a + (1 - x) * (1 - a)
         return torch.prod(prob, dim=1)
@@ -238,14 +265,14 @@ class ProbabilisticNode(BaseNode):
         Forward pass during training: probabilistic expectation (vectorized)
         f(x) = Σ_a ω_δ(a) * Pr(a|x)
         Uses CUDA kernel if available, otherwise falls back to CPU.
-        
+
         Args:
             x: Input tensor (batch_size, input_dim)
         Returns:
             Output tensor (batch_size, output_dim)
         """
         batch_size, input_dim = x.shape
-        
+
         # Try CUDA kernel first
         if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
             # raw_weights shape: (2^input_dim, output_dim)
@@ -253,23 +280,23 @@ class ProbabilisticNode(BaseNode):
             output = probabilistic_forward(x, self.raw_weights, self.temperature.item())
             if output is not None:
                 return output
-        
+
         # CPU fallback
         # weights shape: (2^input_dim, output_dim)
         weights = self.weights
-        
+
         # Ensure binary_combinations is on the same device and dtype as x
         binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
-        
+
         # Vectorized probability computation
         x_expanded = x.unsqueeze(1)  # (batch_size, 1, input_dim)
         a_expanded = binary_combinations.unsqueeze(0)  # (1, 2^input_dim, input_dim)
         prob_terms = x_expanded * a_expanded + (1 - x_expanded) * (1 - a_expanded)
         probs = torch.prod(prob_terms, dim=-1)  # (batch_size, 2^input_dim)
-        
+
         # Apply weights: (batch_size, 2^input_dim) @ (2^input_dim, output_dim) -> (batch_size, output_dim)
         output = torch.matmul(probs, weights)
-        
+
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -277,27 +304,27 @@ class ProbabilisticNode(BaseNode):
         Evaluation: Direct LUT lookup simulating hardware behavior.
         Assumes inputs are already binary (0 or 1) from encoder or previous nodes.
         Returns binary outputs (0 or 1).
-        
+
         Args:
             x: Input tensor (batch_size, input_dim)
         Returns:
             Output tensor (batch_size, output_dim)
         """
         batch_size, input_dim = x.shape
-        
+
         # Convert binary inputs to LUT indices (LSB-first order)
         powers = 2 ** torch.arange(input_dim, device=x.device, dtype=x.dtype)
         indices = (x * powers).sum(dim=-1).long()  # (batch_size,)
-        
+
         # Look up weights and threshold at 0.5 to get binary output
         weights = self.weights  # (2^input_dim, output_dim)
-        
+
         # Gather weights: (batch_size, output_dim)
         output = weights[indices]  # (batch_size, output_dim)
-        
+
         # Threshold to get binary output (weights are in [0, 1] after sigmoid)
         output = (output >= 0.5).float()
-        
+
         return output
 
     def _builtin_regularization(self) -> torch.Tensor:

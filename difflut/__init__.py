@@ -29,31 +29,32 @@ warnings.filterwarnings('always', module='difflut')
 warnings.filterwarnings('error', module='difflut')
 """
 
-# Import registry first
-from .registry import (
-    REGISTRY,
-    register_node,
-    register_layer,
-    register_encoder,
-    register_initializer,
-    register_regularizer,
-)
+from .encoder.base_encoder import BaseEncoder
+from .layers.base_layer import BaseLUTLayer
 
 # Import base classes
 from .nodes.base_node import BaseNode
-from .layers.base_layer import BaseLUTLayer
-from .encoder.base_encoder import BaseEncoder
 
-__version__ = '1.1.3'
+# Import registry first
+from .registry import (
+    REGISTRY,
+    register_encoder,
+    register_initializer,
+    register_layer,
+    register_node,
+    register_regularizer,
+)
+
+__version__ = "1.1.3"
 
 __all__ = [
-    'REGISTRY',
-    'register_node',
-    'register_layer',
-    'register_encoder',
-    'register_initializer',
-    'register_regularizer',
-    'BaseNode',
-    'BaseLUTLayer',
-    'BaseEncoder',
+    "REGISTRY",
+    "register_node",
+    "register_layer",
+    "register_encoder",
+    "register_initializer",
+    "register_regularizer",
+    "BaseNode",
+    "BaseLUTLayer",
+    "BaseEncoder",
 ]

@@ -1,10 +1,12 @@
+import itertools
+from typing import Any, Callable, Dict, Optional, Tuple
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import itertools
-from typing import Optional, Callable, Dict, Any, Tuple
-from .base_node import BaseNode
+
 from ..registry import register_node
+from .base_node import BaseNode
 
 # Default width of hidden layers in NeuralLUT MLP
 DEFAULT_NEURALLUT_HIDDEN_WIDTH: int = 8
@@ -13,7 +15,7 @@ DEFAULT_NEURALLUT_DEPTH: int = 2
 # Default interval for skip connections in NeuralLUT (0 = no skips)
 DEFAULT_NEURALLUT_SKIP_INTERVAL: int = 2
 # Default activation function for NeuralLUT ('relu', 'sigmoid', or 'leakyrelu')
-DEFAULT_NEURALLUT_ACTIVATION: str = 'relu'
+DEFAULT_NEURALLUT_ACTIVATION: str = "relu"
 # Default starting temperature for NeuralLUT
 DEFAULT_NEURALLUT_TAU_START: float = 1.0
 # Default minimum temperature for NeuralLUT
@@ -25,16 +27,21 @@ DEFAULT_NEURALLUT_STE: bool = False
 # Default gradient scaling factor for NeuralLUT
 DEFAULT_NEURALLUT_GRAD_FACTOR: float = 1.0
 
+
 class GradientScalingFunction(torch.autograd.Function):
     """Custom autograd function that scales gradients during backward pass only."""
-    
+
     @staticmethod
-    def forward(ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, grad_factor: float) -> torch.Tensor:
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, grad_factor: float
+    ) -> torch.Tensor:
         ctx.grad_factor = grad_factor
         return input
-    
+
     @staticmethod
-    def backward(ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor) -> Tuple[torch.Tensor, None]:
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
+    ) -> Tuple[torch.Tensor, None]:
         return grad_output * ctx.grad_factor, None
 
 
@@ -43,10 +50,10 @@ class NeuralLUTNode(BaseNode):
     """
     NeuraLUT Node that encapsulates a small MLP inside a LUT.
     Uses autograd for gradient computation.
-    
+
     Processes 2D tensors: (batch_size, input_dim) → (batch_size, output_dim)
     """
-    
+
     def __init__(
         self,
         input_dim: Optional[int] = None,
@@ -62,7 +69,7 @@ class NeuralLUTNode(BaseNode):
         tau_min: float = DEFAULT_NEURALLUT_TAU_MIN,
         tau_decay_iters: float = DEFAULT_NEURALLUT_TAU_DECAY_ITERS,
         ste: bool = DEFAULT_NEURALLUT_STE,
-        grad_factor: float = DEFAULT_NEURALLUT_GRAD_FACTOR
+        grad_factor: float = DEFAULT_NEURALLUT_GRAD_FACTOR,
     ) -> None:
         """
         Args:
@@ -82,8 +89,13 @@ class NeuralLUTNode(BaseNode):
             ste: Whether to use Straight-Through Estimator (default: False)
             grad_factor: Gradient scaling factor for backward pass (default: 1.0)
         """
-        super().__init__(input_dim=input_dim, output_dim=output_dim,
-                         regularizers=regularizers, init_fn=init_fn, init_kwargs=init_kwargs)
+        super().__init__(
+            input_dim=input_dim,
+            output_dim=output_dim,
+            regularizers=regularizers,
+            init_fn=init_fn,
+            init_kwargs=init_kwargs,
+        )
         self.output_dim = output_dim
         self.hidden_width = hidden_width
         self.depth = depth
@@ -100,30 +112,30 @@ class NeuralLUTNode(BaseNode):
         self._build_network()
 
         self.ste_if = self.ste_forward if self.ste else lambda y_soft, u: y_soft
-        
+
         # LUT storage for evaluation mode
-        self.register_buffer('lut_table', None)
+        self.register_buffer("lut_table", None)
         self._lut_computed = False
 
     def _build_network(self) -> None:
         """Build the MLP network with skip connections."""
         # Use standard nn.Linear layers
         self.layers = nn.ModuleList()
-        
+
         # Input layer
         in_features = self.num_inputs
         out_features = self.hidden_width if self.depth > 1 else self.num_outputs
         self.layers.append(nn.Linear(in_features, out_features))
-        
+
         # Hidden layers
         for i in range(1, self.depth - 1):
             layer = nn.Linear(self.hidden_width, self.hidden_width)
             self.layers.append(layer)
-        
+
         # Output layer
         if self.depth > 1:
             self.layers.append(nn.Linear(self.hidden_width, self.num_outputs))
-        
+
         # Skip connections
         self.skip_layers = nn.ModuleList()
         if self.skip_interval > 0:
@@ -137,9 +149,9 @@ class NeuralLUTNode(BaseNode):
 
     def _activation(self, x: torch.Tensor) -> torch.Tensor:
         """Apply activation function."""
-        if self.activation_type == 'sigmoid':
+        if self.activation_type == "sigmoid":
             return torch.sigmoid(x)
-        elif self.activation_type == 'leakyrelu':
+        elif self.activation_type == "leakyrelu":
             return F.leaky_relu(x)
         else:
             return F.relu(x)
@@ -147,7 +159,7 @@ class NeuralLUTNode(BaseNode):
     def _mlp_forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the MLP.
-        
+
         Args:
             x: (batch_size, num_inputs)
         Returns:
@@ -155,24 +167,24 @@ class NeuralLUTNode(BaseNode):
         """
         x_input = x
         h = x
-        
+
         for i, layer in enumerate(self.layers):
             # Standard linear layer
             # h: (batch_size, in_features)
             # output: (batch_size, out_features)
             h = layer(h)
-            
+
             # Add skip connection if available
             if self.skip_interval > 0 and i < len(self.skip_layers):
                 if self.skip_layers[i] is not None:
                     skip_layer = self.skip_layers[i]
                     skip_out = skip_layer(x_input)
                     h = h + skip_out
-            
+
             # Apply activation (except for last layer)
             if i < len(self.layers) - 1:
                 h = self._activation(h)
-        
+
         return h
 
     def ste_forward(self, y_soft: torch.Tensor, u: torch.Tensor) -> torch.Tensor:
@@ -180,55 +192,56 @@ class NeuralLUTNode(BaseNode):
         output = y_hard.detach() - y_soft.detach() + y_soft
         return output
 
-
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass during training with binary rounding and STE.
-        
+
         Args:
             x: Input tensor (batch_size, num_inputs)
         Returns:
             Output tensor (batch_size, num_outputs)
         """
         batch_size, input_dim = x.shape
-        
+
         # MLP forward + sigmoid
         logits = self._mlp_forward(x)  # (batch_size, num_outputs)
-        
+
         u = torch.rand_like(logits)
         y_soft = torch.sigmoid((logits + torch.log(u) - torch.log(1 - u)) / self.tau)
         output = self.ste_if(y_soft, u)
-        
+
         # Apply gradient scaling using custom autograd function
         # This only affects gradients, not forward pass values
-        output = GradientScalingFunction.apply(output, torch.tensor(self.grad_factor, device=output.device))
-        
+        output = GradientScalingFunction.apply(
+            output, torch.tensor(self.grad_factor, device=output.device)
+        )
+
         return output
 
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
         """
         Evaluation: Direct thresholding of MLP output.
-        
+
         Args:
             x: Input tensor (batch_size, num_inputs)
         Returns:
             Output tensor (batch_size, num_outputs)
         """
         batch_size, input_dim = x.shape
-        
+
         # Compute same as forward_train (MLP + sigmoid)
         logits = self._mlp_forward(x)
         output = (torch.sigmoid(logits) >= 0.5).float()
-        
+
         return output
 
     def _precompute_lut(self) -> None:
         """Precompute the LUT for evaluation."""
         device = next(self.parameters()).device
-        num_entries = 2 ** self.num_inputs
-        
+        num_entries = 2**self.num_inputs
+
         lut = torch.zeros((num_entries, self.num_outputs), device=device)
-        
+
         with torch.no_grad():
             for i, bits in enumerate(itertools.product([0, 1], repeat=self.num_inputs)):
                 x = torch.tensor(bits, dtype=torch.float32, device=device).unsqueeze(0)
@@ -236,7 +249,7 @@ class NeuralLUTNode(BaseNode):
                 # Apply sigmoid to match training forward pass
                 output = torch.sigmoid(output)
                 lut[i] = output.squeeze(0)
-        
+
         self.lut_table = lut
         self._lut_computed = True
 
@@ -247,7 +260,7 @@ class NeuralLUTNode(BaseNode):
     def update_tau(self, iteration: int):
         """
         Update tau using exponential decay.
-        
+
         Args:
             iteration: Current training iteration
         """
@@ -257,9 +270,11 @@ class NeuralLUTNode(BaseNode):
         self.tau = max(self.tau_start * decay_factor, self.tau_min)
 
     def extra_repr(self) -> str:
-        return f"input_dim={self.input_dim}, output_dim={self.output_dim}, " \
-               f"hidden_width={self.hidden_width}, depth={self.depth}, " \
-               f"skip_interval={self.skip_interval}, activation={self.activation_type}, " \
-               f"grad_factor={self.grad_factor}", \
-               f"tau={self.tau:.4f}, tau_start={self.tau_start}, " \
-               f"tau_min={self.tau_min}, tau_decay_iters={self.tau_decay_iters}"
+        return (
+            f"input_dim={self.input_dim}, output_dim={self.output_dim}, "
+            f"hidden_width={self.hidden_width}, depth={self.depth}, "
+            f"skip_interval={self.skip_interval}, activation={self.activation_type}, "
+            f"grad_factor={self.grad_factor}",
+            f"tau={self.tau:.4f}, tau_start={self.tau_start}, "
+            f"tau_min={self.tau_min}, tau_decay_iters={self.tau_decay_iters}",
+        )
