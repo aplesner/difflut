@@ -42,10 +42,10 @@ def test_layer_is_implemented(layer_name):
     """Test that registered layer can be instantiated."""
     layer_class = REGISTRY.get_layer(layer_name)
     assert layer_class is not None, f"Layer {layer_name} class is None"
-    
+
     with IgnoreWarnings():
         layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
-    
+
     assert isinstance(layer, nn.Module), f"Layer {layer_name} is not an nn.Module"
     assert hasattr(layer, 'forward'), f"Layer {layer_name} has no forward method"
 

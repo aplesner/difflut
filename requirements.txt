@@ -22,5 +22,4 @@ notebook
 ipykernel
 
 # Monitoring and utilities
-pydantic
 tqdm
