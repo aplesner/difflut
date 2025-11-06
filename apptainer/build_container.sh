@@ -95,7 +95,7 @@ echo -e "  ${GREEN}CUDA Arch:${NC}     $CUDA_ARCH"
 echo -e "  ${GREEN}Build Log:${NC}     $LOG_FILE"
 echo ""
 
-# Check if apptainer/apptainer is available
+# Check if apptainer or singularity is available
 if command -v apptainer &> /dev/null; then
     CONTAINER_CMD="apptainer"
     echo -e "  ${GREEN}Tool:${NC}          apptainer ($(apptainer --version))"
