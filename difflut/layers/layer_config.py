@@ -7,7 +7,6 @@ the same pattern as ConvolutionConfig and NodeConfig.
 """
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass

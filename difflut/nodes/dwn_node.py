@@ -29,7 +29,7 @@ DEFAULT_DWN_CLAMP_LUTS: bool = True
 
 # Try to import the compiled CUDA extension
 try:
-    import efd_cuda as _efd_cuda_module
+    import efd_cuda as _efd_cuda_module  # pyright: ignore[reportMissingImports]
 
     _CUDA_EXT_AVAILABLE = True
 except ImportError:
@@ -44,15 +44,15 @@ except ImportError:
         stacklevel=2,
     )
 
-# Try to import the fused CUDA extension (for memory-efficient mapping)
+# Try to import the fused CUDA extension (for memory-efficient forward_with_mapping)
 try:
-    import efd_fused_cuda as _efd_fused_cuda_module
+    import efd_fused_cuda as _efd_fused_cuda_module  # pyright: ignore[reportMissingImports]
 
     _FUSED_CUDA_EXT_AVAILABLE = True
 except ImportError:
     _FUSED_CUDA_EXT_AVAILABLE = False
     _efd_fused_cuda_module = None
-    # Don't warn - fused extension is optional optimization
+    # Don't warn here - fused extension is optional, falls back to standard path
 
 
 class EFDFunction(torch.autograd.Function):
@@ -81,7 +81,7 @@ class EFDFunction(torch.autograd.Function):
         Returns:
             output: (batch_size, output_dim) float tensor in [0, 1]
         """
-        if not _CUDA_EXT_AVAILABLE:
+        if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
 
         # Ensure correct dtypes and contiguity
@@ -93,13 +93,13 @@ class EFDFunction(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(input, luts)
-        ctx.alpha = alpha
-        ctx.beta = beta
+        ctx.alpha = alpha # pyright: ignore[reportAttributeAccessIssue]
+        ctx.beta = beta # pyright: ignore[reportAttributeAccessIssue]
 
         return output
 
     @staticmethod
-    def backward(
+    def backward( # pyright: ignore[reportIncompatibleMethodOverride]
         ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, None, None]:
         """
@@ -111,12 +111,12 @@ class EFDFunction(torch.autograd.Function):
         Returns:
             Gradients for (input, luts, alpha, beta)
         """
-        if not _CUDA_EXT_AVAILABLE:
+        if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
 
-        input, luts = ctx.saved_tensors
-        alpha = ctx.alpha
-        beta = ctx.beta
+        input, luts = ctx.saved_tensors # pyright: ignore[reportAttributeAccessIssue]
+        alpha = ctx.alpha # pyright: ignore[reportAttributeAccessIssue]
+        beta = ctx.beta # pyright: ignore[reportAttributeAccessIssue]
 
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
@@ -227,6 +227,91 @@ class EFDFunctionCPU(torch.autograd.Function):
                 grad_input[batch_idx, input_idx] = total_gradient
 
         return grad_input, grad_luts, None, None
+
+
+class EFDFusedFunction(torch.autograd.Function):
+    """
+    Fused EFD autograd function - performs mapping + LUT lookup in single CUDA kernel.
+    Avoids materializing the (batch_size, layer_size, input_dim) mapped_inputs tensor.
+    """
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        input: torch.Tensor,
+        mapping_indices: torch.Tensor,
+        luts: torch.Tensor,
+        alpha: float,
+        beta: float,
+    ) -> torch.Tensor:
+        """
+        Fused forward pass using CUDA kernel.
+
+        Args:
+            input: (batch_size, input_size) float tensor in [0, 1]
+            mapping_indices: (layer_size, input_dim) int64 tensor, indices into input_size
+            luts: (layer_size, output_dim, lut_size) float tensor in [0, 1]
+            alpha: scalar float for gradient scaling
+            beta: scalar float for Hamming distance decay
+
+        Returns:
+            output: (batch_size, layer_size, output_dim) float tensor in [0, 1]
+        """
+        if not _FUSED_CUDA_EXT_AVAILABLE or _efd_fused_cuda_module is None:
+            raise RuntimeError(
+                "Fused CUDA extension not available. Please compile efd_fused_cuda extension."
+            )
+
+        # Ensure correct dtypes and contiguity
+        input = input.contiguous().float()
+        mapping_indices = mapping_indices.contiguous().long()
+        luts = luts.contiguous().float()
+
+        # Call fused CUDA forward kernel
+        output = _efd_fused_cuda_module.forward(input, mapping_indices, luts)
+
+        # Save for backward
+        ctx.save_for_backward(input, mapping_indices, luts)
+        ctx.alpha = alpha  # pyright: ignore[reportAttributeAccessIssue]
+        ctx.beta = beta  # pyright: ignore[reportAttributeAccessIssue]
+
+        return output
+
+    @staticmethod
+    def backward(  # pyright: ignore[reportIncompatibleMethodOverride]
+        ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
+    ) -> Tuple[torch.Tensor, None, torch.Tensor, None, None]:
+        """
+        Fused backward pass using CUDA kernel with alpha/beta scaling.
+
+        Args:
+            grad_output: (batch_size, layer_size, output_dim) gradient tensor
+
+        Returns:
+            Gradients for (input, mapping_indices, luts, alpha, beta)
+            mapping_indices gradient is None (indices are not differentiable)
+        """
+        if not _FUSED_CUDA_EXT_AVAILABLE or _efd_fused_cuda_module is None:
+            raise RuntimeError(
+                "Fused CUDA extension not available. Please compile efd_fused_cuda extension."
+            )
+
+        input, mapping_indices, luts = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
+        alpha = ctx.alpha  # pyright: ignore[reportAttributeAccessIssue]
+        beta = ctx.beta  # pyright: ignore[reportAttributeAccessIssue]
+
+        # Ensure contiguity
+        grad_output = grad_output.contiguous().float()
+
+        # Call fused CUDA backward kernel with alpha and beta
+        grad_input, grad_luts = _efd_fused_cuda_module.backward(
+            input, mapping_indices, luts, grad_output, alpha, beta
+        )
+
+        # Return gradients: (input, mapping_indices, luts, alpha, beta)
+        # mapping_indices is not differentiable (None)
+        # alpha and beta are scalars (None)
+        return grad_input, None, grad_luts, None, None
 
 
 def efd_forward(
@@ -396,11 +481,11 @@ class DWNNode(BaseNode):
         Args:
             x: Input tensor (batch_size, input_size)
                Raw 2D input from encoder or previous layer
-            mapping_indices: Indices (layer_size, num_inputs) int64 tensor
+            mapping_indices: Indices (layer_size, input_dim) int64 tensor
                            Values in range [0, input_size), defines which inputs to select
 
         Returns:
-            Output tensor (batch_size, layer_size, num_outputs)
+            Output tensor (batch_size, layer_size, output_dim)
 
         Memory Impact:
             - Without fusion: Creates (batch, layer_size, input_dim) tensor = ~60 MB per layer
@@ -411,20 +496,25 @@ class DWNNode(BaseNode):
             self._clamp_luts_if_needed()
 
         batch_size = x.shape[0]
-        input_size = x.shape[1]
+        layer_size = mapping_indices.shape[0]
+        input_dim = mapping_indices.shape[1]
 
-        # Validate dimensions
-        if mapping_indices.shape != (self.layer_size, self.num_inputs):
+        # Validate that mapping_indices matches node's input_dim
+        if input_dim != self.num_inputs:
             raise ValueError(
-                f"Expected mapping shape ({self.layer_size}, {self.num_inputs}), "
-                f"got {mapping_indices.shape}"
+                f"Mapping indices input_dim ({input_dim}) doesn't match node's input_dim ({self.num_inputs})"
             )
 
         # Use fused CUDA kernel if available
         if self.use_cuda and x.is_cuda and _FUSED_CUDA_EXT_AVAILABLE:
+            # Prepare LUTs in the shape expected by fused kernel: (layer_size, output_dim, lut_size)
+            # Current LUTs shape: (output_dim, lut_size)
+            # Need to expand/repeat for each node in the layer
+            luts_expanded = self.luts.unsqueeze(0).expand(layer_size, -1, -1)
+
             # Fused path: no intermediate tensor materialized
             output = EFDFusedFunction.apply(
-                x, mapping_indices, self.luts, self.alpha.item(), self.beta.item()
+                x, mapping_indices, luts_expanded, self.alpha.item(), self.beta.item()
             )
         else:
             # Fallback to base implementation (materializes mapped_inputs)

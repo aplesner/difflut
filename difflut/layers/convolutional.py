@@ -1,12 +1,11 @@
 # Convolutional kernel for LUT-based models
-from typing import Any, Callable, Optional, Type
+from typing import Optional, Type
 
 import torch
 import torch.nn as nn
 
 from ..nodes.node_config import NodeConfig
 from ..registry import register_convolutional_layer
-from ..utils.warnings import warn_default_value
 from .base_layer import LUTLayerMixin
 from .layer_config import LayerConfig
 
@@ -41,7 +40,7 @@ class ConvolutionConfig:
 
 
 @register_convolutional_layer("convolutional")
-class ConvolutionalLayer(nn.Module, LUTLayerMixin):
+class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     """
     Convolutional layer using LUT-based nodes with memory-efficient fused kernels.
 
