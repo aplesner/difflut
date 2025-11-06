@@ -17,6 +17,7 @@ class Registry:
     def __init__(self) -> None:
         self._nodes: Dict[str, Type] = {}
         self._layers: Dict[str, Type] = {}
+        self._convolutional_layers: Dict[str, Type] = {}
         self._encoders: Dict[str, Type] = {}
         self._initializers: Dict[str, Callable] = {}
         self._regularizers: Dict[str, Callable] = {}
@@ -126,6 +127,58 @@ class Registry:
     def list_layers(self) -> List[str]:
         """List all registered layer names."""
         return list(self._layers.keys())
+
+    # ==================== Convolutional Layer Registration ====================
+    def register_convolutional_layer(self, name: Optional[str] = None) -> Callable:
+        """
+        Decorator to register a convolutional layer class.
+
+        Args:
+            name: Name to register the convolutional layer under. If None, uses class name.
+
+        Example:
+            @registry.register_convolutional_layer("convolutional")
+            class ConvolutionalLayer(BaseConvolutionalLayer):
+                pass
+        """
+
+        def decorator(cls: Type) -> Type:
+            conv_layer_name = name if name is not None else cls.__name__
+            if conv_layer_name in self._convolutional_layers:
+                warnings.warn(
+                    f"Convolutional Layer '{conv_layer_name}' is already registered and will be overwritten. "
+                    f"This may lead to unexpected behavior if other code depends on the original implementation. "
+                    f"Consider using a unique name or checking existing registrations with registry.list_layers().",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self._convolutional_layers[conv_layer_name] = cls
+            return cls
+
+        return decorator
+
+    def get_convolutional_layer(self, name: str) -> Type:
+        """
+        Get a registered convolutional layer class by name.
+
+        Args:
+            name: Name of the convolutional layer
+
+        Returns:
+            Convolutional Layer class
+
+        Raises:
+            ValueError: If convolutional layer not found
+        """
+        if name not in self._convolutional_layers:
+            raise ValueError(
+                f"Convolutional Layer '{name}' not found. " f"Available layers: {list(self._convolutional_layers.keys())}"
+            )
+        return self._convolutional_layers[name]
+
+    def list_convolutional_layers(self) -> List[str]:
+        """List all registered convolutional layer names."""
+        return list(self._convolutional_layers.keys())
 
     # ==================== Encoder Registration ====================
 
@@ -377,6 +430,7 @@ class Registry:
         return {
             "nodes": self.list_nodes(),
             "layers": self.list_layers(),
+            "convolutional_layers": self.list_convolutional_layers(),
             "encoders": self.list_encoders(),
             "initializers": self.list_initializers(),
             "regularizers": self.list_regularizers(),
@@ -400,6 +454,7 @@ REGISTRY = Registry()
 # Convenience decorator aliases
 register_node = REGISTRY.register_node
 register_layer = REGISTRY.register_layer
+register_convolutional_layer = REGISTRY.register_convolutional_layer
 register_encoder = REGISTRY.register_encoder
 register_initializer = REGISTRY.register_initializer
 register_regularizer = REGISTRY.register_regularizer

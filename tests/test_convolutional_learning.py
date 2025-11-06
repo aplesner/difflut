@@ -190,7 +190,7 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
-    conv_layer_type = REGISTRY.get_layer("convolutional")
+    conv_layer_type = REGISTRY.get_convolutional_layer("convolutional")
 
     # Create node config
     node_config = NodeConfig(input_dim=6, output_dim=1)
