@@ -45,7 +45,7 @@ jobs:
       id: auto_bump
       run: |
         # Get the version from the previous commit (before this merge)
-        git fetch origin main
+        git fetch origin main:refs/remotes/origin/main
         PREV_VERSION=$(git show HEAD~1:pyproject.toml 2>/dev/null | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//' || echo "")
         CURRENT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
         
@@ -60,8 +60,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           
-          # Bump patch version
-          bump2version patch --allow-dirty
+          # Bump patch version (bump2version handles git add and commit)
+          bump2version patch
           
           # Get new version
           NEW_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
@@ -81,4 +81,4 @@ jobs:
     - name: Push version bump
       if: steps.auto_bump.outputs.bumped == 'true'
       run: |
-        git push --follow-tags
+        git push origin HEAD:main --tags

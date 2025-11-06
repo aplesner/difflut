@@ -47,12 +47,14 @@ jobs:
         # Extract versions from each file
         SETUP_VERSION=$(grep "version=" setup.py | head -1 | sed "s/.*version='//;s/'.*//")
         PYPROJECT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        INIT_VERSION=$(grep "__version__ = " difflut/__init__.py | head -1 | sed "s/.*__version__ = '//;s/'.*//")
         
         echo "setup.py version: $SETUP_VERSION"
         echo "pyproject.toml version: $PYPROJECT_VERSION"
+        echo "difflut/__init__.py version: $INIT_VERSION"
         
         # Check if versions match
-        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ]; then
+        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ] || [ "$SETUP_VERSION" != "$INIT_VERSION" ]; then
           echo "❌ Version mismatch detected!"
           exit 1
         fi
