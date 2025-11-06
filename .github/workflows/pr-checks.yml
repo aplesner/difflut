@@ -32,36 +32,32 @@ jobs:
       run: |
         isort --check-only difflut/ tests/
 
-  version-bump-reminder:
+  validate-version:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
 
-    - name: Check if version bump needed
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Validate version consistency
       run: |
-        # Get current version from main branch
-        if git rev-parse origin/main >/dev/null 2>&1; then
-          MAIN_VERSION=$(git show origin/main:pyproject.toml 2>/dev/null | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//')
-          PR_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
-          
-          if [ -z "$MAIN_VERSION" ]; then
-            echo "⚠️  Could not get version from main branch"
-          elif [ "$MAIN_VERSION" = "$PR_VERSION" ]; then
-            echo "⚠️  Version not bumped in this PR"
-            echo ""
-            echo "If this PR introduces changes that should be released, please bump the version:"
-            echo ""
-            echo "  bump2version patch    # Bug fixes (1.1.2 → 1.1.3)"
-            echo "  bump2version minor    # New features (1.1.2 → 1.2.0)"
-            echo "  bump2version major    # Breaking changes (1.1.2 → 2.0.0)"
-            echo ""
-            echo "Then commit the changes and push to your PR."
-          else
-            echo "✅ Version bumped: $MAIN_VERSION → $PR_VERSION"
-          fi
+        # Extract versions from each file
+        SETUP_VERSION=$(grep "version=" setup.py | head -1 | sed "s/.*version='//;s/'.*//")
+        PYPROJECT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        
+        echo "setup.py version: $SETUP_VERSION"
+        echo "pyproject.toml version: $PYPROJECT_VERSION"
+        
+        # Check if versions match
+        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ]; then
+          echo "❌ Version mismatch detected!"
+          exit 1
         fi
+        
+        echo "✅ All versions are consistent: $SETUP_VERSION"
 
   documentation:
     runs-on: ubuntu-latest
