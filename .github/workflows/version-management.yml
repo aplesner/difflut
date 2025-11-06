@@ -2,19 +2,16 @@ name: Version Management
 
 on:
   push:
-    branches: [ main, develop ]
-    paths:
-      - '.bumpversion.cfg'
-      - 'setup.py'
-      - 'pyproject.toml'
+    branches: [ main ]
 
 jobs:
-  validate-version:
+  validate-and-bump:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -30,86 +27,58 @@ jobs:
         # Extract versions from each file
         SETUP_VERSION=$(grep "version=" setup.py | head -1 | sed "s/.*version='//;s/'.*//")
         PYPROJECT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        INIT_VERSION=$(grep "__version__ = " difflut/__init__.py | head -1 | sed "s/.*__version__ = '//;s/'.*//")
         
         echo "setup.py version: $SETUP_VERSION"
         echo "pyproject.toml version: $PYPROJECT_VERSION"
+        echo "difflut/__init__.py version: $INIT_VERSION"
         
         # Check if versions match
-        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ]; then
+        if [ "$SETUP_VERSION" != "$PYPROJECT_VERSION" ] || [ "$SETUP_VERSION" != "$INIT_VERSION" ]; then
           echo "❌ Version mismatch detected!"
           exit 1
         fi
         
         echo "✅ All versions are consistent: $SETUP_VERSION"
 
-  check-version-bump:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-
-    - name: Check version bump in PR
+    - name: Auto-bump patch version
+      id: auto_bump
       run: |
-        # Get current version from main branch
-        git fetch origin main:main
-        MAIN_VERSION=$(git show main:pyproject.toml | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//')
-        PR_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+        # Get the version from the previous commit (before this merge)
+        git fetch origin main:refs/remotes/origin/main
+        PREV_VERSION=$(git show HEAD~1:pyproject.toml 2>/dev/null | grep "version = " | head -1 | sed 's/.*version = "//;s/".*//' || echo "")
+        CURRENT_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
         
-        echo "Main branch version: $MAIN_VERSION"
-        echo "PR version: $PR_VERSION"
+        echo "Previous version: $PREV_VERSION"
+        echo "Current version: $CURRENT_VERSION"
         
-        if [ "$MAIN_VERSION" = "$PR_VERSION" ]; then
-          echo "⚠️  Version not bumped in PR. Consider using bump2version to increment the version."
-          echo ""
-          echo "Usage: bump2version [major|minor|patch]"
-          echo "  bump2version patch   # 1.1.2 → 1.1.3"
-          echo "  bump2version minor   # 1.1.2 → 1.2.0"
-          echo "  bump2version major   # 1.1.2 → 2.0.0"
+        # If versions are the same, auto-bump patch version
+        if [ "$PREV_VERSION" = "$CURRENT_VERSION" ] && [ -n "$PREV_VERSION" ]; then
+          echo "⚡ Auto-bumping patch version..."
+          
+          # Configure git
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          
+          # Bump patch version (bump2version handles git add and commit)
+          bump2version patch
+          
+          # Get new version
+          NEW_VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
+          echo "bumped=true" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "✅ Version auto-bumped: $CURRENT_VERSION → $NEW_VERSION"
+        else
+          # Version was manually changed (minor/major bump)
+          if [ "$PREV_VERSION" != "$CURRENT_VERSION" ]; then
+            echo "✅ Version already bumped manually: $PREV_VERSION → $CURRENT_VERSION"
+          else
+            echo "ℹ️  No previous version found or first push"
+          fi
+          echo "bumped=false" >> $GITHUB_OUTPUT
         fi
 
-  sync-versions:
-    runs-on: ubuntu-latest
-    needs: validate-version
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        token: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.11'
-
-    - name: Sync versions across files
+    - name: Push version bump
+      if: steps.auto_bump.outputs.bumped == 'true'
       run: |
-        # Extract version from pyproject.toml (source of truth)
-        VERSION=$(grep "version = " pyproject.toml | head -1 | sed 's/.*version = "//;s/".*//')
-        
-        # Update setup.py
-        sed -i "s/version='[^']*'/version='$VERSION'/g" setup.py
-        
-        echo "✅ All versions synced to: $VERSION"
-
-    - name: Create Pull Request for version sync
-      if: github.event_name == 'push'
-      uses: peter-evans/create-pull-request@v5
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        commit-message: 'chore: sync versions across files'
-        title: 'Sync versions across files'
-        body: |
-          Automatic version synchronization across setup.py, pyproject.toml, and __init__.py
-          
-          This PR was auto-generated to ensure version consistency.
-        branch: chore/sync-versions
-        delete-branch: true
-        labels: 'automation'
+        git push origin HEAD:main --tags
