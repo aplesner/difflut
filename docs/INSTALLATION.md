@@ -1,385 +1,187 @@
-# Installation Guide
+# DiffLUT Installation Guide
 
-This guide covers installing DiffLUT for production use, development, and different hardware configurations.
-
-## Requirements
-
-- **Python**: 3.7 or higher
-- **PyTorch**: 1.9 or higher
-- **NumPy**: 1.19 or higher
-- **CUDA Toolkit** (optional): Required for GPU-accelerated CUDA nodes
-
-### GPU-Accelerated Nodes
-The following nodes have optional CUDA acceleration:
-- Fourier Node (`fourier_cuda`)
-- Hybrid Node (`hybrid_cuda`)
-- DWN Node (`efd_cuda`)
-- DWN Stable Node (`dwn_stable_cuda`)
-- Probabilistic Node (`probabilistic_cuda`)
-
-CPU fallback implementations are available for all nodes.
+> This document is for **users** installing DiffLUT now (from source) or in the future (via PyPI), plus a concise CUDA & container overview. For packaging, version management, branching strategy, formatting, and contribution workflow please see:
+> - Developer Contributing Guide: `docs/DEVELOPER_GUIDE/contributing.md`
+> - GitHub Workflow Guide: `.github/GITHUB_GUIDE.md`
+> - Packaging & Distribution: `docs/DEVELOPER_GUIDE/packaging.md`
+> - Apptainer Container Usage: `apptainer/README.md`
 
 ---
 
-## Installation Options
+## 1. Current Status & Availability
 
-### 📦 From PyPI (Recommended)
-
-#### Standard Installation (GPU Support, Default)
-Installs with CUDA extensions if CUDA is available:
+DiffLUT is **currently not published on PyPI**. You must install it from source. When the package is released, commands like:
 
 ```bash
-pip install difflut
+pip install difflut            # (future) auto-detect GPU
+pip install difflut[gpu]       # (future) force CUDA build
+pip install difflut[cpu]       # (future) skip CUDA extensions
+pip install difflut[dev]       # (future) include development extras
 ```
 
-#### GPU Installation (Explicit)
-Force GPU build with CUDA support:
-
-```bash
-pip install difflut[gpu]
-```
-
-#### CPU-Only Installation
-Skip CUDA build for CPU-only systems:
-
-```bash
-pip install difflut[cpu]
-```
-
-#### Development Installation
-Install with development tools (testing, linting, formatting, documentation):
-
-```bash
-pip install difflut[dev]
-```
-
-Development dependencies include:
-- `bump2version` - Version management
-- `pytest`, `pytest-cov` - Testing framework
-- `black`, `flake8`, `isort` - Code formatting and linting
-- `sphinx`, `sphinx-rtd-theme` - Documentation generation
-- `jupyter` - Notebook support
-- `matplotlib`, `torchvision` - Visualization and datasets
+will become available. Until then, use the source installation instructions below.
 
 ---
 
-### 🔧 From Source
+## 2. Minimum Requirements
 
-#### Clone the Repository
+| Component | Minimum | Notes |
+|-----------|---------|-------|
+| Python | 3.10+ | Required for modern typing (PEP 604 usage) |
+| PyTorch | 1.9.0+ | CUDA optional; CPU fallback works |
+| NumPy | 1.19.0+ | General tensor preprocessing |
+| CUDA Toolkit | Optional | Needed only for GPU-accelerated nodes |
+
+### GPU‑Accelerated Optional Nodes (CPU fallback exists)
+`fourier_cuda`, `hybrid_cuda`, `efd_cuda` (DWN), `dwn_stable_cuda`, `probabilistic_cuda`, `learnable_mapping_cuda`, `mapping_cuda`.
+
+---
+
+## 3. Tested Version Matrix (Derived from CI Workflows)
+
+The CI (`.github/workflows/tests.yml`) runs the full test suite across these combinations:
+
+| Python | PyTorch | CUDA (GPU jobs) | CPU Tests | GPU Tests |
+|--------|---------|-----------------|-----------|-----------|
+| 3.10 | 2.4.0 | 12.4 | ✅ | ✅ |
+| 3.10 | 2.5.0 | 12.4 | ✅ | ✅ |
+| 3.11 | 2.6.0 | 12.6 | ✅ | ✅ |
+| 3.11 | 2.7.0 | 12.6 | ✅ | ✅ |
+| 3.12 | 2.8.0 | 12.8 | ✅ | ✅ |
+| 3.12 | 2.9.0 | 12.8 | ✅ | ✅ |
+
+Older Python versions (3.7–3.9) appear in metadata for historical compatibility, but **active testing starts at 3.10**. Use 3.10 or later for production.
+
+---
+
+## 4. Install From Source (Current Method)
 
 ```bash
 git clone https://github.com/aplesner/difflut.git
 cd difflut/difflut
-```
 
-#### Standard Installation (GPU)
-```bash
+# Standard install (attempts CUDA if available)
 pip install .
-```
 
-#### CPU-Only Installation
-```bash
+# Force CPU-only build
 pip install .[cpu]
-```
 
-#### Development Installation (Editable)
-Install in editable mode with development tools:
-
-```bash
+# Development (editable + dev extras)
 pip install -e .[dev]
 ```
 
-This allows you to modify the source code and see changes immediately without reinstalling.
+You can combine extras in editable mode:
 
----
+```bash
+pip install -e .[dev,gpu]
+pip install -e .[dev,cpu]
+```
 
-## GPU / CUDA Support
-
-### Automatic CUDA Detection
-
-DiffLUT automatically detects CUDA availability during installation:
-
-1. **Checks for CUDA_HOME** environment variable
-2. **Checks PyTorch CUDA** availability
-3. **Compiles CUDA extensions** if available
-4. **Falls back to CPU** if CUDA is not detected
-
-### CUDA Extensions Built
-
-When CUDA is available, these extensions are compiled:
-- `dwn_stable_cuda` - DWN Stable Node acceleration
-- `efd_cuda` - Efficient Feature Descriptor (DWN Node)
-- `fourier_cuda` - Fourier Node acceleration
-- `hybrid_cuda` - Hybrid Node acceleration
-- `probabilistic_cuda` - Probabilistic Node acceleration
-- `learnable_mapping_cuda` - Learnable Layer acceleration
-- `mapping_cuda` - Random Layer acceleration
-
-### Verifying CUDA Support
-
-After installation, verify CUDA support:
-
+### Verifying Installation
 ```python
-import torch
-import difflut
-
-# Check PyTorch CUDA availability
-print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
-print(f"DiffLUT version: {difflut.__version__}")
-
-# Try importing CUDA-accelerated nodes
-try:
-    from difflut.nodes import FourierNode, HybridNode, DWNStableNode
-    print("✅ CUDA-accelerated nodes loaded successfully")
-except ImportError as e:
-    print(f"⚠️  CUDA nodes not available: {e}")
-```
-
-### Specifying CUDA Version
-
-To compile against a specific CUDA version:
-
-```bash
-# Set CUDA_HOME before installation
-export CUDA_HOME=/usr/local/cuda-11.8
-pip install difflut
-
-# Or for development
-export CUDA_HOME=/usr/local/cuda-11.8
-pip install -e .[dev]
+import torch, difflut
+print("DiffLUT", difflut.__version__)
+print("PyTorch", torch.__version__)
+print("CUDA available", torch.cuda.is_available())
 ```
 
 ---
 
-## Combining Installation Options
+## 5. CUDA Build Behavior
 
-You can combine multiple extras:
+During setup DiffLUT checks:
+1. `CUDA_HOME` or `CUDA_PATH` environment variable
+2. `torch.cuda.is_available()`
+3. Presence of matching `.cpp` + `_kernel.cu` pairs for extensions
 
+If any CUDA criteria fail, it silently falls back to CPU implementations.
+
+### Selecting a Specific CUDA Toolkit
 ```bash
-# Development + GPU
-pip install difflut[dev,gpu]
+export CUDA_HOME=/usr/local/cuda-12.1    # adjust path
+pip install -e .[dev,gpu]
+```
 
-# Development + CPU-only
-pip install difflut[dev,cpu]
-
-# All dependencies
-pip install difflut[all]
+### Quick CUDA Sanity
+```bash
+python - <<'PY'
+import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())
+PY
 ```
 
 ---
 
-## Troubleshooting
+## 6. Apptainer Container (Recommended for HPC)
 
-### CUDA Compilation Issues
-
-If CUDA kernel compilation fails:
-
-1. **Check CUDA Toolkit Installation**:
-   ```bash
-   nvcc --version
-   ```
-
-2. **Verify CUDA_HOME** is set correctly:
-   ```bash
-   echo $CUDA_HOME
-   # Should point to CUDA installation (e.g., /usr/local/cuda or /usr/local/cuda-11.8)
-   ```
-
-3. **Check PyTorch CUDA compatibility**:
-   ```bash
-   python -c "import torch; print(f'CUDA available: {torch.cuda.is_available()}')"
-   python -c "import torch; print(f'CUDA version: {torch.version.cuda}')"
-   ```
-
-4. **Install CPU-only version** as fallback:
-   ```bash
-   pip install difflut[cpu]
-   ```
-
-### Build Fails During Install
-
-If you see compilation errors:
+Use the maintained container for reproducible GPU environments. See detailed instructions in `apptainer/README.md`.
 
 ```bash
-# Try installing without build isolation
-pip install difflut --no-build-isolation
+# GPU execution
+apptainer exec --nv apptainer/difflut.sif python -c "import difflut; print(difflut.__version__)"
 
-# Or force CPU-only build
-pip install difflut[cpu]
+# CPU-only execution
+apptainer exec apptainer/difflut.sif python -c "import difflut; print(difflut.__version__)"
+
+# Interactive shell
+apptainer shell --nv apptainer/difflut.sif
 ```
 
-### PyTorch Version Compatibility
-
-Ensure PyTorch version compatibility:
-
-```bash
-# Check installed PyTorch version
-python -c "import torch; print(torch.__version__)"
-
-# Upgrade PyTorch if needed (CPU)
-pip install --upgrade torch torchvision
-
-# Upgrade PyTorch if needed (GPU, CUDA 11.8 example)
-pip install --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu118
-```
-
-### Missing System Dependencies
-
-**Ubuntu/Debian**:
-```bash
-sudo apt-get update
-sudo apt-get install python3-dev python3-pip build-essential
-```
-
-**macOS** (with Homebrew):
-```bash
-brew install python
-xcode-select --install  # Install command line tools
-```
-
-### Import Errors After Installation
-
-If you get import errors:
-
-```bash
-# Verify installation
-pip show difflut
-
-# Reinstall if needed
-pip uninstall difflut
-pip install difflut
-
-# Check for conflicting packages
-pip list | grep difflut
-```
+For remote sync & architecture flags, consult the container README.
 
 ---
 
-## Building Distribution Packages
+## 7. Troubleshooting (Common Issues)
 
-For package maintainers and developers:
+| Symptom | Likely Cause | Fix |
+|---------|--------------|-----|
+| CUDA extensions not built | Missing toolkit or incompatible PyTorch wheel | Set `CUDA_HOME`; reinstall with `[gpu]` |
+| ImportError for a `_cuda` module | Build failed silently | Reinstall with `pip install --no-build-isolation -e .[gpu]` to view logs |
+| Slow install / wheel build errors | Build isolation / missing dev tools | `pip install --no-build-isolation .` or add `build-essential` (Linux) |
+| PyTorch reports CUDA False | Using CPU wheel | Reinstall PyTorch with correct CUDA index URL |
 
-### Build Source and Wheel Distributions
-
+### Helpful Commands
 ```bash
-# Install build tools
-pip install build twine
-
-# Build distributions
-cd difflut
-python -m build
+nvcc --version                # confirm toolkit
+echo $CUDA_HOME               # path should exist
+python -c "import torch;print(torch.version.cuda)"  # reported CUDA from PyTorch
+python -c "import difflut,torch;print(difflut.__version__, torch.cuda.is_available())"
 ```
 
-This creates:
-- `dist/difflut-*.tar.gz` - Source distribution
-- `dist/difflut-*.whl` - Wheel distribution
-
-**Note**: CUDA extensions are compiled during installation, not during wheel building.
-
-### Upload to PyPI
-
-```bash
-# Test PyPI (recommended first)
-twine upload --repository testpypi dist/*
-
-# Production PyPI
-twine upload dist/*
-```
-
-### Version Management
-
-Use `bump2version` (included in dev dependencies) to manage versions:
-
-```bash
-# Install dev dependencies
-pip install -e .[dev]
-
-# Bump version
-bump2version patch  # 1.1.2 → 1.1.3
-bump2version minor  # 1.1.2 → 1.2.0
-bump2version major  # 1.1.2 → 2.0.0
-```
-
-See `VERSION.md` for details.
+### For More Advanced Packaging / Publishing
+Refer to: `docs/DEVELOPER_GUIDE/packaging.md` (wheel/sdist builds, TestPyPI, release process).
 
 ---
 
-## Container Support
+## 8. Quick Reference (Source Era vs Future PyPI)
 
-A containerized environment is available via Apptainer:
-
-```bash
-# Run with GPU support
-singularity run --nv containers/pytorch_universal_minimal.sif
-
-# Run CPU-only
-singularity run containers/pytorch_universal_minimal.sif
-```
-
-The `--nv` flag enables NVIDIA GPU support. See `containers/` directory for container definitions.
+| Scenario | Current (Source) | Future (PyPI) |
+|----------|------------------|---------------|
+| Standard install | `pip install .` | `pip install difflut` |
+| Force CPU | `pip install .[cpu]` | `pip install difflut[cpu]` |
+| Force GPU | `pip install .[gpu]` | `pip install difflut[gpu]` |
+| Dev editable | `pip install -e .[dev]` | `pip install difflut[dev]` |
 
 ---
 
-## Verification
+## 9. Developer References
 
-Test your installation:
-
-```python
-import torch
-import difflut
-from difflut.encoder import ThermometerEncoder
-from difflut.nodes import LinearLUTNode
-from difflut.layers import RandomLayer
-
-print(f"DiffLUT version: {difflut.__version__}")
-print(f"PyTorch version: {torch.__version__}")
-print(f"CUDA available: {torch.cuda.is_available()}")
-
-# Create a simple model
-encoder = ThermometerEncoder(num_bits=4)
-layer = RandomLayer(
-    input_size=32,
-    output_size=16,
-    node_type=LinearLUTNode,
-    n=4,
-    node_kwargs={'input_dim': [4], 'output_dim': [1]}
-)
-
-# Test forward pass
-x = torch.randn(8, 32)
-encoded = encoder(x)
-output = layer(encoded)
-
-print(f"✅ Installation successful! Output shape: {output.shape}")
-```
+- Contribution workflow, formatting (Black/isort), branching, version bumps: see `docs/DEVELOPER_GUIDE/contributing.md` and `.github/GITHUB_GUIDE.md`.
+- Packaging, TestPyPI & releases: `docs/DEVELOPER_GUIDE/packaging.md`.
+- Container details: `apptainer/README.md`.
 
 ---
 
-## Quick Reference
+## 10. Getting Help
 
-| Installation Type | Command | Use Case |
-|------------------|---------|----------|
-| **Standard (GPU)** | `pip install difflut` | Default, with CUDA if available |
-| **GPU Explicit** | `pip install difflut[gpu]` | Force GPU build |
-| **CPU Only** | `pip install difflut[cpu]` | Skip CUDA build |
-| **Development** | `pip install difflut[dev]` | Testing, linting, docs |
-| **All Extras** | `pip install difflut[all]` | Everything |
-| **From Source** | `pip install .` | Local development |
-| **Editable** | `pip install -e .[dev]` | Active development |
+| Resource | Location |
+|----------|----------|
+| Issues / Bug Reports | https://github.com/aplesner/difflut/issues |
+| Documentation Root | `docs/` directory |
+| Apptainer Guide | `apptainer/README.md` |
+| Developer Workflow | `.github/GITHUB_GUIDE.md` |
 
----
-
-## Next Steps
-
-- 📖 [Quick Start](QUICK_START.md) - Build your first LUT network in 5 minutes
-- 📚 [User Guide](USER_GUIDE.md) - Comprehensive usage examples
-- 🔧 [Developer Guide](DEVELOPER_GUIDE.md) - Extend and contribute
-- 💻 [Examples](../examples/) - Jupyter notebooks and scripts
+If an installation problem persists, include: Python version, PyTorch version, CUDA version (if GPU), OS, and the first 30 lines of the build log when opening an issue.
 
 ---
 
-## Getting Help
-
-- **Documentation**: https://github.com/aplesner/difflut/tree/main/docs
-- **Issues**: https://github.com/aplesner/difflut/issues
-- **Email**: sbuehrer@ethz.ch
+_Last updated: CI workflow sync – Python 3.10–3.12, PyTorch 2.4.0–2.9.0, CUDA 12.4/12.6/12.8._

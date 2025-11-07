@@ -1,6 +1,6 @@
 
 # DiffLUT Library
-![Python](https://img.shields.io/badge/python-3.7%2B-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 [![arXiv](https://img.shields.io/badge/arXiv-1234.56789-b31b1b.svg)]()
 
