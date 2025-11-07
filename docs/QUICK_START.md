@@ -36,6 +36,7 @@ import torch
 import torch.nn as nn
 from difflut.encoder import ThermometerEncoder
 from difflut.layers import RandomLayer
+from difflut.layers.layer_config import LayerConfig
 from difflut.nodes import LinearLUTNode
 from difflut.nodes.node_config import NodeConfig
 from difflut.utils.modules import GroupSum
@@ -61,6 +62,12 @@ class SimpleLUTNetwork(nn.Module):
             output_dim=1        # Single output per LUT
         )
         
+        # Create type-safe layer configuration (optional, using defaults here)
+        layer_config = LayerConfig(
+            flip_probability=0.0,           # No bit flipping during training
+            grad_stabilization='none'       # No gradient stabilization
+        )
+        
         # Input: (batch_size, 6272) → Output: (batch_size, 128)
         # Creates 128 independent LinearLUTNode instances in nn.ModuleList
         self.hidden = RandomLayer(
@@ -68,7 +75,8 @@ class SimpleLUTNetwork(nn.Module):
             output_size=hidden_size,        # 128 output nodes (128 independent LUTs)
             node_type=LinearLUTNode,
             n=4,                            # Each LUT has 4 inputs
-            node_kwargs=node_config
+            node_kwargs=node_config,
+            layer_config=layer_config       # Training parameters
         )
         
         # Step 2c: Output layer routes to num_classes nodes
@@ -79,7 +87,8 @@ class SimpleLUTNetwork(nn.Module):
             output_size=num_classes,        # 10 output nodes (10 independent LUTs)
             node_type=LinearLUTNode,
             n=4,                            # Each LUT has 4 inputs
-            node_kwargs=node_config
+            node_kwargs=node_config,
+            layer_config=layer_config       # Training parameters
         )
         
         # Step 2d: GroupSum groups output features and sums them
@@ -145,7 +154,7 @@ loss.backward()
 ✓ **GroupSum output** = (batch_size, k_groups)  
 ❌ **Mismatch** = will raise clear error with expected/got dimensions
 
-**Architecture Note**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors. The layer iterates through nodes and concatenates their outputs.
+**Architecture Note**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors. The layer processes nodes efficiently using preallocated output tensors.
 
 
 

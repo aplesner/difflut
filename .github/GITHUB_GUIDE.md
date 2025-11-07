@@ -2,7 +2,7 @@
 
 This guide explains the workflow for contributing to DiffLUT, including branching strategies, version management, and CI/CD pipelines.
 
-## 📋 Table of Contents
+## Table of Contents
 - [Contributing Workflow](#contributing-workflow)
 - [Branch Naming Conventions](#branch-naming-conventions)
 - [Version Management](#version-management)
@@ -13,7 +13,7 @@ This guide explains the workflow for contributing to DiffLUT, including branchin
 
 ## Contributing Workflow
 
-### 🐛 Bug Fixes
+### Bug Fixes
 1. **Create an Issue** - Document the bug with a clear description and reproduction steps
 2. **Create a Branch** - Use the naming convention `bugfix/issue-<number>-<description>`
 3. **Fix the Bug** - Make your changes and test thoroughly
@@ -27,7 +27,7 @@ git checkout -b bugfix/issue-42-fix-cuda-memory-leak
 git push -u origin bugfix/issue-42-fix-cuda-memory-leak
 ```
 
-### 🚀 Feature Development
+### Feature Development
 1. **Create a Branch** - Use `feature/<description>` naming convention
 2. **Develop** - Implement your feature with tests
 3. **Pull Request** - Create PR to `main` with detailed description
@@ -41,7 +41,7 @@ git checkout -b feature/add-attention-node
 git push -u origin feature/add-attention-node
 ```
 
-### 🔧 Hotfixes
+### Hotfixes
 1. **Create Branch** - Use `hotfix/<description>`
 2. **Quick Fix** - Make minimal changes to fix critical issue
 3. **Fast-track PR** - Expedited review process
@@ -76,7 +76,7 @@ Follow these naming conventions for all branches:
 
 DiffLUT uses **semantic versioning** (SemVer) with automated version management via `bump2version`.
 
-### 📦 Semantic Versioning Format: `MAJOR.MINOR.PATCH`
+### Semantic Versioning Format: `MAJOR.MINOR.PATCH`
 
 | Component | When to Bump | Example |
 |-----------|--------------|---------|
@@ -84,7 +84,7 @@ DiffLUT uses **semantic versioning** (SemVer) with automated version management 
 | **MINOR** | New features that are backward compatible | `1.2.3` → `1.3.0` |
 | **PATCH** | Bug fixes and minor improvements | `1.2.3` → `1.2.4` |
 
-### 🚨 Version Bump Requirement
+### Version Bump Requirement
 
 The version management workflow **requires you to bump the version** before merging to main. If you forget, the CI will fail and warn you.
 
@@ -95,7 +95,7 @@ The version management workflow **requires you to bump the version** before merg
 4. PR comment tells you exactly what to do
 5. You bump the version and push again
 
-### 🔧 How to Bump Version (Required)
+### How to Bump Version (Required)
 
 Before creating a PR, **always bump the version** based on your changes:
 
@@ -121,7 +121,7 @@ bump2version major   # 1.2.3 → 2.0.0
 git push --follow-tags
 ```
 
-### 📝 Version Files
+### Version Files
 
 Three files must always have matching versions:
 - `setup.py` - `version='1.2.3'`
@@ -145,7 +145,7 @@ DiffLUT has two main workflows in `.github/workflows/`:
     └── format.yml             # Checks code formatting (Black & isort)
 ```
 
-### 🧪 Tests Workflow (`tests.yml`)
+### Tests Workflow (`tests.yml`)
 
 **Triggers:** Every push and pull request to `main`
 
@@ -165,7 +165,7 @@ DiffLUT has two main workflows in `.github/workflows/`:
 - Tests are marked with `@pytest.mark.gpu` or `@pytest.mark.slow`
 - Fix issues before merging
 
-### 🔢 Version Management Workflow (`version-management.yml`)
+### Version Management Workflow (`version-management.yml`)
 
 **Triggers:** Every push and pull request to `main`
 
@@ -202,7 +202,7 @@ git push --follow-tags
 - Forces developers to think about version semantics
 - No permission issues with GitHub Actions
 
-### 🎨 Code Formatting Workflow (`format.yml`)
+### Code Formatting Workflow (`format.yml`)
 
 **Triggers:** Every push and pull request to `main`
 
@@ -256,7 +256,7 @@ Note: This is a warning only and will not block your PR from merging.
 
 ---
 
-## 🎨 Code Formatting Best Practices
+## Code Formatting Best Practices
 
 DiffLUT uses **Black** and **isort** for consistent code formatting across the codebase.
 
@@ -435,7 +435,7 @@ jobs:
 
 ---
 
-## 📚 Additional Resources
+## Additional Resources
 
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 - [bump2version Documentation](https://github.com/c4urself/bump2version)
@@ -444,7 +444,7 @@ jobs:
 
 ---
 
-## 🤝 Getting Help
+## Getting Help
 
 If you encounter issues:
 1. Check existing GitHub Issues
@@ -452,4 +452,4 @@ If you encounter issues:
 3. Ask in Pull Request comments
 4. Contact maintainers: `simon-jonas-buehrer`
 
-**Happy Contributing! 🚀**
+**Happy Contributing!**
