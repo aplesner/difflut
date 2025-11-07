@@ -15,7 +15,7 @@ DEFAULT_RANDOM_LAYER_SEED: int = 42
 
 # Try to import the compiled CUDA extension for mapping
 try:
-    import mapping_cuda as _mapping_cuda_module
+    import mapping_cuda as _mapping_cuda_module  # pyright: ignore[reportMissingImports]
 
     _MAPPING_CUDA_AVAILABLE = True
 except ImportError:
@@ -32,7 +32,7 @@ except ImportError:
 
 # Try to import the compiled CUDA extension for probabilistic nodes
 try:
-    import probabilistic_cuda as _probabilistic_cuda_module
+    import probabilistic_cuda as _probabilistic_cuda_module  # pyright: ignore[reportMissingImports]
 
     _PROBABILISTIC_CUDA_AVAILABLE = True
 except ImportError:
@@ -64,7 +64,7 @@ class MappingFunction(torch.autograd.Function):
         Returns:
             output: (batch_size, output_size, n) float tensor
         """
-        if not _MAPPING_CUDA_AVAILABLE:
+        if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Use fallback implementation.")
 
         # Ensure correct dtypes and contiguity
@@ -76,12 +76,12 @@ class MappingFunction(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(indices)
-        ctx.input_size = input_size
+        ctx.input_size = input_size  # pyright: ignore[reportAttributeAccessIssue]
 
         return output
 
     @staticmethod
-    def backward(
+    def backward(  # pyright: ignore[reportIncompatibleMethodOverride]
         ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
     ) -> Tuple[torch.Tensor, None, None]:
         """
@@ -93,11 +93,11 @@ class MappingFunction(torch.autograd.Function):
         Returns:
             Gradients for (input, indices, input_size)
         """
-        if not _MAPPING_CUDA_AVAILABLE:
+        if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available.")
 
-        (indices,) = ctx.saved_tensors
-        input_size = ctx.input_size
+        (indices,) = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
+        input_size = ctx.input_size  # pyright: ignore[reportAttributeAccessIssue]
 
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
@@ -153,6 +153,7 @@ class RandomLayer(BaseLUTLayer):
         grad_target_std: Optional[float] = None,
         grad_subtract_mean: Optional[bool] = None,
         grad_epsilon: Optional[float] = None,
+        ensure_full_input_coverage: bool = True,
     ) -> None:
         """
         Args:
@@ -177,22 +178,22 @@ class RandomLayer(BaseLUTLayer):
 
         # Initialize parent (n will be extracted from created nodes)
         super().__init__(
-            input_size,
-            output_size,
-            node_type,
-            node_kwargs,
-            layer_config,
-            flip_probability,
-            grad_stabilization,
-            grad_target_std,
-            grad_subtract_mean,
-            grad_epsilon,
+            input_size=input_size,
+            output_size=output_size,
+            node_type=node_type,
+            node_kwargs=node_kwargs,
+            layer_config=layer_config,
+            flip_probability=flip_probability,
+            grad_stabilization=grad_stabilization,
+            grad_target_std=grad_target_std,
+            grad_subtract_mean=grad_subtract_mean,
+            grad_epsilon=grad_epsilon,
         )
 
         # Initialize the random mapping
-        self._init_mapping()
+        self._init_mapping(ensure_full_input_coverage=ensure_full_input_coverage)
 
-    def _init_mapping(self) -> None:
+    def _init_mapping(self, ensure_full_input_coverage: bool = True) -> None:
         """
         Initialize random mapping matrix.
         Ensures each input is used at least once per node before any reuse.
@@ -208,27 +209,35 @@ class RandomLayer(BaseLUTLayer):
         # For each output node and position, store which input index to use
         # Use int16 for memory efficiency (supports up to 32k input features)
         dtype = torch.int16 if self.input_size < 32768 else torch.int32
-        mapping_indices = torch.zeros((self.output_size, self.n), dtype=dtype)
 
-        for node_idx in range(self.output_size):
-            # Calculate how many full cycles we need
-            full_cycles = self.n // self.input_size
-            remainder = self.n % self.input_size
+        if not ensure_full_input_coverage:
+            mapping_indices = torch.multinomial(
+                input=torch.ones((self.output_size, self.input_size)),
+                num_samples=self.n,
+                replacement=self.n > self.input_size,
+            ).to(dtype=dtype)
 
-            indices = []
+        else:
+            node_inputs = self.output_size * self.n
+            full_cycles = node_inputs // self.input_size
+            remaining_inputs = node_inputs % self.input_size
+            all_indices = []
 
-            # For each full cycle, use all inputs once in random order
             for _ in range(full_cycles):
-                perm = torch.randperm(self.input_size)
-                indices.extend(perm.tolist())
+                all_indices.append(torch.randperm(self.input_size))
 
-            # For remainder, use a random subset of inputs
-            if remainder > 0:
-                perm = torch.randperm(self.input_size)
-                indices.extend(perm[:remainder].tolist())
+            if remaining_inputs > 0:
+                all_indices.append(
+                    torch.multinomial(
+                        input=torch.ones(self.input_size),
+                        num_samples=remaining_inputs,
+                        replacement=False,
+                    )
+                )
 
-            # Store indices for this node
-            mapping_indices[node_idx] = torch.tensor(indices, dtype=dtype)
+            mapping_indices = (
+                torch.cat(all_indices).reshape(self.output_size, self.n).to(dtype=dtype)
+            )
 
         # Register as buffer (not a parameter, but saved with model)
         # Shape: (output_size, n) - index mapping (int16/int32)
@@ -305,7 +314,7 @@ class RandomLayer(BaseLUTLayer):
         mapped_inputs = self.get_mapping(x)
 
         batch_size = mapped_inputs.shape[0]
-        output_dim = self.nodes[0].output_dim
+        output_dim: int = self.nodes[0].output_dim  # pyright: ignore[reportAssignmentType]
 
         # Preallocate output tensor
         output = torch.empty(
@@ -327,7 +336,7 @@ class RandomLayer(BaseLUTLayer):
     def get_mapping_matrix(self) -> torch.Tensor:
         """Get the random mapping matrix for inspection (as indices)."""
         # Return the index mapping directly
-        return self._mapping_indices.long()
+        return self._mapping_indices.long()  # pyright: ignore[reportCallIssue]
 
     def extra_repr(self) -> str:
         """String representation for print(model)."""
