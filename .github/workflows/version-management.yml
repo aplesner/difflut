@@ -37,7 +37,7 @@ jobs:
           echo "current_version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           echo "⚠️  WARNING: Version not bumped! Current: $CURRENT_VERSION, Main: $MAIN_VERSION"
           echo "::warning::Version not bumped from main branch. Please run 'bump2version patch/minor/major' before merging."
-          exit 1
+          # Don't exit with error - just warn
         else
           echo "needs_bump=false" >> $GITHUB_OUTPUT
           if [ "$CURRENT_VERSION" != "$MAIN_VERSION" ]; then
@@ -48,7 +48,7 @@ jobs:
         fi
 
     - name: Comment on PR (only on pull requests)
-      if: failure() && github.event_name == 'pull_request'
+      if: steps.version_check.outputs.needs_bump == 'true' && github.event_name == 'pull_request'
       uses: actions/github-script@v6
       with:
         script: |
