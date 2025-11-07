@@ -141,7 +141,8 @@ DiffLUT has two main workflows in `.github/workflows/`:
 ├── GITHUB_GUIDE.md
 └── workflows/
     ├── tests.yml              # Runs tests on CPU and GPU
-    └── version-management.yml # Enforces version bumping
+    ├── version-management.yml # Warns about version bumping
+    └── format.yml             # Checks code formatting (Black & isort)
 ```
 
 ### 🧪 Tests Workflow (`tests.yml`)
@@ -170,13 +171,14 @@ DiffLUT has two main workflows in `.github/workflows/`:
 
 **What it does:**
 1. **Version Check** - Compares your branch version with `main` branch version
-2. **Fail if Not Bumped** - CI fails if versions are the same
-3. **Warning** - Posts clear comment on PR with instructions
-4. **Enforce** - Prevents merging without version bump
+2. **Warn if Not Bumped** - CI warns if versions are the same (doesn't fail)
+3. **Comment** - Posts clear comment on PR with instructions
+4. **Reminder** - Reminds you to bump version before merging
 
 **Behavior:**
-- **Pull Request**: Fails CI and posts comment if version not bumped
-- **Push to Main**: Fails if version wasn't bumped
+- **Pull Request**: Warns and posts comment if version not bumped
+- **Push to Main**: Warns if version wasn't bumped
+- **Does NOT fail** - Only provides warnings to remind developers
 
 **Example PR Comment:**
 ```
@@ -195,9 +197,152 @@ git push --follow-tags
 
 **Why this approach?**
 - Simple and predictable
+- Doesn't block PRs, just reminds
 - No automated commits to worry about
 - Forces developers to think about version semantics
 - No permission issues with GitHub Actions
+
+### 🎨 Code Formatting Workflow (`format.yml`)
+
+**Triggers:** Every push and pull request to `main`
+
+**What it does:**
+1. **Black Check** - Verifies code is formatted with Black (88 char line length)
+2. **isort Check** - Verifies imports are properly sorted
+3. **Warn Only** - Posts warnings but does NOT fail CI
+4. **PR Comment** - Provides clear instructions on how to fix formatting
+
+**Tools Used:**
+- **Black** - Python code formatter (PEP 8 compliant)
+- **isort** - Python import sorter (compatible with Black)
+
+**How to fix formatting locally:**
+```bash
+# Install formatting tools
+pip install black isort
+
+# Format your code
+black .
+isort .
+
+# Commit the changes
+git add .
+git commit -m "style: apply code formatting"
+git push
+```
+
+**Example PR Comment:**
+```
+⚠️ Code Formatting Issues Detected
+
+Some files need formatting adjustments:
+- ❌ Black: Code is not properly formatted
+- ❌ isort: Imports are not properly sorted
+
+🔧 How to Fix
+Run these commands locally to auto-format your code:
+black .
+isort .
+
+Note: This is a warning only and will not block your PR from merging.
+```
+
+**Why this approach?**
+- Maintains consistent code style
+- Simplifies code reviews (focus on logic, not style)
+- Doesn't block PRs for style issues
+- Easy to fix with one command
+- Works with most Python editors (VS Code, PyCharm, etc.)
+
+---
+
+## 🎨 Code Formatting Best Practices
+
+DiffLUT uses **Black** and **isort** for consistent code formatting across the codebase.
+
+### Installation
+
+```bash
+# Install formatting tools
+pip install black isort
+
+# Or install with dev dependencies
+pip install -e .[dev]
+```
+
+### Running Formatters
+
+```bash
+# Format all Python files
+black .
+
+# Sort all imports
+isort .
+
+# Do both in one go
+black . && isort .
+```
+
+### Editor Integration
+
+**VS Code:**
+```json
+// .vscode/settings.json
+{
+  "python.formatting.provider": "black",
+  "editor.formatOnSave": true,
+  "[python]": {
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": true
+    }
+  }
+}
+```
+
+**PyCharm:**
+1. Go to Settings → Tools → File Watchers
+2. Add Black and isort watchers
+3. Enable "Format on save"
+
+### Configuration Files (Optional)
+
+Create `pyproject.toml` in the root (if not exists):
+```toml
+[tool.black]
+line-length = 88
+target-version = ['py310', 'py311', 'py312']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+```
+
+### Pre-commit Hooks (Optional)
+
+For automatic formatting before commits:
+
+```bash
+# Install pre-commit
+pip install pre-commit
+
+# Create .pre-commit-config.yaml
+cat > .pre-commit-config.yaml << 'EOF'
+repos:
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+EOF
+
+# Install the hooks
+pre-commit install
+```
+
+Now formatting runs automatically before each commit!
 
 ---
 

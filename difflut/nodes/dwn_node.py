@@ -93,13 +93,13 @@ class EFDFunction(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(input, luts)
-        ctx.alpha = alpha # pyright: ignore[reportAttributeAccessIssue]
-        ctx.beta = beta # pyright: ignore[reportAttributeAccessIssue]
+        ctx.alpha = alpha  # pyright: ignore[reportAttributeAccessIssue]
+        ctx.beta = beta  # pyright: ignore[reportAttributeAccessIssue]
 
         return output
 
     @staticmethod
-    def backward( # pyright: ignore[reportIncompatibleMethodOverride]
+    def backward(  # pyright: ignore[reportIncompatibleMethodOverride]
         ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
     ) -> Tuple[torch.Tensor, torch.Tensor, None, None]:
         """
@@ -114,9 +114,9 @@ class EFDFunction(torch.autograd.Function):
         if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
 
-        input, luts = ctx.saved_tensors # pyright: ignore[reportAttributeAccessIssue]
-        alpha = ctx.alpha # pyright: ignore[reportAttributeAccessIssue]
-        beta = ctx.beta # pyright: ignore[reportAttributeAccessIssue]
+        input, luts = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
+        alpha = ctx.alpha  # pyright: ignore[reportAttributeAccessIssue]
+        beta = ctx.beta  # pyright: ignore[reportAttributeAccessIssue]
 
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
@@ -296,7 +296,9 @@ class EFDFusedFunction(torch.autograd.Function):
                 "Fused CUDA extension not available. Please compile efd_fused_cuda extension."
             )
 
-        input, mapping_indices, luts = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
+        input, mapping_indices, luts = (
+            ctx.saved_tensors
+        )  # pyright: ignore[reportAttributeAccessIssue]
         alpha = ctx.alpha  # pyright: ignore[reportAttributeAccessIssue]
         beta = ctx.beta  # pyright: ignore[reportAttributeAccessIssue]
 

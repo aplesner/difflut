@@ -12,6 +12,7 @@ import pytest
 import torch
 from testing_utils import is_cuda_available
 
+
 @pytest.mark.gpu
 def test_basic_functionality():
     """Test 1: Basic Functionality - forward pass works correctly."""
@@ -26,8 +27,8 @@ def test_basic_functionality():
         input_size=25,
         output_size=36,
         node_type=DWNNode,
-        node_kwargs={'input_dim': 6, 'output_dim': 1},
-        seed=42
+        node_kwargs={"input_dim": 6, "output_dim": 1},
+        seed=42,
     ).cuda()
 
     # Test forward pass
@@ -41,7 +42,10 @@ def test_basic_functionality():
     assert not torch.isnan(output).any(), "Output contains NaN values!"
 
     # Check if fused path is available
-    assert hasattr(layer.node, 'forward_with_mapping'), "Fused forward_with_mapping() method not found"
+    assert hasattr(
+        layer.node, "forward_with_mapping"
+    ), "Fused forward_with_mapping() method not found"
+
 
 @pytest.mark.gpu
 def test_gradient_correctness():
@@ -59,8 +63,8 @@ def test_gradient_correctness():
         input_size=25,
         output_size=36,
         node_type=DWNNode,
-        node_kwargs={'input_dim': 6, 'output_dim': 1},
-        seed=42
+        node_kwargs={"input_dim": 6, "output_dim": 1},
+        seed=42,
     ).cuda()
 
     # Realistic training scenario: input data doesn't need requires_grad
@@ -80,7 +84,7 @@ def test_gradient_correctness():
 
     # Additionally test input gradient flow
     layer.zero_grad()
-    x_with_grad = torch.randn(100, 25, device='cuda', requires_grad=True)
+    x_with_grad = torch.randn(100, 25, device="cuda", requires_grad=True)
     output2 = layer(x_with_grad)
     loss2 = output2.sum()
     loss2.backward()
@@ -89,6 +93,7 @@ def test_gradient_correctness():
     if x_with_grad.grad is not None:
         assert not torch.isnan(x_with_grad.grad).any(), "Input gradients contain NaN!"
 
+
 @pytest.mark.gpu
 def test_numerical_equivalence():
     """Test 4: Numerical Equivalence - fused and non-fused produce same results."""
@@ -96,7 +101,7 @@ def test_numerical_equivalence():
         pytest.skip("CUDA not available")
 
     from difflut.layers.random_layer import RandomLayer
-    from difflut.nodes.dwn_node import DWNNode, _FUSED_CUDA_EXT_AVAILABLE
+    from difflut.nodes.dwn_node import _FUSED_CUDA_EXT_AVAILABLE, DWNNode
 
     if not _FUSED_CUDA_EXT_AVAILABLE:
         pytest.skip("Fused CUDA extension not available (expected if not compiled yet)")
@@ -108,8 +113,8 @@ def test_numerical_equivalence():
         input_size=25,
         output_size=36,
         node_type=DWNNode,
-        node_kwargs={'input_dim': 6, 'output_dim': 1},
-        seed=42
+        node_kwargs={"input_dim": 6, "output_dim": 1},
+        seed=42,
     ).cuda()
 
     # Test input
@@ -137,6 +142,7 @@ def test_numerical_equivalence():
         f"tolerance={tolerance:.2e}. This may indicate a bug in the fused kernel."
     )
 
+
 @pytest.mark.gpu
 def test_cuda_extensions_available():
     """Check if CUDA extensions are available."""
@@ -146,6 +152,7 @@ def test_cuda_extensions_available():
     # Check standard extension
     try:
         import efd_cuda
+
         assert efd_cuda is not None
     except ImportError:
         pytest.fail("efd_cuda (standard) extension not available")
@@ -153,6 +160,7 @@ def test_cuda_extensions_available():
     # Check fused extension (warning only, not failure)
     try:
         import efd_fused_cuda
+
         assert efd_fused_cuda is not None
     except ImportError:
         pytest.skip("efd_fused_cuda (fused) extension not available - tests will use fallback")

@@ -8,76 +8,77 @@ Uses pytest parametrization for individual test discovery.
 import pytest
 import torch
 import torch.nn as nn
-from difflut.registry import REGISTRY
 from testing_utils import (
-    is_cuda_available,
-    instantiate_node,
-    generate_uniform_input,
-    assert_shape_equal,
-    assert_range,
-    assert_gradients_exist,
-    compare_cpu_gpu_forward,
-    IgnoreWarnings,
     CPU_GPU_ATOL,
     CPU_GPU_RTOL,
+    IgnoreWarnings,
+    assert_gradients_exist,
+    assert_range,
+    assert_shape_equal,
+    compare_cpu_gpu_forward,
+    generate_uniform_input,
+    instantiate_node,
+    is_cuda_available,
 )
 
+from difflut.registry import REGISTRY
 
 # ============================================================================
 # Node Forward Pass Tests
 # ============================================================================
 
+
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 class TestNodeForwardPass:
     """Comprehensive forward pass tests for nodes."""
-    
+
     def test_shape_correct(self, node_name):
         """Test 1.1: Forward pass produces correct output shape."""
         node_class = REGISTRY.get_node(node_name)
-        
+
         with IgnoreWarnings():
             node = instantiate_node(node_class, input_dim=4, output_dim=2)
-        
+
         # Input shape: (batch_size, input_dim)
         batch_size = 8
         input_tensor = generate_uniform_input((batch_size, 4))
-        
+
         with torch.no_grad():
             output = node(input_tensor)
-        
+
         # Output shape should be: (batch_size, output_dim)
         expected_shape = (batch_size, 2)
         assert_shape_equal(output, expected_shape)
-    
+
     def test_output_range_01(self, node_name):
         """Test 1.2: Output range is [0, 1]."""
         node_class = REGISTRY.get_node(node_name)
-        
+
         with IgnoreWarnings():
             node = instantiate_node(node_class, input_dim=4, output_dim=2)
         node.eval()
-        
+
         # Test multiple random inputs
         for seed in [42, 123, 456]:
             input_tensor = generate_uniform_input((8, 4), seed=seed)
             with torch.no_grad():
                 output = node(input_tensor)
-            
+
             assert_range(output, 0.0, 1.0)
-    
+
     @pytest.mark.gpu
     def test_cpu_gpu_consistency(self, node_name):
         """Test 1.3: CPU and GPU implementations give same forward pass."""
         if not is_cuda_available():
             pytest.skip("CUDA not available")
-        
+
         node_class = REGISTRY.get_node(node_name)
-        
+
         with IgnoreWarnings():
             node_cpu = instantiate_node(node_class, input_dim=4, output_dim=2)
-        
+
         input_cpu = generate_uniform_input((8, 4), seed=42)
-        
+
         try:
             output_cpu, output_gpu = compare_cpu_gpu_forward(
                 node_cpu, input_cpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
@@ -86,84 +87,78 @@ class TestNodeForwardPass:
             if "CUDA" in str(e) or "cuda" in str(e):
                 pytest.skip(f"CUDA error for {node_name}: {e}")
             raise
-    
+
     def test_gradients_exist(self, node_name):
         """Test 1.4: Gradients exist and are not all zero."""
         node_class = REGISTRY.get_node(node_name)
-        
+
         with IgnoreWarnings():
             node = instantiate_node(node_class, input_dim=4, output_dim=2)
-        
+
         node.train()
         input_tensor = generate_uniform_input((8, 4), seed=42)
         input_tensor.requires_grad = True
-        
+
         output = node(input_tensor)
         loss = output.sum()
         loss.backward()
-        
+
         # Check gradients exist for parameters
         assert_gradients_exist(node)
-    
+
     def test_with_initializer(self, node_name):
         """Test 1.5: Node works with initializers."""
         node_class = REGISTRY.get_node(node_name)
-        
+
         try:
             # Try to use a simple initializer
             def simple_init(weight):
                 """Simple initializer for testing."""
-                if weight is not None and hasattr(weight, 'data'):
+                if weight is not None and hasattr(weight, "data"):
                     torch.nn.init.uniform_(weight.data, 0.0, 1.0)
-            
+
             with IgnoreWarnings():
                 node = instantiate_node(
-                    node_class,
-                    input_dim=4,
-                    output_dim=2,
-                    initializer=simple_init
+                    node_class, input_dim=4, output_dim=2, initializer=simple_init
                 )
-            
+
             # Test forward pass still works
             input_tensor = generate_uniform_input((8, 4), seed=42)
             with torch.no_grad():
                 output = node(input_tensor)
-            
+
             assert output.shape == (8, 2)
-            
+
         except TypeError as e:
             # Some nodes might not support initializer parameter
             if "initializer" not in str(e):
                 raise
             pytest.skip(f"{node_name} does not support initializer parameter")
-    
+
     def test_with_regularizer(self, node_name):
         """Test 1.6: Node works with regularizers."""
         node_class = REGISTRY.get_node(node_name)
-        
+
         try:
             # Try to use a simple regularizer
             def simple_reg(weight):
                 """Simple regularizer for testing."""
                 if weight is not None:
-                    return 0.01 * torch.sum(weight ** 2)
+                    return 0.01 * torch.sum(weight**2)
                 return torch.tensor(0.0)
-            
+
             with IgnoreWarnings():
                 node = instantiate_node(
-                    node_class,
-                    input_dim=4,
-                    output_dim=2,
-                    regularizer=simple_reg
+                    node_class, input_dim=4, output_dim=2, regularizer=simple_reg
                 )
-            
+
             # Test forward pass still works
             input_tensor = generate_uniform_input((8, 4), seed=42)
             with torch.no_grad():
                 output = node(input_tensor)
-            
+
             assert output.shape == (8, 2)
-            
+
         except TypeError as e:
             # Some nodes might not support regularizer parameter
             if "regularizer" not in str(e):
@@ -175,43 +170,45 @@ class TestNodeForwardPass:
 # Additional Node Tests
 # ============================================================================
 
+
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 def test_node_different_batch_sizes(node_name):
     """Test node works with different batch sizes."""
     node_class = REGISTRY.get_node(node_name)
-    
+
     with IgnoreWarnings():
         node = instantiate_node(node_class, input_dim=4, output_dim=2)
     node.eval()
-    
+
     for batch_size in [1, 8, 32, 128]:
         input_tensor = generate_uniform_input((batch_size, 4), seed=42)
         with torch.no_grad():
             output = node(input_tensor)
-        
-        assert output.shape == (batch_size, 2), \
-            f"{node_name} failed for batch_size={batch_size}"
+
+        assert output.shape == (batch_size, 2), f"{node_name} failed for batch_size={batch_size}"
 
 
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 def test_node_different_dimensions(node_name):
     """Test node works with different input/output dimensions."""
     node_class = REGISTRY.get_node(node_name)
-    
+
     test_configs = [
-        (2, 1),   # Small
-        (4, 2),   # Medium
-        (8, 4),   # Large
+        (2, 1),  # Small
+        (4, 2),  # Medium
+        (8, 4),  # Large
         (16, 8),  # Very large
     ]
-    
+
     for input_dim, output_dim in test_configs:
         with IgnoreWarnings():
             node = instantiate_node(node_class, input_dim=input_dim, output_dim=output_dim)
-        
+
         input_tensor = generate_uniform_input((8, input_dim), seed=42)
         with torch.no_grad():
             output = node(input_tensor)
-        
-        assert output.shape == (8, output_dim), \
-            f"{node_name} failed for dims ({input_dim}, {output_dim})"
+
+        assert output.shape == (
+            8,
+            output_dim,
+        ), f"{node_name} failed for dims ({input_dim}, {output_dim})"
