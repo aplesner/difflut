@@ -133,3 +133,19 @@ class LayerConfig:
             return "LayerConfig(default)"
 
         return f"LayerConfig({', '.join(params)})"
+
+
+@dataclass
+class GroupedInputConfig:
+    """
+    Configuration for grouped layers.
+
+    Here the input features are divided into k groups of equal size, and each node only receives inputs from a single group.
+
+    Parameters:
+        n_groups: Number of input groups
+            - Default: 1 (no grouping)
+            - Example: n_groups=4 divides inputs into 4 groups for group-wise processing
+    """
+
+    n_groups: int = 1
