@@ -15,7 +15,7 @@ DEFAULT_RANDOM_LAYER_SEED: int = 42
 
 # Try to import the compiled CUDA extension for mapping
 try:
-    import mapping_cuda as _mapping_cuda_module
+    import mapping_cuda as _mapping_cuda_module # pyright: ignore[reportMissingImports]
 
     _MAPPING_CUDA_AVAILABLE = True
 except ImportError:
@@ -32,7 +32,7 @@ except ImportError:
 
 # Try to import the compiled CUDA extension for probabilistic nodes
 try:
-    import probabilistic_cuda as _probabilistic_cuda_module
+    import probabilistic_cuda as _probabilistic_cuda_module # pyright: ignore[reportMissingImports]
 
     _PROBABILISTIC_CUDA_AVAILABLE = True
 except ImportError:
@@ -64,7 +64,7 @@ class MappingFunction(torch.autograd.Function):
         Returns:
             output: (batch_size, output_size, n) float tensor
         """
-        if not _MAPPING_CUDA_AVAILABLE:
+        if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Use fallback implementation.")
 
         # Ensure correct dtypes and contiguity
@@ -76,12 +76,12 @@ class MappingFunction(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(indices)
-        ctx.input_size = input_size
+        ctx.input_size = input_size # pyright: ignore[reportAttributeAccessIssue]
 
         return output
 
     @staticmethod
-    def backward(
+    def backward( # pyright: ignore[reportIncompatibleMethodOverride]
         ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
     ) -> Tuple[torch.Tensor, None, None]:
         """
@@ -93,11 +93,11 @@ class MappingFunction(torch.autograd.Function):
         Returns:
             Gradients for (input, indices, input_size)
         """
-        if not _MAPPING_CUDA_AVAILABLE:
+        if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available.")
 
-        (indices,) = ctx.saved_tensors
-        input_size = ctx.input_size
+        (indices,) = ctx.saved_tensors # pyright: ignore[reportAttributeAccessIssue]
+        input_size = ctx.input_size # pyright: ignore[reportAttributeAccessIssue]
 
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
@@ -255,7 +255,7 @@ class RandomLayer(BaseLUTLayer):
         """
         # Try CUDA kernel first (fastest, eliminates expand + gather overhead)
         if _MAPPING_CUDA_AVAILABLE and x.is_cuda:
-            mapped_inputs = mapping_forward_cuda(x, self._mapping_indices, self.input_size)
+            mapped_inputs = mapping_forward_cuda(x, self._mapping_indices, self.input_size) # pyright: ignore[reportArgumentType]
             if mapped_inputs is not None:
                 return mapped_inputs
 
@@ -269,7 +269,7 @@ class RandomLayer(BaseLUTLayer):
         batch_size = x.shape[0]
 
         # Expand indices for batch dimension: (1, output_size, n) -> (batch_size, output_size, n)
-        indices_expanded = self._mapping_indices.unsqueeze(0).expand(batch_size, -1, -1)
+        indices_expanded = self._mapping_indices.unsqueeze(0).expand(batch_size, -1, -1) # pyright: ignore[reportCallIssue]
 
         # Convert to long for indexing
         indices_long = indices_expanded.long()
@@ -305,7 +305,7 @@ class RandomLayer(BaseLUTLayer):
         mapped_inputs = self.get_mapping(x)
 
         batch_size = mapped_inputs.shape[0]
-        output_dim = self.nodes[0].output_dim
+        output_dim: int = self.nodes[0].output_dim # pyright: ignore[reportAssignmentType]
 
         # Preallocate output tensor
         output = torch.empty(
@@ -327,7 +327,7 @@ class RandomLayer(BaseLUTLayer):
     def get_mapping_matrix(self) -> torch.Tensor:
         """Get the random mapping matrix for inspection (as indices)."""
         # Return the index mapping directly
-        return self._mapping_indices.long()
+        return self._mapping_indices.long() # pyright: ignore[reportCallIssue]
 
     def extra_repr(self) -> str:
         """String representation for print(model)."""
