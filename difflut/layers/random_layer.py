@@ -266,7 +266,7 @@ class RandomLayer(BaseLUTLayer):
         if _MAPPING_CUDA_AVAILABLE and x.is_cuda:
             mapped_inputs = mapping_forward_cuda(
                 x, self._mapping_indices, self.input_size
-            )  # pyright: ignore[reportArgumentType]
+            )
             if mapped_inputs is not None:
                 return mapped_inputs
 
@@ -282,7 +282,7 @@ class RandomLayer(BaseLUTLayer):
         # Expand indices for batch dimension: (1, output_size, n) -> (batch_size, output_size, n)
         indices_expanded = self._mapping_indices.unsqueeze(0).expand(
             batch_size, -1, -1
-        )  # pyright: ignore[reportCallIssue]
+        )
 
         # Convert to long for indexing
         indices_long = indices_expanded.long()
