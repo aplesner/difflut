@@ -58,13 +58,13 @@ def create_edge_detection_dataset(num_samples, image_size=16, num_channels=3):
     """
     # Class 0: Vertical edges
     images_class0 = torch.zeros(num_samples, num_channels, image_size, image_size)
-    images_class0[:, :, :, :image_size//2] = 1.0  # Left half white
+    images_class0[:, :, :, : image_size // 2] = 1.0  # Left half white
 
     labels_class0 = torch.zeros(num_samples, dtype=torch.long)
 
     # Class 1: Horizontal edges
     images_class1 = torch.zeros(num_samples, num_channels, image_size, image_size)
-    images_class1[:, :, :image_size//2, :] = 1.0  # Top half white
+    images_class1[:, :, : image_size // 2, :] = 1.0  # Top half white
 
     labels_class1 = torch.ones(num_samples, dtype=torch.long)
 
@@ -80,7 +80,7 @@ def create_edge_detection_dataset(num_samples, image_size=16, num_channels=3):
     return images, labels
 
 
-def train_model(model, train_images, train_labels, num_epochs=5, lr=0.01, device='cuda'):
+def train_model(model, train_images, train_labels, num_epochs=5, lr=0.01, device="cuda"):
     """Train model and return final accuracy."""
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -124,12 +124,13 @@ def train_model(model, train_images, train_labels, num_epochs=5, lr=0.01, device
 # Test Scenarios Configuration
 # ============================================================================
 
+
 @pytest.fixture
 def device():
     """Get available device for testing."""
     if not is_cuda_available():
         pytest.skip("CUDA not available")
-    return 'cuda'
+    return "cuda"
 
 
 @pytest.fixture
@@ -146,7 +147,7 @@ def train_test_data(device):
         train_images.to(device),
         train_labels.to(device),
         test_images.to(device),
-        test_labels.to(device)
+        test_labels.to(device),
     )
 
 
@@ -154,17 +155,24 @@ def train_test_data(device):
 # Parametrized Tests
 # ============================================================================
 
+
 @pytest.mark.gpu
-@pytest.mark.parametrize("scenario_name,layer_config", [
-    ("baseline", None),  # Will use LayerConfig() default
-    ("bit_flip", {"flip_probability": 0.1}),
-    ("grad_stabilization", {"grad_stabilization": "layerwise", "grad_target_std": 1.0}),
-    ("both_features", {"flip_probability": 0.1, "grad_stabilization": "layerwise", "grad_target_std": 1.0}),
-])
+@pytest.mark.parametrize(
+    "scenario_name,layer_config",
+    [
+        ("baseline", None),  # Will use LayerConfig() default
+        ("bit_flip", {"flip_probability": 0.1}),
+        ("grad_stabilization", {"grad_stabilization": "layerwise", "grad_target_std": 1.0}),
+        (
+            "both_features",
+            {"flip_probability": 0.1, "grad_stabilization": "layerwise", "grad_target_std": 1.0},
+        ),
+    ],
+)
 def test_convolutional_learning_scenarios(scenario_name, layer_config, device, train_test_data):
     """Test ConvolutionalLayer learning with different configurations."""
-    from difflut.layers import ConvolutionConfig, LayerConfig
     from difflut import REGISTRY
+    from difflut.layers import ConvolutionConfig, LayerConfig
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
 
@@ -185,7 +193,7 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
         stride=1,
         padding=0,
         chunk_size=8,
-        seed=42
+        seed=42,
     )
 
     node_type = REGISTRY.get_node("probabilistic")
@@ -202,7 +210,7 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
         node_kwargs=node_config,
         layer_type=layer_type,
         n_inputs_per_node=6,
-        layer_config=layer_cfg
+        layer_config=layer_cfg,
     )
 
     # Create feedforward layer
@@ -211,7 +219,7 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
         output_size=50,
         node_type=node_type,
         node_kwargs=node_config,
-        seed=43
+        seed=43,
     )
 
     # Create groupsum
@@ -221,7 +229,9 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
     model = SimpleConvModel(conv_layer, feedforward_layer, groupsum_layer).to(device)
 
     # Train
-    train_acc = train_model(model, train_images, train_labels, num_epochs=20, lr=0.01, device=device)
+    train_acc = train_model(
+        model, train_images, train_labels, num_epochs=20, lr=0.01, device=device
+    )
 
     # Test
     model.eval()
