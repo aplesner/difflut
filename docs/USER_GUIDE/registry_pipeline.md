@@ -35,41 +35,39 @@ This is especially useful for:
 ### Get All Registered Components
 
 ```python
-from difflut.registry import (
-    get_registered_nodes,
-    get_registered_layers,
-    get_registered_encoders,
-    get_registered_initializers,
-    get_registered_regularizers
-)
+from difflut.registry import REGISTRY
 
 # List all available node types
 print("Available nodes:")
-print(get_registered_nodes())
+print(REGISTRY.list_nodes())
 # Output: ['linear_lut', 'polylut', 'neurallut', 'dwn', 'dwn_stable', 
 #          'probabilistic', 'fourier', 'hybrid']
 
 # List all available layer types
 print("\nAvailable layers:")
-print(get_registered_layers())
+print(REGISTRY.list_layers())
 # Output: ['random', 'learnable']
 
 # List all available encoders
 print("\nAvailable encoders:")
-print(get_registered_encoders())
+print(REGISTRY.list_encoders())
 # Output: ['thermometer', 'gaussian_thermometer', 'distributive_thermometer', 
 #          'gray', 'onehot', 'binary', 'sign_magnitude', 'logarithmic']
 
 # List all available initializers
 print("\nAvailable initializers:")
-print(get_registered_initializers())
-# Output: ['zeros', 'ones', 'normal', 'uniform', 'xavier_uniform', 
-#          'xavier_normal', 'kaiming_uniform', 'kaiming_normal', ...]
+print(REGISTRY.list_initializers())
+# Output: ['kaiming_normal', 'kaiming_normal_init', 'kaiming_uniform', 
+#          'kaiming_uniform_init', 'normal', 'normal_init', 'ones', 
+#          'ones_init', 'uniform', 'uniform_init', 'xavier_normal', 
+#          'xavier_normal_init', 'xavier_uniform', 'xavier_uniform_init', 
+#          'zeros', 'zeros_init', ...]
 
 # List all available regularizers
 print("\nAvailable regularizers:")
-print(get_registered_regularizers())
-# Output: ['l', 'l1', 'l2', 'spectral', 'functional', ...]
+print(REGISTRY.list_regularizers())
+# Output: ['l', 'l1', 'l1_functional', 'l1_regularizer', 'l2', 'l2_functional', 
+#          'l2_regularizer', 'l_regularizer', 'spectral', 'spectral_regularizer']
 ```
 
 ### Check if Component Exists
@@ -85,6 +83,15 @@ if 'learnable' in REGISTRY.list_layers():
 
 if 'kaiming_normal' in REGISTRY.list_initializers():
     print("✓ Kaiming normal initializer is available")
+
+if 'l2' in REGISTRY.list_regularizers():
+    print("✓ L2 regularizer is available")
+
+# List all available components at once
+all_components = REGISTRY.list_all()
+print("\nRegistry contents:")
+for category, items in all_components.items():
+    print(f"  {category}: {len(items)} registered")
 ```
 
 ---
@@ -672,108 +679,3 @@ for config in config_generator(param_grid):
 - **[Components Guide](components.md)** - Detailed reference of all components
 - **[Quick Start](../QUICK_START.md)** - Build your first model
 - **[Creating Components](../DEVELOPER_GUIDE/creating_components.md)** - Implement custom components with registry decorators
-```
-
-## Advanced Registry Usage
-
-### Registering Custom Components
-
-To register your own components, see [Creating Components](../DEVELOPER_GUIDE/creating_components.md).
-
-### Querying Component Metadata
-
-```python
-from difflut.registry import get_node_class
-
-# Get class information
-NodeClass = get_node_class('linear_lut')
-
-# Check docstring
-print(NodeClass.__doc__)
-
-# Check available parameters
-import inspect
-sig = inspect.signature(NodeClass.__init__)
-print(f"Parameters: {sig.parameters.keys()}")
-```
-
-## Example: Complete Pipeline
-
-```python
-import yaml
-import torch
-import torch.nn as nn
-import torch.optim as optim
-from difflut.registry import get_encoder_class, get_layer_class, get_node_class
-
-# 1. Load configuration
-with open('experiment_config.yaml', 'r') as f:
-    config = yaml.safe_load(f)
-
-# 2. Build model from config
-encoder_cls = get_encoder_class(config['encoder']['type'])
-encoder = encoder_cls(**config['encoder']['params'])
-
-layers = []
-for layer_cfg in config['layers']:
-    node_cls = get_node_class(layer_cfg['node_type'])
-    layer_cls = get_layer_class(layer_cfg['type'])
-    layer = layer_cls(
-        input_size=layer_cfg['input_size'],
-        output_size=layer_cfg['output_size'],
-        node_type=node_cls,
-        n=layer_cfg['n'],
-        node_kwargs=layer_cfg['node_params']
-    )
-    layers.append(layer)
-
-# 3. Define model
-class Model(nn.Module):
-    def __init__(self, encoder, layers):
-        super().__init__()
-        self.encoder = encoder
-        self.layers = nn.ModuleList(layers)
-    
-    def forward(self, x):
-        x = x.view(x.size(0), -1)
-        x = self.encoder(x)
-        for i, layer in enumerate(self.layers):
-            x = layer(x)
-            if i < len(self.layers) - 1:
-                x = torch.relu(x)
-        return x
-
-model = Model(encoder, layers)
-
-# 4. Train
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-criterion = nn.CrossEntropyLoss()
-
-# ... training loop ...
-
-# 5. Save configuration for reproducibility
-import json
-with open('trained_model_config.json', 'w') as f:
-    json.dump(config, f, indent=2)
-
-# 6. Later: Load and recreate model with same configuration
-with open('trained_model_config.json', 'r') as f:
-    loaded_config = json.load(f)
-
-# Use same registry system to recreate model
-# ...
-```
-
-## Best Practices
-
-1. **Store configurations with trained models** for reproducibility
-2. **Use parameter validation** before passing to registry
-3. **Leverage registry for ablation studies** - vary one component at a time
-4. **Document non-standard parameters** in configuration files
-5. **Version your configurations** alongside model checkpoints
-
-## Next Steps
-
-- [Components Guide](components.md) - Detailed reference of all components
-- [Quick Start](../QUICK_START.md) - Run first example
-- [Developer Guide](../DEVELOPER_GUIDE.md) - Create custom components with registration
