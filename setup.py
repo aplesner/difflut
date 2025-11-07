@@ -78,7 +78,6 @@ with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
 setup(
-
     name="difflut",
     version="1.3.2",
     description="Differentiable LUT-based neural networks for efficient FPGA deployment",
