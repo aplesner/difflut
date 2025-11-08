@@ -62,11 +62,11 @@ jobs:
 
     - name: Run fast tests (CPU)
       run: |
-        python -m pytest tests/ -v -m "not slow and not gpu" --tb=short
+        python -m pytest tests/ -v -m "not slow and not gpu and not skip_ci and not experimental" --tb=short
 
     - name: Run all tests with coverage (CPU)
       run: |
-        python -m pytest tests/ -v -m "not gpu" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "not gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports (CPU)
       if: always()
@@ -171,11 +171,11 @@ jobs:
 
     - name: Run fast GPU tests
       run: |
-        python -m pytest tests/ -v -m "gpu and not slow" --tb=short
+        python -m pytest tests/ -v -m "gpu and not slow and not skip_ci and not experimental" --tb=short
 
     - name: Run all GPU tests with coverage
       run: |
-        python -m pytest tests/ -v -m "gpu" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports (GPU)
       if: always()

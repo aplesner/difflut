@@ -10,7 +10,7 @@ Tests:
 
 import pytest
 import torch
-from testing_utils import is_cuda_available
+from .testing_utils import is_cuda_available
 
 
 @pytest.mark.gpu

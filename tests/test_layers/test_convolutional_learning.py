@@ -12,7 +12,7 @@ Creates synthetic edge-detection dataset and trains a convolutional model with:
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import is_cuda_available
+from .testing_utils import is_cuda_available
 
 
 class SimpleConvModel(nn.Module):
@@ -157,6 +157,7 @@ def train_test_data(device):
 
 
 @pytest.mark.gpu
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "scenario_name,layer_config",
     [

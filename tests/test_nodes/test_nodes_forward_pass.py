@@ -8,7 +8,7 @@ Uses pytest parametrization for individual test discovery.
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import (
+from .testing_utils import (
     CPU_GPU_ATOL,
     CPU_GPU_RTOL,
     IgnoreWarnings,
