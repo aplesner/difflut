@@ -8,7 +8,7 @@ Uses pytest parametrization for comprehensive testing.
 import pytest
 import torch
 import torch.nn as nn
-from .testing_utils import (
+from testing_utils import (
     assert_gradients_exist,
     assert_shape_equal,
     generate_uniform_input,
