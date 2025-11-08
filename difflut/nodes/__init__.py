@@ -13,6 +13,9 @@ from .neurallut_node import NeuralLUTNode
 from .polylut_node import PolyLUTNode
 from .probabilistic_node import ProbabilisticNode
 
+# Import utils to register initializers and regularizers
+from . import utils
+
 __all__ = [
     "BaseNode",
     "DWNNode",

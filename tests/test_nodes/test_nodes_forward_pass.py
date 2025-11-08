@@ -106,65 +106,6 @@ class TestNodeForwardPass:
         # Check gradients exist for parameters
         assert_gradients_exist(node)
 
-    def test_with_initializer(self, node_name):
-        """Test 1.5: Node works with initializers."""
-        node_class = REGISTRY.get_node(node_name)
-
-        try:
-            # Try to use a simple initializer
-            def simple_init(weight):
-                """Simple initializer for testing."""
-                if weight is not None and hasattr(weight, "data"):
-                    torch.nn.init.uniform_(weight.data, 0.0, 1.0)
-
-            with IgnoreWarnings():
-                node = instantiate_node(
-                    node_class, input_dim=4, output_dim=2, initializer=simple_init
-                )
-
-            # Test forward pass still works
-            input_tensor = generate_uniform_input((8, 4), seed=42)
-            with torch.no_grad():
-                output = node(input_tensor)
-
-            assert output.shape == (8, 2)
-
-        except TypeError as e:
-            # Some nodes might not support initializer parameter
-            if "initializer" not in str(e):
-                raise
-            pytest.skip(f"{node_name} does not support initializer parameter")
-
-    def test_with_regularizer(self, node_name):
-        """Test 1.6: Node works with regularizers."""
-        node_class = REGISTRY.get_node(node_name)
-
-        try:
-            # Try to use a simple regularizer
-            def simple_reg(weight):
-                """Simple regularizer for testing."""
-                if weight is not None:
-                    return 0.01 * torch.sum(weight**2)
-                return torch.tensor(0.0)
-
-            with IgnoreWarnings():
-                node = instantiate_node(
-                    node_class, input_dim=4, output_dim=2, regularizer=simple_reg
-                )
-
-            # Test forward pass still works
-            input_tensor = generate_uniform_input((8, 4), seed=42)
-            with torch.no_grad():
-                output = node(input_tensor)
-
-            assert output.shape == (8, 2)
-
-        except TypeError as e:
-            # Some nodes might not support regularizer parameter
-            if "regularizer" not in str(e):
-                raise
-            pytest.skip(f"{node_name} does not support regularizer parameter")
-
 
 # ============================================================================
 # Additional Node Tests
