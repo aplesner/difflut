@@ -444,10 +444,17 @@ class FourierNode(BaseNode):
                 use_eval=True,
             )
         else:
-            # Python fallback: compute output then discretize
-            output = self._compute_output(x)
-            # Discretize: Heaviside at 0.5 since output is in [0,1]
-            output = (output >= 0.5).float()
+            # Python fallback: use fourier_forward with use_eval=True
+            # This ensures consistent behavior with CUDA (Heaviside on input, not output)
+            output = fourier_forward(
+                x,
+                self.frequencies,
+                self.amplitudes,
+                self.phases,
+                self.bias,
+                self.max_amplitude,
+                use_eval=True,
+            )
 
         return output
 

@@ -169,13 +169,33 @@ jobs:
       run: |
         pip install -e .[gpu,dev]
 
-    - name: Run fast GPU tests
+    - name: GPU Testing Warning
+      id: gpu_warning
       run: |
-        python -m pytest tests/ -v -m "gpu and not slow" --tb=short
+        echo "needs_gpu_testing=true" >> $GITHUB_OUTPUT
+        echo ""
+        echo "⚠️  ============================================================"
+        echo "⚠️  GPU TESTING NOT AVAILABLE IN CI"
+        echo "⚠️  ============================================================"
+        echo "⚠️  GitHub Actions runners do NOT have NVIDIA GPU hardware."
+        echo "⚠️  Tests marked with @pytest.mark.gpu will SKIP in CI."
+        echo "⚠️  This job validates that setup works, but actual GPU"
+        echo "⚠️  testing must be done locally."
+        echo "⚠️  "
+        echo "⚠️  TO RUN GPU TESTS LOCALLY:"
+        echo "⚠️    cd difflut && python -m pytest tests/ -v -m gpu"
+        echo "⚠️  "
+        echo "⚠️  Self-hosted GPU runners coming in the future..."
+        echo "⚠️  ============================================================"
+        echo ""
 
-    - name: Run all GPU tests with coverage
+    - name: Run GPU tests (setup validation only)
       run: |
-        python -m pytest tests/ -v -m "gpu" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "gpu and not slow and not skip_ci and not experimental" --tb=short
+
+    - name: Run all GPU tests with coverage (setup validation)
+      run: |
+        python -m pytest tests/ -v -m "gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports (GPU)
       if: always()
@@ -185,3 +205,25 @@ jobs:
         flags: gpu-py${{ matrix.python-version }}-cuda${{ matrix.cuda-version }}
         name: gpu-py${{ matrix.python-version }}-cuda${{ matrix.cuda-version }}
         fail_ci_if_error: false
+
+    - name: Comment on PR about GPU testing (only on pull requests)
+      if: steps.gpu_warning.outputs.needs_gpu_testing == 'true' && github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: '⚠️ **GPU Testing Not Available in CI**\n\n' +
+                  'GitHub Actions runners do **not** have NVIDIA GPU hardware.\n' +
+                  'GPU setup validation runs in CI, but actual GPU tests **must be run locally**.\n\n' +
+                  '### To run GPU tests locally:\n' +
+                  '```bash\n' +
+                  'cd difflut\n' +
+                  'python -m pytest tests/ -v -m gpu\n' +
+                  '```\n\n' +
+                  '**Status:** Self-hosted GPU runners are coming in the future. For now, please validate GPU functionality locally before merging.\n\n' +
+                  '**Current CI coverage:** CPU implementations + GPU setup validation'
+          })
+      continue-on-error: true

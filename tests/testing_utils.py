@@ -12,6 +12,24 @@ import torch.nn as nn
 # ==================== Device Configuration ====================
 
 
+def get_device() -> str:
+    """
+    Get the best available device for testing.
+
+    Returns 'cuda' if CUDA is available, otherwise 'cpu'.
+    This allows tests to automatically use GPU when available.
+
+    Returns:
+        str: 'cuda' if available, else 'cpu'
+
+    Example:
+        >>> device = get_device()
+        >>> model = MyModel().to(device)
+        >>> x = torch.randn(10, 5).to(device)
+    """
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 def get_available_devices() -> List[str]:
     """
     Get list of available devices for testing.
@@ -466,6 +484,33 @@ def instantiate_layer(
     from difflut.nodes.node_config import NodeConfig
 
     node_config = NodeConfig(input_dim=n, output_dim=1)
+
+    # Special handling for ConvolutionalLayer
+    if layer_class.__name__ == "ConvolutionalLayer":
+        from difflut.layers import RandomLayer
+        from difflut.layers.convolutional import ConvolutionConfig
+
+        # Create ConvolutionConfig to match input_size/output_size
+        # For simplicity, assume 1D convolution with receptive field that matches input_size
+        convolution_config = ConvolutionConfig(
+            tree_depth=2,
+            in_channels=1,
+            out_channels=output_size,
+            receptive_field=16,  # Fixed receptive field
+            stride=1,
+            padding=0,
+            chunk_size=32,
+            seed=42,
+        )
+
+        return layer_class(
+            convolution_config=convolution_config,
+            node_type=node_type,
+            node_kwargs=node_config,
+            layer_type=RandomLayer,
+            n_inputs_per_node=n,
+            **kwargs,
+        )
 
     return layer_class(
         input_size=input_size,

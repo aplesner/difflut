@@ -182,27 +182,49 @@ layer = LayerClass(
 
 ### Using Initializers and Regularizers from Registry
 
+The registry provides centralized access to all initializer and regularizer functions. Always retrieve these from the registry and pass them through `NodeConfig`:
+
 ```python
 from difflut.registry import REGISTRY
 from difflut.nodes.node_config import NodeConfig
 
-# Get initializer and regularizer by name
+# Get initializer and regularizers from registry by name
 init_fn = REGISTRY.get_initializer('kaiming_normal')
-reg_fn = REGISTRY.get_regularizer('l2')
+l2_reg = REGISTRY.get_regularizer('l2')
+spectral_reg = REGISTRY.get_regularizer('spectral')
 
-# Use in NodeConfig
+# Pass them to NodeConfig
 node_config = NodeConfig(
     input_dim=6,
     output_dim=1,
     init_fn=init_fn,
     init_kwargs={'a': 0.0, 'mode': 'fan_in', 'nonlinearity': 'relu'},
-    regularizers={'l2': reg_fn}
+    regularizers={
+        'l2': l2_reg,
+        'spectral': spectral_reg
+    }
 )
 
-# Create node
+# Create node with full configuration
 NodeClass = REGISTRY.get_node('linear_lut')
 node = NodeClass(**node_config.to_dict())
+
+# During training, compute regularization loss
+reg_loss = node.regularization()
+total_loss = task_loss + 0.01 * reg_loss
 ```
+
+**Key Pattern:**
+1. Use `REGISTRY.get_initializer(name)` to retrieve init functions
+2. Use `REGISTRY.get_regularizer(name)` to retrieve regularizer functions
+3. Pass retrieved functions to `NodeConfig` - do NOT pass function names as strings
+4. Initialize the node with `NodeClass(**config.to_dict())`
+
+**Why?**
+- Registry maintains single source of truth for all components
+- Type safety: functions are validated at retrieval time
+- Easy to swap implementations or add new ones
+- Configuration files can store names, code stores function objects
 
 ---
 
@@ -297,92 +319,65 @@ encoder_config = config['encoder']
 EncoderClass = REGISTRY.get_encoder(encoder_config['type'])
 encoder = EncoderClass(**encoder_config['params'])
 
-# Build layers
+# Build layers with type-safe configuration
 class ConfiguredLUTModel(nn.Module):
     def __init__(self, config, encoder):
         super().__init__()
         self.encoder = encoder
         self.layers = nn.ModuleList()
         
-        for layer_config_dict in config['layers']:
-            # Get classes
-            NodeClass = REGISTRY.get_node(layer_config_dict['node_type'])
-            LayerClass = REGISTRY.get_layer(layer_config_dict['type'])
+        # Get node and layer classes from registry
+        for layer_cfg in config['layers']:
+            NodeClass = REGISTRY.get_node(layer_cfg['node_type'])
+            LayerClass = REGISTRY.get_layer(layer_cfg['type'])
             
-            # Build NodeConfig
-            node_params = layer_config_dict['node_params']
+            # Build NodeConfig with registry-retrieved initializers/regularizers
+            node_params = layer_cfg.get('node_params', {})
             
-            # Handle initializers
+            # Get functions from registry if specified
             init_fn = None
-            init_kwargs = {}
-            if 'node_init' in layer_config_dict:
-                init_fn = REGISTRY.get_initializer(
-                    layer_config_dict['node_init']['initializer']
-                )
-                init_kwargs = layer_config_dict['node_init'].get('init_kwargs', {})
+            if 'init_fn_name' in node_params:
+                init_fn = REGISTRY.get_initializer(node_params['init_fn_name'])
             
-            # Handle regularizers
             regularizers = {}
-            if 'node_regularizers' in layer_config_dict:
-                for reg_name in layer_config_dict['node_regularizers']:
+            if 'regularizers' in node_params:
+                for reg_name in node_params['regularizers']:
                     regularizers[reg_name] = REGISTRY.get_regularizer(reg_name)
             
-            # Extract node-specific params (like use_cuda, gradient_scale, etc.)
-            extra_params = {
-                k: v for k, v in node_params.items() 
-                if k not in ['input_dim', 'output_dim']
-            }
+            # Extract node-specific params
+            extra_params = {k: v for k, v in node_params.items() 
+                          if k not in ['init_fn_name', 'regularizers']}
             
             node_config = NodeConfig(
-                input_dim=node_params['input_dim'],
-                output_dim=node_params['output_dim'],
+                input_dim=node_params.get('input_dim', 4),
+                output_dim=node_params.get('output_dim', 1),
                 init_fn=init_fn,
-                init_kwargs=init_kwargs,
-                regularizers=regularizers,
+                init_kwargs=node_params.get('init_kwargs', {}),
+                regularizers=regularizers if regularizers else None,
                 extra_params=extra_params
             )
             
             # Build LayerConfig
-            layer_training = layer_config_dict.get('layer_training', {})
-            layer_cfg = LayerConfig(**layer_training) if layer_training else None
+            layer_training = layer_cfg.get('layer_training', {})
+            layer_config = LayerConfig(**layer_training) if layer_training else None
             
             # Create layer
             layer = LayerClass(
-                input_size=layer_config_dict['input_size'],
-                output_size=layer_config_dict['output_size'],
+                input_size=layer_cfg['input_size'],
+                output_size=layer_cfg['output_size'],
                 node_type=NodeClass,
-                n=layer_config_dict['n'],
+                n=node_config.input_dim,
                 node_kwargs=node_config,
-                layer_config=layer_cfg,
-                seed=layer_config_dict.get('seed', 42)
+                layer_config=layer_config,
+                seed=layer_cfg.get('seed', 42)
             )
-            
             self.layers.append(layer)
-        
-        # Build GroupSum
-        if 'groupsum' in config:
-            self.groupsum = GroupSum(**config['groupsum'])
-        else:
-            self.groupsum = None
     
     def forward(self, x):
-        # Flatten input
-        x = x.view(x.size(0), -1)
-        
-        # Encode
-        x = self.encoder(x)
-        
-        # Pass through layers with ReLU (except last)
-        for i, layer in enumerate(self.layers[:-1]):
-            x = torch.relu(layer(x))
-        
-        # Last layer without activation
-        x = self.layers[-1](x)
-        
-        # GroupSum if present
-        if self.groupsum is not None:
-            x = self.groupsum(x)
-        
+        x = x.flatten(1)  # Flatten input
+        x = self.encoder(x)  # Encode
+        for layer in self.layers:  # Process through layers
+            x = layer(x)
         return x
 
 # Create model from config
@@ -462,10 +457,27 @@ def build_lut_pipeline(
     
     for i in range(len(layer_sizes) - 1):
         # Create NodeConfig for this layer
+        # Retrieve initializers and regularizers from registry if specified in node_params
+        init_fn = None
+        if 'init_fn_name' in node_params:
+            init_fn = REGISTRY.get_initializer(node_params['init_fn_name'])
+        
+        regularizers = {}
+        if 'regularizer_names' in node_params:
+            for reg_name in node_params['regularizer_names']:
+                regularizers[reg_name] = REGISTRY.get_regularizer(reg_name)
+        
+        # Extract only extra params (remove init/reg names)
+        extra_params = {k: v for k, v in node_params.items() 
+                       if k not in ['init_fn_name', 'regularizer_names', 'init_kwargs']}
+        
         node_config = NodeConfig(
             input_dim=node_input_dim,
             output_dim=1,
-            extra_params=node_params
+            init_fn=init_fn,
+            init_kwargs=node_params.get('init_kwargs', {}),
+            regularizers=regularizers if regularizers else None,
+            extra_params=extra_params
         )
         
         layer = LayerClass(

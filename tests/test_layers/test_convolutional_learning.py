@@ -126,14 +126,6 @@ def train_model(model, train_images, train_labels, num_epochs=5, lr=0.01, device
 
 
 @pytest.fixture
-def device():
-    """Get available device for testing."""
-    if not is_cuda_available():
-        pytest.skip("CUDA not available")
-    return "cuda"
-
-
-@pytest.fixture
 def train_test_data(device):
     """Create training and testing datasets."""
     train_images, train_labels = create_edge_detection_dataset(
@@ -157,6 +149,7 @@ def train_test_data(device):
 
 
 @pytest.mark.gpu
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "scenario_name,layer_config",
     [
@@ -175,6 +168,10 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
     from difflut.layers import ConvolutionConfig, LayerConfig
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
+
+    # Skip if CUDA not available (test requires GPU)
+    if not is_cuda_available():
+        pytest.skip("CUDA not available")
 
     train_images, train_labels, test_images, test_labels = train_test_data
 
@@ -198,7 +195,7 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
-    conv_layer_type = REGISTRY.get_convolutional_layer("convolutional")
+    conv_layer_type = REGISTRY.get_layer("convolutional")
 
     # Create node config
     node_config = NodeConfig(input_dim=6, output_dim=1)

@@ -310,8 +310,6 @@ def variance_stabilized_init(
 
             if fan_in is None:
                 # Try to infer input_dim from table size (assuming it's 2^k)
-                import math
-
                 log_size = math.log2(table_size)
                 if abs(log_size - round(log_size)) < 1e-6:
                     # Table size is a power of 2, likely a truth table
