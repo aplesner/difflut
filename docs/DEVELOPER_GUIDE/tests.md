@@ -63,7 +63,6 @@ tests/
 | **Layers** | `test_layers/` | Connectivity patterns, forward/backward pass, augmentation |
 | **Nodes** | `test_nodes/` | LUT computation, initialization, regularization |
 | **Utils** | `test_utils/` | Helper functions, module utilities |
-| **Integration** | Various | Cross-component interactions |
 
 ---
 
@@ -464,10 +463,9 @@ GitHub Actions runners do **not** have NVIDIA GPU hardware.
 GPU setup validation runs in CI, but actual GPU tests **must be run locally**.
 
 ### To run GPU tests locally:
-```bash
 cd difflut
 python -m pytest tests/ -v -m gpu
-```
+
 
 **Status:** Self-hosted GPU runners coming in the future. For now, please validate GPU functionality locally before merging.
 
