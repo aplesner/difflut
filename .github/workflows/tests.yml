@@ -6,11 +6,6 @@ on:
   pull_request:
     branches: [ main ]
 
-permissions:
-  contents: read
-  issues: write
-  pull-requests: write
-
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -65,6 +60,115 @@ jobs:
       run: |
         pip install -e .[cpu,dev]
 
+    - name: Run fast tests (CPU)
+      run: |
+        python -m pytest tests/ -v -m "not slow and not gpu" --tb=short
+
+    - name: Run all tests with coverage (CPU)
+      run: |
+        python -m pytest tests/ -v -m "not gpu" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+
+    - name: Upload coverage reports (CPU)
+      if: always()
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage.xml
+        flags: cpu-py${{ matrix.python-version }}
+        name: cpu-py${{ matrix.python-version }}
+        fail_ci_if_error: false
+
+  test-gpu:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python-version: '3.10'
+            cuda-version: '12.4'
+            torch-version: 'torch==2.4.0'
+          - python-version: '3.10'
+            cuda-version: '12.4'
+            torch-version: 'torch==2.5.0'
+          - python-version: '3.11'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.6.0'
+          - python-version: '3.11'
+            cuda-version: '12.6'
+            torch-version: 'torch==2.7.0'
+          - python-version: '3.12'
+            cuda-version: '12.8'
+            torch-version: 'torch==2.8.0'
+          - python-version: '3.12'
+            cuda-version: '12.8'
+            torch-version: 'torch==2.9.0'
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Free up disk space
+      run: |
+        sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc || true
+        docker rmi $(docker images -q) || true
+        sudo apt-get clean
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install NVIDIA CUDA Toolkit (via apt)
+      run: |
+        sudo apt-get update
+        # install the ubuntu-provided CUDA toolkit package (sufficient for builds/tests)
+        sudo apt-get install -y nvidia-cuda-toolkit
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential python3-dev
+
+    - name: Upgrade pip
+      run: |
+        python -m pip install --upgrade pip setuptools wheel
+
+    - name: Install PyTorch (GPU) for CUDA ${{ matrix.cuda-version }}
+      shell: bash
+      run: |
+        set -eux
+        # pick the correct PyTorch index for the CUDA version
+        case "${{ matrix.cuda-version }}" in
+          11.8)
+            INDEX_URL="https://download.pytorch.org/whl/cu118"
+            ;;
+          12.1)
+            INDEX_URL="https://download.pytorch.org/whl/cu121"
+            ;;
+          12.4)
+            INDEX_URL="https://download.pytorch.org/whl/cu124"
+            ;;
+          12.6)
+            INDEX_URL="https://download.pytorch.org/whl/cu126"
+            ;;
+          12.8)
+            INDEX_URL="https://download.pytorch.org/whl/cu128"
+            ;;
+          12.9)
+            INDEX_URL="https://download.pytorch.org/whl/cu129"
+            ;;
+          *)
+            echo "Unsupported CUDA version: ${{ matrix.cuda-version }}"
+            exit 1
+            ;;
+        esac
+        pip install ${{ matrix.torch-version }} torchvision torchaudio --index-url "$INDEX_URL"
+
+    - name: Install DiffLUT (GPU)
+      run: |
+        pip install -e .[gpu,dev]
+
     - name: GPU Testing Warning
       id: gpu_warning
       run: |
@@ -74,33 +178,32 @@ jobs:
         echo "⚠️  GPU TESTING NOT AVAILABLE IN CI"
         echo "⚠️  ============================================================"
         echo "⚠️  GitHub Actions runners do NOT have NVIDIA GPU hardware."
-        echo "⚠️  Tests will run using CPU implementations only."
-        echo "⚠️  "
-        echo "⚠️  GPU-marked tests (@pytest.mark.gpu) will FAIL as expected."
-        echo "⚠️  These tests require actual CUDA hardware to pass."
+        echo "⚠️  Tests marked with @pytest.mark.gpu will SKIP in CI."
+        echo "⚠️  This job validates that setup works, but actual GPU"
+        echo "⚠️  testing must be done locally."
         echo "⚠️  "
         echo "⚠️  TO RUN GPU TESTS LOCALLY:"
-        echo "⚠️    cd difflut && ./tests/test_gpu.sh --fast"
+        echo "⚠️    cd difflut && python -m pytest tests/ -v -m gpu"
         echo "⚠️  "
-        echo "⚠️  Self-hosted GPU runners are in progress..."
+        echo "⚠️  Self-hosted GPU runners coming in the future..."
         echo "⚠️  ============================================================"
         echo ""
 
-    - name: Run fast tests (CPU only - exclude GPU tests)
+    - name: Run GPU tests (setup validation only)
       run: |
-        python -m pytest tests/ -v -m "not slow and not gpu and not skip_ci and not experimental" --tb=short
+        python -m pytest tests/ -v -m "gpu and not slow and not skip_ci and not experimental" --tb=short
 
-    - name: Run all tests with coverage (CPU only - exclude GPU tests)
+    - name: Run all GPU tests with coverage (setup validation)
       run: |
-        python -m pytest tests/ -v -m "not gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
 
-    - name: Upload coverage reports
+    - name: Upload coverage reports (GPU)
       if: always()
       uses: codecov/codecov-action@v3
       with:
         files: ./coverage.xml
-        flags: cpu-py${{ matrix.python-version }}
-        name: cpu-py${{ matrix.python-version }}
+        flags: gpu-py${{ matrix.python-version }}-cuda${{ matrix.cuda-version }}
+        name: gpu-py${{ matrix.python-version }}-cuda${{ matrix.cuda-version }}
         fail_ci_if_error: false
 
     - name: Comment on PR about GPU testing (only on pull requests)
@@ -112,21 +215,15 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: '⚠️ **GPU Testing Required**\n\n' +
-                  'GitHub Actions CI does **not** have NVIDIA GPU hardware.\n' +
-                  'Tests marked with `@pytest.mark.gpu` are **excluded** from CI runs.\n\n' +
+            body: '⚠️ **GPU Testing Not Available in CI**\n\n' +
+                  'GitHub Actions runners do **not** have NVIDIA GPU hardware.\n' +
+                  'GPU setup validation runs in CI, but actual GPU tests **must be run locally**.\n\n' +
                   '### To run GPU tests locally:\n' +
                   '```bash\n' +
                   'cd difflut\n' +
-                  './tests/test_gpu.sh --fast   # Quick GPU validation\n' +
-                  './tests/test_gpu.sh --all    # Full GPU test suite\n' +
+                  'python -m pytest tests/ -v -m gpu\n' +
                   '```\n\n' +
-                  '### GPU tests verify:\n' +
-                  '- ✅ CUDA kernel compilation and loading\n' +
-                  '- ✅ CPU/GPU output consistency\n' +
-                  '- ✅ Fused kernel correctness\n' +
-                  '- ✅ Gradient flow through CUDA kernels\n\n' +
-                  '**Status:** Self-hosted GPU runners are in progress. For now, please test GPU functionality locally before merging.\n\n' +
-                  '**Current CI coverage:** CPU implementations only (`-m "not gpu"`)'
+                  '**Status:** Self-hosted GPU runners are coming in the future. For now, please validate GPU functionality locally before merging.\n\n' +
+                  '**Current CI coverage:** CPU implementations + GPU setup validation'
           })
       continue-on-error: true
