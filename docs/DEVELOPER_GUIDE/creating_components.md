@@ -718,7 +718,27 @@ class CUDANode(BaseNode):
 
 ## Testing Your Component
 
-See [Tests](tests.md)
+DiffLUT uses a comprehensive testing framework with automatic device detection and pytest markers. All custom components should include thorough tests following established patterns.
+
+**See [Testing Guide](tests.md) for:**
+- Complete testing strategy and patterns
+- Device fixture usage and GPU marker guidelines
+- Testing utilities and helper functions
+- CI/CD integration and requirements
+- Best practices for component testing
+
+**Quick Example:**
+```python
+class TestMyCustomNode:
+    def test_shape_correct(self, device):
+        """Test forward pass produces correct output shape."""
+        node = MyCustomNode(input_dim=4, output_dim=2).to(device)
+        x = torch.randn(8, 4).to(device)
+        output = node(x)
+        assert output.shape == (8, 2)
+```
+
+For comprehensive testing examples, see `tests/test_nodes/`, `tests/test_layers/`, and `tests/test_encoders/` directories.
 
 
 ## Registering Your Component

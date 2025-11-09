@@ -126,14 +126,6 @@ def train_model(model, train_images, train_labels, num_epochs=5, lr=0.01, device
 
 
 @pytest.fixture
-def device():
-    """Get available device for testing."""
-    if not is_cuda_available():
-        pytest.skip("CUDA not available")
-    return "cuda"
-
-
-@pytest.fixture
 def train_test_data(device):
     """Create training and testing datasets."""
     train_images, train_labels = create_edge_detection_dataset(

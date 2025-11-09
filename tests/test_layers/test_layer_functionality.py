@@ -15,7 +15,6 @@ from testing_utils import (
     assert_gradients_exist,
     assert_range,
     assert_shape_equal,
-    compare_cpu_gpu_forward,
     generate_uniform_input,
     instantiate_layer,
     is_cuda_available,
@@ -32,16 +31,18 @@ from difflut.registry import REGISTRY
 class TestLayerForwardPass:
     """Comprehensive forward pass tests for layers."""
 
-    def test_shape_correct(self, layer_name):
+    def test_shape_correct(self, layer_name, device):
         """Test 2.1: Forward pass produces correct output shape."""
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
-            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
+            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(
+                device
+            )
 
         # Input shape: (batch_size, input_size)
         batch_size = 8
-        input_tensor = generate_uniform_input((batch_size, 256))
+        input_tensor = generate_uniform_input((batch_size, 256), device=device)
 
         with torch.no_grad():
             output = layer(input_tensor)
@@ -50,17 +51,19 @@ class TestLayerForwardPass:
         expected_shape = (batch_size, 128)
         assert_shape_equal(output, expected_shape)
 
-    def test_output_range_01(self, layer_name):
+    def test_output_range_01(self, layer_name, device):
         """Test 2.2: Output range is [0, 1]."""
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
-            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
+            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(
+                device
+            )
         layer.eval()
 
         # Test multiple random inputs
         for seed in [42, 123, 456]:
-            input_tensor = generate_uniform_input((8, 256), seed=seed)
+            input_tensor = generate_uniform_input((8, 256), seed=seed, device=device)
             with torch.no_grad():
                 output = layer(input_tensor)
 
@@ -68,35 +71,44 @@ class TestLayerForwardPass:
 
     @pytest.mark.gpu
     def test_cpu_gpu_consistency(self, layer_name):
-        """Test 2.3: CPU and GPU implementations give same forward pass."""
+        """Test 2.3: CPU and GPU implementations give same forward pass results."""
         if not is_cuda_available():
-            pytest.skip("CUDA not available")
+            pytest.fail("Test marked with @pytest.mark.gpu but CUDA is not available")
 
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
             layer_cpu = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
+            layer_gpu = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).cuda()
 
-        input_cpu = generate_uniform_input((8, 256), seed=42)
+        # Copy parameters from CPU to GPU
+        layer_gpu.load_state_dict(layer_cpu.state_dict())
+
+        input_cpu = generate_uniform_input((8, 256), seed=42, device="cpu")
+        input_gpu = input_cpu.cuda()
+
+        with torch.no_grad():
+            output_cpu = layer_cpu(input_cpu)
+            output_gpu = layer_gpu(input_gpu).cpu()
 
         try:
-            output_cpu, output_gpu = compare_cpu_gpu_forward(
-                layer_cpu, input_cpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
+            torch.testing.assert_close(
+                output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
             )
-        except RuntimeError as e:
-            if "CUDA" in str(e) or "cuda" in str(e):
-                pytest.skip(f"CUDA error for {layer_name}: {e}")
-            raise
+        except AssertionError as e:
+            pytest.fail(f"CPU/GPU outputs differ for {layer_name}: {e}")
 
-    def test_gradients_exist(self, layer_name):
+    def test_gradients_exist(self, layer_name, device):
         """Test 2.4: Gradients exist and are not all zero."""
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
-            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
+            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(
+                device
+            )
 
         layer.train()
-        input_tensor = generate_uniform_input((8, 256), seed=42)
+        input_tensor = generate_uniform_input((8, 256), seed=42, device=device)
         input_tensor.requires_grad = True
 
         output = layer(input_tensor)
@@ -114,7 +126,7 @@ class TestLayerForwardPass:
 
 @pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
-def test_layer_with_node_type(layer_name, node_name):
+def test_layer_with_node_type(layer_name, node_name, device):
     """Test layer works with all node types."""
     layer_class = REGISTRY.get_layer(layer_name)
     node_class = REGISTRY.get_node(node_name)
@@ -123,10 +135,10 @@ def test_layer_with_node_type(layer_name, node_name):
         with IgnoreWarnings():
             layer = instantiate_layer(
                 layer_class, input_size=256, output_size=128, node_type=node_class, n=4
-            )
+            ).to(device)
 
         # Test forward pass
-        input_tensor = generate_uniform_input((8, 256), seed=42)
+        input_tensor = generate_uniform_input((8, 256), seed=42, device=device)
         with torch.no_grad():
             output = layer(input_tensor)
 
@@ -145,7 +157,7 @@ def test_layer_with_node_type(layer_name, node_name):
 
 
 @pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
-def test_layer_different_sizes(layer_name):
+def test_layer_different_sizes(layer_name, device):
     """Test layer works with different input/output sizes."""
     layer_class = REGISTRY.get_layer(layer_name)
 
@@ -159,9 +171,9 @@ def test_layer_different_sizes(layer_name):
         with IgnoreWarnings():
             layer = instantiate_layer(
                 layer_class, input_size=input_size, output_size=output_size, n=4
-            )
+            ).to(device)
 
-        input_tensor = generate_uniform_input((8, input_size), seed=42)
+        input_tensor = generate_uniform_input((8, input_size), seed=42, device=device)
         with torch.no_grad():
             output = layer(input_tensor)
 
@@ -172,16 +184,16 @@ def test_layer_different_sizes(layer_name):
 
 
 @pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
-def test_layer_different_batch_sizes(layer_name):
+def test_layer_different_batch_sizes(layer_name, device):
     """Test layer works with different batch sizes."""
     layer_class = REGISTRY.get_layer(layer_name)
 
     with IgnoreWarnings():
-        layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
+        layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(device)
     layer.eval()
 
     for batch_size in [1, 8, 32, 128]:
-        input_tensor = generate_uniform_input((batch_size, 256), seed=42)
+        input_tensor = generate_uniform_input((batch_size, 256), seed=42, device=device)
         with torch.no_grad():
             output = layer(input_tensor)
 

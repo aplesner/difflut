@@ -12,6 +12,24 @@ import torch.nn as nn
 # ==================== Device Configuration ====================
 
 
+def get_device() -> str:
+    """
+    Get the best available device for testing.
+    
+    Returns 'cuda' if CUDA is available, otherwise 'cpu'.
+    This allows tests to automatically use GPU when available.
+    
+    Returns:
+        str: 'cuda' if available, else 'cpu'
+    
+    Example:
+        >>> device = get_device()
+        >>> model = MyModel().to(device)
+        >>> x = torch.randn(10, 5).to(device)
+    """
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
 def get_available_devices() -> List[str]:
     """
     Get list of available devices for testing.
