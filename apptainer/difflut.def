@@ -14,7 +14,7 @@ Stage: build
     # Copy entire difflut package (including nested structure and setup.py)
     # Note: Build command is run from project root
     mkdir -p ${APPTAINER_ROOTFS}/opt/difflut
-    cp setup.py pyproject.toml apptainer/test_import.py requirements.txt ${APPTAINER_ROOTFS}/opt/difflut/
+    cp setup.py pyproject.toml apptainer/test_import.py requirements.txt README.md ${APPTAINER_ROOTFS}/opt/difflut/
     cp -r difflut ${APPTAINER_ROOTFS}/opt/difflut/
 
 %post
