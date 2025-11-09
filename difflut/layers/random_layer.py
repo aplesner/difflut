@@ -154,7 +154,7 @@ class RandomLayer(BaseLUTLayer):
         grad_subtract_mean: Optional[bool] = None,
         grad_epsilon: Optional[float] = None,
         ensure_full_input_coverage: bool = True,
-        grouped_input_config: Optional[GroupedInputConfig] = None,
+        mapping_indices: Optional[torch.Tensor] = None,
     ) -> None:
         """
         Args:
@@ -197,10 +197,14 @@ class RandomLayer(BaseLUTLayer):
         # Initialize the random mapping
         self._init_mapping(
             ensure_full_input_coverage=ensure_full_input_coverage,
-            grouped_input_config=grouped_input_config,
+            mapping_indices=mapping_indices,
         )
 
-    def _init_mapping(self, ensure_full_input_coverage: bool = True, grouped_input_config: Optional[GroupedInputConfig] = None) -> None:
+    def _init_mapping(
+        self,
+        ensure_full_input_coverage: bool = True,
+        mapping_indices: Optional[torch.Tensor] = None,
+    ) -> None:
         """
         Initialize random mapping matrix.
         Ensures each input is used at least once per node before any reuse.
@@ -217,18 +221,8 @@ class RandomLayer(BaseLUTLayer):
         # Use int16 for memory efficiency (supports up to 32k input features)
         dtype = torch.int16 if self.input_size < 32768 else torch.int32
 
-        assert not ensure_full_input_coverage and grouped_input_config is not None, "Grouped input config not yet supported with full coverage option."
-
-        if grouped_input_config:
-            n_groups = grouped_input_config.n_groups
-            assert self.input_size % n_groups == 0, "Input size must be divisible by number of groups."
-            group_size = self.input_size // n_groups
-            # Create mapping indices of shape (output_size, n) with indices up to group_size
-            mapping_indices = torch.multinomial(
-                input=torch.ones((self.output_size, group_size)),
-                num_samples=self.n,
-                replacement=self.n > group_size,
-            )
+        if mapping_indices is not None:
+            mapping_indices = mapping_indices.to(dtype=dtype)
 
         elif not ensure_full_input_coverage:
             mapping_indices = torch.multinomial(
