@@ -167,8 +167,8 @@ def _l_regularizer_random(
     return reg
 
 
-@register_regularizer("l")
-@register_regularizer("functional")
+@register_regularizer("l", differentiable="input_based")
+@register_regularizer("functional", differentiable="input_based")
 def l_regularizer(
     node: nn.Module,
     p: int = DEFAULT_REGULARIZER_P_NORM,
@@ -232,8 +232,8 @@ def l_regularizer(
         return _l_regularizer_random(node, p, num_samples)
 
 
-@register_regularizer("l1")
-@register_regularizer("l1_functional")
+@register_regularizer("l1", differentiable="input_based")
+@register_regularizer("l1_functional", differentiable="input_based")
 def l1_regularizer(
     node: nn.Module,
     num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES,
@@ -262,8 +262,8 @@ def l1_regularizer(
     return l_regularizer(node, p=1, num_samples=num_samples, inputs=inputs)
 
 
-@register_regularizer("l2")
-@register_regularizer("l2_functional")
+@register_regularizer("l2", differentiable="input_based")
+@register_regularizer("l2_functional", differentiable="input_based")
 def l2_regularizer(
     node: nn.Module,
     num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES,
@@ -343,9 +343,9 @@ def _compute_walsh_hadamard_matrix(k: int, device: torch.device) -> torch.Tensor
     return C
 
 
-@register_regularizer("spectral")
-@register_regularizer("fourier")
-@register_regularizer("walsh")
+@register_regularizer("spectral", differentiable=True)
+@register_regularizer("fourier", differentiable=True)
+@register_regularizer("walsh", differentiable=True)
 def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     """
     Spectral regularization for truth-table parameterized DiffLUT nodes.

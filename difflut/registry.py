@@ -17,10 +17,10 @@ class Registry:
     def __init__(self) -> None:
         self._nodes: Dict[str, Type] = {}
         self._layers: Dict[str, Type] = {}
-        self._convolutional_layers: Dict[str, Type] = {}
         self._encoders: Dict[str, Type] = {}
         self._initializers: Dict[str, Callable] = {}
         self._regularizers: Dict[str, Callable] = {}
+        self._regularizer_metadata: Dict[str, Dict[str, Any]] = {}
 
     # ==================== Node Registration ====================
 
@@ -127,59 +127,6 @@ class Registry:
     def list_layers(self) -> List[str]:
         """List all registered layer names."""
         return list(self._layers.keys())
-
-    # ==================== Convolutional Layer Registration ====================
-    def register_convolutional_layer(self, name: Optional[str] = None) -> Callable:
-        """
-        Decorator to register a convolutional layer class.
-
-        Args:
-            name: Name to register the convolutional layer under. If None, uses class name.
-
-        Example:
-            @registry.register_convolutional_layer("convolutional")
-            class ConvolutionalLayer(BaseConvolutionalLayer):
-                pass
-        """
-
-        def decorator(cls: Type) -> Type:
-            conv_layer_name = name if name is not None else cls.__name__
-            if conv_layer_name in self._convolutional_layers:
-                warnings.warn(
-                    f"Convolutional Layer '{conv_layer_name}' is already registered and will be overwritten. "
-                    f"This may lead to unexpected behavior if other code depends on the original implementation. "
-                    f"Consider using a unique name or checking existing registrations with registry.list_layers().",
-                    UserWarning,
-                    stacklevel=2,
-                )
-            self._convolutional_layers[conv_layer_name] = cls
-            return cls
-
-        return decorator
-
-    def get_convolutional_layer(self, name: str) -> Type:
-        """
-        Get a registered convolutional layer class by name.
-
-        Args:
-            name: Name of the convolutional layer
-
-        Returns:
-            Convolutional Layer class
-
-        Raises:
-            ValueError: If convolutional layer not found
-        """
-        if name not in self._convolutional_layers:
-            raise ValueError(
-                f"Convolutional Layer '{name}' not found. "
-                f"Available layers: {list(self._convolutional_layers.keys())}"
-            )
-        return self._convolutional_layers[name]
-
-    def list_convolutional_layers(self) -> List[str]:
-        """List all registered convolutional layer names."""
-        return list(self._convolutional_layers.keys())
 
     # ==================== Encoder Registration ====================
 
@@ -309,16 +256,17 @@ class Registry:
 
     # ==================== Regularizer Registration ====================
 
-    def register_regularizer(self, name: Optional[str] = None) -> Callable:
+    def register_regularizer(self, name: Optional[str] = None, **metadata) -> Callable:
         """
-        Decorator to register a regularizer function.
+        Decorator to register a regularizer function with optional metadata.
 
         Args:
             name: Name to register the regularizer under. If None, uses function name.
+            **metadata: Additional metadata (e.g., differentiable=True/False)
 
         Example:
-            @registry.register_regularizer("l1")
-            def l1_regularizer(node, num_samples=100):
+            @registry.register_regularizer("l1", differentiable=True)
+            def l1_regularizer(node, inputs=None):
                 # regularization logic
                 pass
         """
@@ -327,30 +275,27 @@ class Registry:
             reg_name = (name if name is not None else func.__name__).lower()
             # Remove '_regularizer' suffix if present for cleaner naming
             if reg_name.endswith("_regularizer"):
-                reg_name_clean = reg_name[:-12]
-                # Register both with and without suffix
-                if reg_name in self._regularizers:
-                    warnings.warn(
-                        f"Regularizer '{reg_name}' is already registered and will be overwritten.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
+                reg_name_clean = reg_name[: -len("_regularizer")]
                 if reg_name_clean in self._regularizers:
-                    warnings.warn(
-                        f"Regularizer '{reg_name_clean}' is already registered and will be overwritten.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                self._regularizers[reg_name] = func
-                self._regularizers[reg_name_clean] = func
+                    # Already registered - update with alias
+                    self._regularizers[reg_name] = self._regularizers[reg_name_clean]
+                    self._regularizer_metadata[reg_name] = self._regularizer_metadata[reg_name_clean]
+                else:
+                    # First registration
+                    self._regularizers[reg_name_clean] = func
+                    self._regularizer_metadata[reg_name_clean] = metadata.copy()
+                    # Also register with full name
+                    self._regularizers[reg_name] = func
+                    self._regularizer_metadata[reg_name] = metadata.copy()
             else:
                 if reg_name in self._regularizers:
-                    warnings.warn(
-                        f"Regularizer '{reg_name}' is already registered and will be overwritten.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                self._regularizers[reg_name] = func
+                    # Update existing
+                    self._regularizers[reg_name] = func
+                    self._regularizer_metadata[reg_name] = metadata.copy()
+                else:
+                    # New registration
+                    self._regularizers[reg_name] = func
+                    self._regularizer_metadata[reg_name] = metadata.copy()
             return func
 
         return decorator
@@ -375,6 +320,27 @@ class Registry:
                 f"Available regularizers: {list(self._regularizers.keys())}"
             )
         return self._regularizers[name_lower]
+
+    def get_regularizer_metadata(self, name: str) -> Dict[str, Any]:
+        """
+        Get metadata for a registered regularizer.
+
+        Args:
+            name: Name of the regularizer (case-insensitive)
+
+        Returns:
+            Dictionary of metadata (e.g., {'differentiable': True})
+
+        Raises:
+            ValueError: If regularizer not found
+        """
+        name_lower = name.lower()
+        if name_lower not in self._regularizer_metadata:
+            raise ValueError(
+                f"Regularizer '{name}' not found. "
+                f"Available regularizers: {list(self._regularizers.keys())}"
+            )
+        return self._regularizer_metadata[name_lower].copy()
 
     def list_regularizers(self) -> List[str]:
         """List all registered regularizer names."""
@@ -431,7 +397,6 @@ class Registry:
         return {
             "nodes": self.list_nodes(),
             "layers": self.list_layers(),
-            "convolutional_layers": self.list_convolutional_layers(),
             "encoders": self.list_encoders(),
             "initializers": self.list_initializers(),
             "regularizers": self.list_regularizers(),
@@ -455,7 +420,6 @@ REGISTRY = Registry()
 # Convenience decorator aliases
 register_node = REGISTRY.register_node
 register_layer = REGISTRY.register_layer
-register_convolutional_layer = REGISTRY.register_convolutional_layer
 register_encoder = REGISTRY.register_encoder
 register_initializer = REGISTRY.register_initializer
 register_regularizer = REGISTRY.register_regularizer

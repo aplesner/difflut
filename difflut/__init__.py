@@ -38,7 +38,6 @@ from .nodes.base_node import BaseNode
 # Import registry first
 from .registry import (
     REGISTRY,
-    register_convolutional_layer,
     register_encoder,
     register_initializer,
     register_layer,
@@ -55,7 +54,6 @@ __all__ = [
     "register_encoder",
     "register_initializer",
     "register_regularizer",
-    "register_convolutional_layer",
     "BaseNode",
     "BaseLUTLayer",
     "BaseEncoder",

@@ -118,6 +118,21 @@ def test_regularizer_differentiable(reg_name):
     
     reg_fn = REGISTRY.get_regularizer(reg_name)
     
+    # Check metadata to see if regularizer should be differentiable
+    metadata = REGISTRY.get_regularizer_metadata(reg_name)
+    differentiable = metadata.get('differentiable', True)
+    
+    # Skip if explicitly marked as non-differentiable or requires inputs
+    if differentiable == "input_based":
+        pytest.skip(
+            f"Regularizer '{reg_name}' requires inputs parameter for differentiability "
+            f"(use input-based mode). See test_input_based_regularizer_differentiable."
+        )
+    elif differentiable is False:
+        pytest.skip(
+            f"Regularizer '{reg_name}' is explicitly marked as non-differentiable."
+        )
+    
     # Create node
     with IgnoreWarnings():
         node = LinearLUTNode(input_dim=4, output_dim=1)

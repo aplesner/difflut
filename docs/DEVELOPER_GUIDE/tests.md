@@ -42,7 +42,6 @@ Tests automatically adapt to available hardware using a `device` fixture:
 - Fail if CUDA unavailable (expected behavior)
 - Used for CPU/GPU consistency checks and fused kernels
 
-See `tests/GPU_TESTING_STRATEGY.md` for comprehensive documentation
 
 ### Pytest Markers
 

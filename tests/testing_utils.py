@@ -485,6 +485,33 @@ def instantiate_layer(
 
     node_config = NodeConfig(input_dim=n, output_dim=1)
 
+    # Special handling for ConvolutionalLayer
+    if layer_class.__name__ == "ConvolutionalLayer":
+        from difflut.layers.convolutional import ConvolutionConfig
+        from difflut.layers import RandomLayer
+
+        # Create ConvolutionConfig to match input_size/output_size
+        # For simplicity, assume 1D convolution with receptive field that matches input_size
+        convolution_config = ConvolutionConfig(
+            tree_depth=2,
+            in_channels=1,
+            out_channels=output_size,
+            receptive_field=16,  # Fixed receptive field
+            stride=1,
+            padding=0,
+            chunk_size=32,
+            seed=42,
+        )
+
+        return layer_class(
+            convolution_config=convolution_config,
+            node_type=node_type,
+            node_kwargs=node_config,
+            layer_type=RandomLayer,
+            n_inputs_per_node=n,
+            **kwargs,
+        )
+
     return layer_class(
         input_size=input_size,
         output_size=output_size,

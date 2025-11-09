@@ -26,8 +26,11 @@ from difflut.registry import REGISTRY
 # Layer Forward Pass Tests
 # ============================================================================
 
+# Filter out convolutional layer as it has specialized tests and incompatible interface
+_testable_layers = [name for name in REGISTRY.list_layers() if name != "convolutional"]
 
-@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+
+@pytest.mark.parametrize("layer_name", _testable_layers)
 class TestLayerForwardPass:
     """Comprehensive forward pass tests for layers."""
 
@@ -124,7 +127,7 @@ class TestLayerForwardPass:
 # ============================================================================
 
 
-@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+@pytest.mark.parametrize("layer_name", _testable_layers)
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 def test_layer_with_node_type(layer_name, node_name, device):
     """Test layer works with all node types."""
@@ -156,7 +159,7 @@ def test_layer_with_node_type(layer_name, node_name, device):
 # ============================================================================
 
 
-@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+@pytest.mark.parametrize("layer_name", _testable_layers)
 def test_layer_different_sizes(layer_name, device):
     """Test layer works with different input/output sizes."""
     layer_class = REGISTRY.get_layer(layer_name)
@@ -183,7 +186,7 @@ def test_layer_different_sizes(layer_name, device):
         ), f"{layer_name} failed for sizes ({input_size}, {output_size})"
 
 
-@pytest.mark.parametrize("layer_name", REGISTRY.list_layers())
+@pytest.mark.parametrize("layer_name", _testable_layers)
 def test_layer_different_batch_sizes(layer_name, device):
     """Test layer works with different batch sizes."""
     layer_class = REGISTRY.get_layer(layer_name)
