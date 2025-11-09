@@ -5,7 +5,6 @@ Tests that each node type works with each registered initializer.
 
 import pytest
 import torch
-import torch.nn as nn
 from testing_utils import (
     IgnoreWarnings,
     generate_uniform_input,
