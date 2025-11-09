@@ -42,9 +42,10 @@ def test_basic_functionality():
     # Check if output is valid (no NaN)
     assert not torch.isnan(output).any(), "Output contains NaN values!"
 
-    # Check if fused path is available
+    # Check if fused path is available (RandomLayer has 'nodes', not 'node')
+    # We check the first node since all nodes are the same type
     assert hasattr(
-        layer.node, "forward_with_mapping"
+        layer.nodes[0], "forward_with_mapping"
     ), "Fused forward_with_mapping() method not found"
 
 
@@ -76,6 +77,7 @@ def test_numerical_equivalence():
 
     from difflut.layers.random_layer import RandomLayer
     from difflut.nodes.dwn_node import _FUSED_CUDA_EXT_AVAILABLE, DWNNode
+    from difflut.nodes.node_config import NodeConfig
 
     if not _FUSED_CUDA_EXT_AVAILABLE:
         pytest.skip("Fused CUDA extension not available (expected if not compiled yet)")
@@ -87,7 +89,7 @@ def test_numerical_equivalence():
         input_size=25,
         output_size=36,
         node_type=DWNNode,
-        node_kwargs={"input_dim": 6, "output_dim": 1},
+        node_kwargs=NodeConfig(input_dim=6, output_dim=1),
         seed=42,
     ).cuda()
 
@@ -97,14 +99,25 @@ def test_numerical_equivalence():
     # Fused forward (automatic via layer)
     output_fused = layer(x)
 
-    # Non-fused forward (manually materialize mapped_inputs)
+    # Non-fused forward (manually call each node separately)
     with torch.no_grad():
         # Get mapped inputs the old way
-        mapped = layer.get_mapping(x)
-        # Call node forward directly (bypasses fused path)
-        output_nonfused = layer.node.forward(mapped)
+        mapped = layer.get_mapping(x)  # (batch_size, output_size, n)
+        
+        # Process each node independently (non-fused path)
+        batch_size = mapped.shape[0]
+        output_dim = layer.nodes[0].output_dim
+        output_nonfused = torch.empty(
+            (batch_size, layer.output_size, output_dim), device=x.device, dtype=x.dtype
+        )
+        
+        for node_idx, node in enumerate(layer.nodes):
+            node_input = mapped[:, node_idx, :]  # (batch_size, n)
+            node_output = node(node_input)  # (batch_size, output_dim)
+            output_nonfused[:, node_idx, :] = node_output
+        
         # Reshape to match fused output
-        output_nonfused = output_nonfused.view(x.shape[0], -1)
+        output_nonfused = output_nonfused.view(batch_size, -1)
 
     # Compare outputs
     diff_abs = (output_fused - output_nonfused).abs()

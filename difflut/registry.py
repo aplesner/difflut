@@ -20,7 +20,6 @@ class Registry:
         self._encoders: Dict[str, Type] = {}
         self._initializers: Dict[str, Callable] = {}
         self._regularizers: Dict[str, Callable] = {}
-        self._regularizer_metadata: Dict[str, Dict[str, Any]] = {}
 
     # ==================== Node Registration ====================
 
@@ -256,16 +255,15 @@ class Registry:
 
     # ==================== Regularizer Registration ====================
 
-    def register_regularizer(self, name: Optional[str] = None, **metadata) -> Callable:
+    def register_regularizer(self, name: Optional[str] = None) -> Callable:
         """
-        Decorator to register a regularizer function with optional metadata.
+        Decorator to register a regularizer function.
 
         Args:
             name: Name to register the regularizer under. If None, uses function name.
-            **metadata: Additional metadata (e.g., differentiable=True/False)
 
         Example:
-            @registry.register_regularizer("l1", differentiable=True)
+            @registry.register_regularizer("l1")
             def l1_regularizer(node, inputs=None):
                 # regularization logic
                 pass
@@ -276,26 +274,11 @@ class Registry:
             # Remove '_regularizer' suffix if present for cleaner naming
             if reg_name.endswith("_regularizer"):
                 reg_name_clean = reg_name[: -len("_regularizer")]
-                if reg_name_clean in self._regularizers:
-                    # Already registered - update with alias
-                    self._regularizers[reg_name] = self._regularizers[reg_name_clean]
-                    self._regularizer_metadata[reg_name] = self._regularizer_metadata[reg_name_clean]
-                else:
-                    # First registration
-                    self._regularizers[reg_name_clean] = func
-                    self._regularizer_metadata[reg_name_clean] = metadata.copy()
-                    # Also register with full name
-                    self._regularizers[reg_name] = func
-                    self._regularizer_metadata[reg_name] = metadata.copy()
+                # Register both with and without suffix
+                self._regularizers[reg_name_clean] = func
+                self._regularizers[reg_name] = func
             else:
-                if reg_name in self._regularizers:
-                    # Update existing
-                    self._regularizers[reg_name] = func
-                    self._regularizer_metadata[reg_name] = metadata.copy()
-                else:
-                    # New registration
-                    self._regularizers[reg_name] = func
-                    self._regularizer_metadata[reg_name] = metadata.copy()
+                self._regularizers[reg_name] = func
             return func
 
         return decorator
@@ -320,27 +303,6 @@ class Registry:
                 f"Available regularizers: {list(self._regularizers.keys())}"
             )
         return self._regularizers[name_lower]
-
-    def get_regularizer_metadata(self, name: str) -> Dict[str, Any]:
-        """
-        Get metadata for a registered regularizer.
-
-        Args:
-            name: Name of the regularizer (case-insensitive)
-
-        Returns:
-            Dictionary of metadata (e.g., {'differentiable': True})
-
-        Raises:
-            ValueError: If regularizer not found
-        """
-        name_lower = name.lower()
-        if name_lower not in self._regularizer_metadata:
-            raise ValueError(
-                f"Regularizer '{name}' not found. "
-                f"Available regularizers: {list(self._regularizers.keys())}"
-            )
-        return self._regularizer_metadata[name_lower].copy()
 
     def list_regularizers(self) -> List[str]:
         """List all registered regularizer names."""

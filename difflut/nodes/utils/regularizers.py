@@ -167,8 +167,8 @@ def _l_regularizer_random(
     return reg
 
 
-@register_regularizer("l", differentiable="input_based")
-@register_regularizer("functional", differentiable="input_based")
+@register_regularizer("l")
+@register_regularizer("functional")
 def l_regularizer(
     node: nn.Module,
     p: int = DEFAULT_REGULARIZER_P_NORM,
@@ -232,8 +232,8 @@ def l_regularizer(
         return _l_regularizer_random(node, p, num_samples)
 
 
-@register_regularizer("l1", differentiable="input_based")
-@register_regularizer("l1_functional", differentiable="input_based")
+@register_regularizer("l1")
+@register_regularizer("l1_functional")
 def l1_regularizer(
     node: nn.Module,
     num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES,
@@ -262,8 +262,8 @@ def l1_regularizer(
     return l_regularizer(node, p=1, num_samples=num_samples, inputs=inputs)
 
 
-@register_regularizer("l2", differentiable="input_based")
-@register_regularizer("l2_functional", differentiable="input_based")
+@register_regularizer("l2")
+@register_regularizer("l2_functional")
 def l2_regularizer(
     node: nn.Module,
     num_samples: int = DEFAULT_REGULARIZER_NUM_SAMPLES,
@@ -343,9 +343,9 @@ def _compute_walsh_hadamard_matrix(k: int, device: torch.device) -> torch.Tensor
     return C
 
 
-@register_regularizer("spectral", differentiable=True)
-@register_regularizer("fourier", differentiable=True)
-@register_regularizer("walsh", differentiable=True)
+@register_regularizer("spectral")
+@register_regularizer("fourier")
+@register_regularizer("walsh")
 def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     """
     Spectral regularization for truth-table parameterized DiffLUT nodes.
@@ -366,7 +366,7 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
         Spectral norm of the LUT function(s)
     """
     device = next(node.parameters()).device
-    reg = torch.tensor(0.0, device=device)
+    reg = None  # Start with None instead of 0.0 tensor
 
     # Look for truth-table parameters (typically named 'luts' or similar)
     for name, param in node.named_parameters():
@@ -401,6 +401,16 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
             spectral_norm = torch.sum(fourier_coeffs**2)
 
             # Average over number of LUTs
-            reg = reg + spectral_norm / lut_table.shape[0]
+            norm_contribution = spectral_norm / lut_table.shape[0]
+            
+            # Accumulate (preserves gradient)
+            if reg is None:
+                reg = norm_contribution
+            else:
+                reg = reg + norm_contribution
 
+    # If no LUT parameters found, return zero tensor
+    if reg is None:
+        reg = torch.tensor(0.0, device=device, requires_grad=True)
+    
     return reg

@@ -79,6 +79,10 @@ class TestNodeForwardPass:
 
         # Copy parameters from CPU to GPU
         node_gpu.load_state_dict(node_cpu.state_dict())
+        
+        # Set both to eval mode for deterministic behavior
+        node_cpu.eval()
+        node_gpu.eval()
 
         input_cpu = generate_uniform_input((8, 4), seed=42, device="cpu")
         input_gpu = input_cpu.cuda()
