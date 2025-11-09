@@ -68,6 +68,32 @@ def test_gradient_correctness():
         seed=42,
     ).cuda()
 
+    # Test input with gradient tracking
+    # IMPORTANT: Create on GPU directly to make it a leaf tensor that retains gradients
+    x = torch.randn(10, 16, device="cuda", requires_grad=True)
+
+    # Forward pass
+    output = layer(x)
+    assert output.shape == torch.Size([10, 25]), f"Expected shape [10, 25], got {output.shape}"
+
+    # Backward pass
+    loss = output.sum()
+    loss.backward()
+
+    # Check input gradients exist and are non-zero
+    assert x.grad is not None, "Input gradients are None - gradient flow is broken"
+    assert x.grad.abs().sum() > 0, "Input gradients are all zero - gradient flow is broken"
+
+    # Check parameter gradients exist and are non-zero
+    grad_count = 0
+    for name, param in layer.named_parameters():
+        if param.requires_grad:
+            assert param.grad is not None, f"Gradient for parameter '{name}' is None"
+            assert param.grad.abs().sum() > 0, f"Gradient for parameter '{name}' is all zero"
+            grad_count += 1
+
+    assert grad_count > 0, "No parameters with gradients found - layer has no learnable parameters"
+
 
 @pytest.mark.gpu
 def test_numerical_equivalence():
@@ -103,19 +129,19 @@ def test_numerical_equivalence():
     with torch.no_grad():
         # Get mapped inputs the old way
         mapped = layer.get_mapping(x)  # (batch_size, output_size, n)
-        
+
         # Process each node independently (non-fused path)
         batch_size = mapped.shape[0]
         output_dim = layer.nodes[0].output_dim
         output_nonfused = torch.empty(
             (batch_size, layer.output_size, output_dim), device=x.device, dtype=x.dtype
         )
-        
+
         for node_idx, node in enumerate(layer.nodes):
             node_input = mapped[:, node_idx, :]  # (batch_size, n)
             node_output = node(node_input)  # (batch_size, output_dim)
             output_nonfused[:, node_idx, :] = node_output
-        
+
         # Reshape to match fused output
         output_nonfused = output_nonfused.view(batch_size, -1)
 

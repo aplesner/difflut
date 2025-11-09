@@ -22,15 +22,19 @@ DiffLUT uses type-safe configuration classes for nodes and layers:
 ```python
 from difflut.nodes.node_config import NodeConfig
 from difflut.layers.layer_config import LayerConfig
+from difflut.registry import REGISTRY
 
-# Node configuration
+# Node configuration with registry-retrieved functions
+init_fn = REGISTRY.get_initializer('kaiming_normal')
+reg_fn = REGISTRY.get_regularizer('l2')
+
 node_config = NodeConfig(
     input_dim=6,
     output_dim=1,
-    init_fn=kaiming_normal_init,
+    init_fn=init_fn,  # Retrieved from registry, NOT a string
     init_kwargs={'a': 0.0, 'mode': 'fan_in'},
-    regularizers={'l2': l2_regularizer},
-    extra_params={'use_cuda': True}  # Node-specific parameters
+    regularizers={'l2': reg_fn},  # Actual function objects, NOT strings
+    extra_params={'use_cuda': True}
 )
 
 # Layer training configuration
@@ -47,6 +51,13 @@ layer_config = LayerConfig(
 - Clear separation of node logic vs. layer training augmentation
 - Easy serialization for configuration files
 - Better error messages
+- Registry functions are validated at retrieval time (not string-based)
+
+**Critical Pattern for Initializers and Regularizers:**
+- ALWAYS retrieve from registry: `REGISTRY.get_initializer(name)`, `REGISTRY.get_regularizer(name)`
+- NEVER pass function names as strings to NodeConfig
+- Pass actual function objects to NodeConfig
+- Registry maintains single source of truth
 
 When creating custom components, ensure they work with these configuration classes:
 
@@ -846,14 +857,30 @@ layer_cfg = config['layers'][0]
 NodeClass = REGISTRY.get_node(layer_cfg['node_type'])
 LayerClass = REGISTRY.get_layer(layer_cfg['type'])
 
-# Build NodeConfig
+# Build NodeConfig with registry-retrieved functions
 node_params = layer_cfg['node_params']
+
+# Get initializers and regularizers from registry if specified
+init_fn = None
+if 'init_fn_name' in node_params:
+    init_fn = REGISTRY.get_initializer(node_params['init_fn_name'])
+
+regularizers = {}
+if 'regularizer_names' in node_params:
+    for reg_name in node_params['regularizer_names']:
+        regularizers[reg_name] = REGISTRY.get_regularizer(reg_name)
+
+# Extract node-specific params
 extra_params = {k: v for k, v in node_params.items() 
-                if k not in ['input_dim', 'output_dim']}
+                if k not in ['input_dim', 'output_dim', 'init_fn_name', 
+                            'regularizer_names', 'init_kwargs']}
 
 node_config = NodeConfig(
     input_dim=node_params['input_dim'],
     output_dim=node_params['output_dim'],
+    init_fn=init_fn,
+    init_kwargs=node_params.get('init_kwargs', {}),
+    regularizers=regularizers if regularizers else None,
     extra_params=extra_params
 )
 
@@ -871,7 +898,11 @@ layer = LayerClass(
 )
 ```
 
-For more details on configuration-driven pipelines, see the [Registry & Pipeline Guide](../USER_GUIDE/registry_pipeline.md).
+**Key Pattern:**
+- Always retrieve initializers/regularizers from registry: `REGISTRY.get_initializer(name)`, `REGISTRY.get_regularizer(name)`
+- Pass function objects (not strings) to NodeConfig
+- NodeConfig stores actual functions that BaseNode receives in __init__
+- Registry maintains single source of truth for all components
 
 ---
 

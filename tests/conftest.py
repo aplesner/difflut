@@ -2,6 +2,7 @@
 
 import sys
 from pathlib import Path
+
 import pytest
 import torch
 
@@ -17,18 +18,18 @@ from testing_utils import get_device, is_cuda_available
 def device(request):
     """
     Fixture that provides the appropriate device for testing.
-    
+
     Behavior:
     - For tests marked with @pytest.mark.gpu:
       * Requires CUDA to be available
-      * Fails test if CUDA not available
+      * Skips test if CUDA not available
       * Returns 'cuda'
-    
+
     - For all other tests:
       * Returns 'cuda' if available, else 'cpu'
       * Tests automatically use GPU when available
       * Falls back to CPU when GPU not available
-    
+
     Usage:
         def test_something(device):
             model = MyModel().to(device)
@@ -36,13 +37,12 @@ def device(request):
     """
     # Check if test is marked with @pytest.mark.gpu
     gpu_marker = request.node.get_closest_marker("gpu")
-    
+
     if gpu_marker:
-        # Test requires GPU - fail if not available
+        # Test requires GPU - skip if not available
         if not is_cuda_available():
-            pytest.fail("Test marked with @pytest.mark.gpu but CUDA is not available")
+            pytest.skip("CUDA not available")
         return "cuda"
     else:
         # Test is device-agnostic - use best available device
         return get_device()
-

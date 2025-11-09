@@ -169,6 +169,10 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
 
+    # Skip if CUDA not available (test requires GPU)
+    if not is_cuda_available():
+        pytest.skip("CUDA not available")
+
     train_images, train_labels, test_images, test_labels = train_test_data
 
     # Create layer config

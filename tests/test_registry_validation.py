@@ -148,4 +148,3 @@ def test_registry_invalid_encoder_raises_error():
     """Test that getting invalid encoder raises ValueError."""
     with pytest.raises(ValueError):
         REGISTRY.get_encoder("nonexistent_encoder_12345")
-

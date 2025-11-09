@@ -37,9 +37,7 @@ def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
 
 
 # Helper function (not registered)
-def _l_regularizer_input_based(
-    node: nn.Module, inputs: torch.Tensor, p: int
-) -> torch.Tensor:
+def _l_regularizer_input_based(node: nn.Module, inputs: torch.Tensor, p: int) -> torch.Tensor:
     """
     Input-based functional L-regularization for DiffLUT nodes.
 
@@ -92,9 +90,7 @@ def _l_regularizer_input_based(
 
 
 # Helper function (not registered)
-def _l_regularizer_random(
-    node: nn.Module, p: int, num_samples: int
-) -> torch.Tensor:
+def _l_regularizer_random(node: nn.Module, p: int, num_samples: int) -> torch.Tensor:
     """
     Random sampling functional L-regularization for DiffLUT nodes.
 
@@ -188,11 +184,11 @@ def l_regularizer(
     where z^(i) is z with the i-th bit flipped, and k is the number of inputs.
 
     Two modes are supported:
-    
+
     1. **Input-based mode** (recommended, differentiable):
        When `inputs` is provided, computes sensitivity on actual batch inputs.
        This is fully differentiable and adapts to the data distribution.
-       
+
     2. **Random sampling mode** (legacy, non-differentiable):
        When `inputs` is None, samples random binary inputs.
        Uses torch.no_grad() for efficiency but doesn't propagate gradients.
@@ -213,14 +209,14 @@ def l_regularizer(
         >>> reg = l_regularizer(node, p=2, inputs=encoded)
         >>> loss = main_loss + 0.01 * reg
         >>> loss.backward()  # Gradients flow through regularization!
-        
+
         >>> # Random sampling mode (legacy, non-differentiable)
         >>> reg = l_regularizer(node, p=2, num_samples=100)
         >>> loss = main_loss + 0.01 * reg
     """
     if p == DEFAULT_REGULARIZER_P_NORM:
         warn_default_value("p (l_regularizer)", p, stacklevel=3)
-    
+
     # Dispatch to appropriate implementation
     if inputs is not None:
         # Input-based regularization (differentiable, data-aware)
@@ -250,12 +246,12 @@ def l1_regularizer(
 
     Returns:
         Average L1 functional sensitivity
-        
+
     Examples:
         >>> # Input-based mode (recommended)
         >>> encoded = encoder(x)
         >>> reg = l1_regularizer(node, inputs=encoded)
-        
+
         >>> # Random sampling mode (legacy)
         >>> reg = l1_regularizer(node, num_samples=100)
     """
@@ -280,12 +276,12 @@ def l2_regularizer(
 
     Returns:
         Average L2 functional sensitivity
-        
+
     Examples:
         >>> # Input-based mode (recommended)
         >>> encoded = encoder(x)
         >>> reg = l2_regularizer(node, inputs=encoded)
-        
+
         >>> # Random sampling mode (legacy)
         >>> reg = l2_regularizer(node, num_samples=100)
     """
@@ -402,7 +398,7 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
 
             # Average over number of LUTs
             norm_contribution = spectral_norm / lut_table.shape[0]
-            
+
             # Accumulate (preserves gradient)
             if reg is None:
                 reg = norm_contribution
@@ -412,5 +408,5 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     # If no LUT parameters found, return zero tensor
     if reg is None:
         reg = torch.tensor(0.0, device=device, requires_grad=True)
-    
+
     return reg

@@ -297,6 +297,7 @@ Use `NodeConfig` for type-safe node parameters instead of raw dictionaries:
 
 ```python
 from difflut.nodes.node_config import NodeConfig
+from difflut.registry import REGISTRY
 
 # Basic configuration
 node_config = NodeConfig(
@@ -304,23 +305,23 @@ node_config = NodeConfig(
     output_dim=1,       # Single output per node
 )
 
-# With initialization
-from difflut.nodes.utils.initializers import kaiming_normal_init
+# With initialization from registry
+init_fn = REGISTRY.get_initializer('kaiming_normal')
 
 node_config = NodeConfig(
     input_dim=6,
     output_dim=1,
-    init_fn=kaiming_normal_init,
+    init_fn=init_fn,
     init_kwargs={'a': 0.0, 'mode': 'fan_in'}
 )
 
-# With regularization
-from difflut.nodes.utils.regularizers import l2_regularizer
+# With regularization from registry
+reg_fn = REGISTRY.get_regularizer('l2')
 
 node_config = NodeConfig(
     input_dim=6,
     output_dim=1,
-    regularizers={'l2': l2_regularizer}
+    regularizers={'l2': reg_fn}
 )
 
 # Node-specific parameters via extra_params
@@ -329,7 +330,7 @@ node_config = NodeConfig(
     output_dim=1,
     extra_params={
         'use_cuda': True,
-        'temperature': 1.0
+        'alpha': 0.5
     }
 )
 ```
@@ -337,8 +338,8 @@ node_config = NodeConfig(
 **NodeConfig Parameters:**
 - `input_dim`: Number of inputs per node (LUT width)
 - `output_dim`: Number of outputs per node (typically 1)
-- `regularizers`: Dict of regularization functions (optional)
-- `init_fn`: Initialization function (optional)
+- `regularizers`: Dict mapping regularizer names to functions retrieved from registry (optional)
+- `init_fn`: Initialization function retrieved from registry (optional)
 - `init_kwargs`: Kwargs for initialization function (optional)
 - `extra_params`: Dict for node-specific parameters (optional)
 
@@ -375,14 +376,16 @@ output = node(x)  # (32, 1)
 
 ```python
 from difflut.nodes import DWNStableNode
+from difflut.nodes.node_config import NodeConfig
+from difflut.registry import REGISTRY
 
 config = NodeConfig(
     input_dim=6,
     output_dim=1,
-    extra_params={
-        'use_cuda': True,          # Enable CUDA kernel
-        'gradient_scale': 1.0      # Gradient scaling factor
-    }
+    init_fn=REGISTRY.get_initializer('kaiming_normal'),
+    init_kwargs={'a': 0.0, 'mode': 'fan_in'},
+    regularizers={'l2': REGISTRY.get_regularizer('l2')},
+    extra_params={'use_cuda': True, 'gradient_scale': 1.0}
 )
 node = DWNStableNode(**config.to_dict())
 
@@ -394,15 +397,15 @@ output = node(x)  # Uses CUDA kernel if available
 
 ```python
 from difflut.nodes import ProbabilisticNode
+from difflut.nodes.node_config import NodeConfig
+from difflut.registry import REGISTRY
 
 config = NodeConfig(
     input_dim=6,
     output_dim=1,
-    extra_params={
-        'temperature': 1.0,        # Sigmoid temperature
-        'eval_mode': 'expectation', # Evaluation mode
-        'use_cuda': True
-    }
+    init_fn=REGISTRY.get_initializer('normal'),
+    regularizers={'l1': REGISTRY.get_regularizer('l1')},
+    extra_params={'temperature': 1.0, 'use_cuda': True}
 )
 node = ProbabilisticNode(**config.to_dict())
 
@@ -414,17 +417,17 @@ output = node(x)  # Probabilistic output
 
 ```python
 from difflut.nodes import NeuralLUTNode
+from difflut.nodes.node_config import NodeConfig
+from difflut.registry import REGISTRY
 
 config = NodeConfig(
     input_dim=6,
     output_dim=1,
+    init_fn=REGISTRY.get_initializer('kaiming_normal'),
     extra_params={
-        'hidden_width': 64,         # Hidden layer width
-        'depth': 3,                 # Number of layers
-        'activation': 'relu',       # Activation function
-        'tau_start': 5.0,          # Initial temperature
-        'tau_min': 0.5,            # Minimum temperature
-        'tau_decay_iters': 1000    # Temperature decay steps
+        'hidden_width': 64,
+        'depth': 2,
+        'activation': 'relu'
     }
 )
 node = NeuralLUTNode(**config.to_dict())
@@ -432,26 +435,83 @@ node = NeuralLUTNode(**config.to_dict())
 
 ### Node Initializers
 
-Initializers control how node parameters are initialized. Use them via `NodeConfig`:
+Initializers control how node parameters are initialized. Get them from the registry and pass via `NodeConfig`:
 
 ```python
-from difflut.nodes.utils.initializers import (
-    zeros_init, ones_init, normal_init, uniform_init,
-    xavier_uniform_init, xavier_normal_init,
-    kaiming_uniform_init, kaiming_normal_init,
-    variance_stabilized_init
-)
+from difflut.registry import REGISTRY
+from difflut.nodes.node_config import NodeConfig
 
-# Xavier/Glorot initialization
+# Get initializer from registry
+init_fn = REGISTRY.get_initializer('kaiming_normal')
+
+# Create NodeConfig with initializer
 config = NodeConfig(
     input_dim=6,
     output_dim=1,
-    init_fn=xavier_normal_init,
-    init_kwargs={'gain': 1.0}
+    init_fn=init_fn,
+    init_kwargs={'a': 0.0, 'mode': 'fan_in', 'nonlinearity': 'relu'}
 )
 
-# Kaiming/He initialization
+# Create node
+NodeClass = REGISTRY.get_node('linear_lut')
+node = NodeClass(**config.to_dict())
+```
+
+**Available Initializers (from registry):**
+- `zeros`: Initialize all weights to 0
+- `ones`: Initialize all weights to 1
+- `uniform`: Uniform random initialization
+- `normal`: Standard normal initialization
+- `xavier` or `xavier_uniform`: Xavier/Glorot uniform
+- `xavier_normal`: Xavier/Glorot normal
+- `kaiming` or `kaiming_uniform`: Kaiming/He uniform
+- `kaiming_normal`: Kaiming/He normal
+- `variance_stabilized`: Variance stabilizing initialization
+- `probabilistic`: Probabilistic initialization
+
+All initializers are accessible via `REGISTRY.get_initializer(name)`.
+
+### Node Regularizers
+
+Regularizers penalize node parameters during training. Get them from the registry and pass via `NodeConfig`:
+
+```python
+from difflut.registry import REGISTRY
+from difflut.nodes.node_config import NodeConfig
+
+# Get regularizers from registry
+l1_reg = REGISTRY.get_regularizer('l1')
+l2_reg = REGISTRY.get_regularizer('l2')
+spectral_reg = REGISTRY.get_regularizer('spectral')
+
+# Create NodeConfig with multiple regularizers
 config = NodeConfig(
+    input_dim=6,
+    output_dim=1,
+    regularizers={
+        'l2': l2_reg,
+        'spectral': spectral_reg
+    }
+)
+
+# Create node
+NodeClass = REGISTRY.get_node('linear_lut')
+node = NodeClass(**config.to_dict())
+
+# Compute regularization loss during training
+reg_loss = node.regularization()
+total_loss = task_loss + 0.001 * reg_loss
+```
+
+**Available Regularizers (from registry):**
+- `l1`: L1 weight regularization
+- `l2`: L2 weight regularization
+- `spectral`: Spectral norm regularization
+- `walsh`: Walsh-Hadamard regularization
+- `fourier`: Fourier spectrum regularization
+- `functional`: Functional regularization
+
+All regularizers are accessible via `REGISTRY.get_regularizer(name)`.
     input_dim=6,
     output_dim=1,
     init_fn=kaiming_normal_init,
