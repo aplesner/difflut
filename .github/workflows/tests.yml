@@ -171,6 +171,7 @@ jobs:
 
     - name: GPU Testing Warning
       id: gpu_warning
+      if: github.event_name == 'pull_request'
       run: |
         echo "needs_gpu_testing=true" >> $GITHUB_OUTPUT
         echo ""
