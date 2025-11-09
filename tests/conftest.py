@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 import pytest
-import torch
 
 # Add tests directory to Python path so testing_utils can be imported
 tests_dir = Path(__file__).parent
