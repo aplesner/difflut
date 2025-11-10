@@ -81,7 +81,7 @@ class LinearLUTNode(BaseNode):
 
         # Matrix multiplication
         z = torch.matmul(x, self.weights)
-        output = (torch.sigmoid(z) > 0.5).float()
+        output = (torch.sigmoid(z) >= 0.5).float()
 
         return output
 
