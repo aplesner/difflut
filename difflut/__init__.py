@@ -45,7 +45,7 @@ from .registry import (
     register_regularizer,
 )
 
-__version__ = "1.3.4"
+__version__ = "1.3.5"
 
 __all__ = [
     "REGISTRY",
