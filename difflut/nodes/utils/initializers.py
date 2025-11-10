@@ -345,7 +345,7 @@ def variance_stabilized_init(
 
 
 def _residual_init_linear(
-    param: torch.Tensor, 
+    param: torch.Tensor,
     noise_factor: float = DEFAULT_RESIDUAL_NOISE_FACTOR,
     logit_clarity: float = DEFAULT_RESIDUAL_LOGIT_CLARITY,
     param_name: Optional[str] = None,
@@ -373,7 +373,7 @@ def _residual_init_linear(
         param_name: Name of parameter ('weights' or 'bias')
     """
     with torch.no_grad():
-        if param_name == 'bias':
+        if param_name == "bias":
             # Initialize bias to -logit_clarity (offset for proper sigmoid behavior)
             param.fill_(-logit_clarity)
         else:
@@ -429,7 +429,7 @@ def _residual_init_polynomial(
         # Find the indices of the constant and first input linear terms
         constant_idx = None
         first_input_linear_idx = None
-        
+
         for idx, exponents in enumerate(monomial_combinations):
             # Check if this is the constant term (0, 0, 0, ..., 0)
             if all(e == 0 for e in exponents):
@@ -612,10 +612,16 @@ def _residual_init_lut(
             # Add noise if requested
             if noise_factor > 0:
                 if transpose:
-                    noise = torch.randn(output_dim, device=param.device, dtype=param.dtype) * noise_factor
+                    noise = (
+                        torch.randn(output_dim, device=param.device, dtype=param.dtype)
+                        * noise_factor
+                    )
                     param[:, idx] = base_value + noise
                 else:
-                    noise = torch.randn(output_dim, device=param.device, dtype=param.dtype) * noise_factor
+                    noise = (
+                        torch.randn(output_dim, device=param.device, dtype=param.dtype)
+                        * noise_factor
+                    )
                     param[idx, :] = base_value + noise
             else:
                 # Perfect initialization - no noise
@@ -673,7 +679,7 @@ def residual_init(
     **LUT-based Nodes** (`node_type` in ['dwn', 'dwn_stable', 'probabilistic', 'hybrid']):
         Truth table initialization for first input pass-through:
             raw_lut[idx] = ±logit_clarity (depending on first bit) + N(0, noise_factor²)
-        
+
         For noise_factor=0 and logit_clarity=5:
             - forward_eval: Perfect pass-through (output = first_input)
             - forward_train: Near-perfect (sigmoid(±5) ≈ 0.993/0.007)
@@ -699,10 +705,10 @@ def residual_init(
     Examples:
         >>> # Perfect residual initialization (no noise)
         >>> residual_init(weights, node_type='linear_lut', noise_factor=0.0)
-        
+
         >>> # Residual with small noise
         >>> residual_init(weights, node_type='dwn', input_dim=6, noise_factor=0.01)
-        
+
         >>> # Custom logit clarity for stronger signal
         >>> residual_init(luts, node_type='hybrid', input_dim=6, logit_clarity=10.0)
     """
@@ -725,8 +731,8 @@ def residual_init(
 
     if node_type_lower == "linear_lut":
         _residual_init_linear(
-            param, 
-            noise_factor=noise_factor, 
+            param,
+            noise_factor=noise_factor,
             logit_clarity=logit_clarity,
             param_name=param_name,
         )
@@ -735,15 +741,17 @@ def residual_init(
         if monomial_combinations is None:
             raise ValueError("residual_init for polylut nodes requires 'monomial_combinations'")
         _residual_init_polynomial(
-            param, 
-            monomial_combinations=monomial_combinations, 
+            param,
+            monomial_combinations=monomial_combinations,
             noise_factor=noise_factor,
             logit_clarity=logit_clarity,
         )
 
     elif node_type_lower == "neurallut":
         if layer_idx is None or num_layers is None:
-            raise ValueError("residual_init for neurallut nodes requires 'layer_idx' and 'num_layers'")
+            raise ValueError(
+                "residual_init for neurallut nodes requires 'layer_idx' and 'num_layers'"
+            )
         if param_name is None:
             raise ValueError("residual_init for neurallut nodes requires 'param_name'")
         _residual_init_mlp(
@@ -761,9 +769,9 @@ def residual_init(
         if param_name is None:
             raise ValueError("residual_init for fourier nodes requires 'param_name'")
         _residual_init_fourier(
-            param, 
-            param_name=param_name, 
-            num_frequencies=num_frequencies, 
+            param,
+            param_name=param_name,
+            num_frequencies=num_frequencies,
             noise_factor=noise_factor,
             logit_clarity=logit_clarity,
         )
@@ -775,8 +783,8 @@ def residual_init(
                 "to determine truth table size"
             )
         _residual_init_lut(
-            param, 
-            input_dim=input_dim, 
+            param,
+            input_dim=input_dim,
             noise_factor=noise_factor,
             logit_clarity=logit_clarity,
         )
@@ -787,5 +795,3 @@ def residual_init(
             "Valid types: 'linear_lut', 'polylut', 'neurallut', 'fourier', "
             "'dwn', 'dwn_stable', 'probabilistic', 'hybrid'"
         )
-
-

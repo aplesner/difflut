@@ -42,24 +42,28 @@ class PolyLUTNode(BaseNode):
         # This is needed because residual initialization requires monomial_combinations
         # We need to determine input_dim first (use default if not provided)
         from .base_node import DEFAULT_NODE_INPUT_DIM
+
         temp_input_dim = input_dim if input_dim is not None else DEFAULT_NODE_INPUT_DIM
         monomial_combinations = PolyLUTNode._generate_monomial_combinations(temp_input_dim, degree)
-        
+
         # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:
             init_kwargs = {}
         else:
             init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
-        
+
         # Always set monomial_combinations, even if it exists but is None
-        if 'monomial_combinations' not in init_kwargs or init_kwargs['monomial_combinations'] is None:
-            init_kwargs['monomial_combinations'] = monomial_combinations
-        
+        if (
+            "monomial_combinations" not in init_kwargs
+            or init_kwargs["monomial_combinations"] is None
+        ):
+            init_kwargs["monomial_combinations"] = monomial_combinations
+
         # Add input_dim to init_kwargs if not already present (needed for residual_init)
-        if 'input_dim' not in init_kwargs:
+        if "input_dim" not in init_kwargs:
             if input_dim is not None:
-                init_kwargs['input_dim'] = input_dim
-        
+                init_kwargs["input_dim"] = input_dim
+
         super().__init__(
             input_dim=input_dim,
             output_dim=output_dim,
@@ -81,7 +85,7 @@ class PolyLUTNode(BaseNode):
         # Initialize weights for polynomial coefficients
         # Shape: (num_monomials, num_outputs)
         self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
-        
+
         self._apply_init_fn(self.weights, name="weights")
 
     @staticmethod

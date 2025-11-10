@@ -17,7 +17,7 @@ from difflut.registry import REGISTRY
 def _get_node_type_name(node_class):
     """Get the node type name for residual initialization."""
     name = node_class.__name__
-    
+
     # Map specific node class names to their registered node_type strings
     node_type_map = {
         "DWNNode": "dwn",
@@ -29,7 +29,7 @@ def _get_node_type_name(node_class):
         "NeuralLUTNode": "neurallut",
         "FourierNode": "fourier",
     }
-    
+
     return node_type_map.get(name, name.lower().replace("node", ""))
 
 
@@ -135,8 +135,7 @@ def test_node_with_residual_initializer(node_name):
 
         # Verify output shape and validity
         assert output.shape == (8, 1), (
-            f"Node '{node_name}' with residual initializer "
-            f"produced wrong shape: {output.shape}"
+            f"Node '{node_name}' with residual initializer " f"produced wrong shape: {output.shape}"
         )
         assert not torch.isnan(
             output

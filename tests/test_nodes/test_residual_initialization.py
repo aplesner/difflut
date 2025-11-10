@@ -7,16 +7,18 @@ Tests verify:
 3. Noisy residual: With noise_factor>0, other weights have noise
 """
 
+import itertools
+
 import pytest
 import torch
-import itertools
+
 from difflut.nodes import (
     DWNNode,
     DWNStableNode,
-    ProbabilisticNode,
     HybridNode,
     LinearLUTNode,
     PolyLUTNode,
+    ProbabilisticNode,
 )
 from difflut.nodes.utils.initializers import residual_init
 
@@ -58,7 +60,7 @@ class TestResidualInitPerfectPass:
         In eval mode, output should exactly equal the first input for all test cases.
         """
         input_dim = node_kwargs["input_dim"]
-        
+
         # Build init_kwargs with node_type and input_dim
         node_type = _get_node_type_for_init(node_class)
         init_kwargs = {
@@ -67,11 +69,11 @@ class TestResidualInitPerfectPass:
             "logit_clarity": 5.0,
             "input_dim": input_dim,  # Required for LUT-based nodes
         }
-        
+
         # Add node-specific parameters
         if node_type == "polylut":
             init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
-        
+
         node = node_class(
             init_fn=residual_init,
             init_kwargs=init_kwargs,
@@ -115,9 +117,7 @@ class TestResidualInitPerfectPass:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_perfect_residual_train_mode_first_input_dependent(
-        self, node_class, node_kwargs
-    ):
+    def test_perfect_residual_train_mode_first_input_dependent(self, node_class, node_kwargs):
         """
         Test that forward_train with noise_factor=0 depends only on first input.
 
@@ -127,7 +127,7 @@ class TestResidualInitPerfectPass:
         - When first_input=0: output ≈ sigmoid(-5) ≈ 0.007
         """
         input_dim = node_kwargs["input_dim"]
-        
+
         # Build init_kwargs with node_type and input_dim
         node_type = _get_node_type_for_init(node_class)
         init_kwargs = {
@@ -136,11 +136,11 @@ class TestResidualInitPerfectPass:
             "logit_clarity": 5.0,
             "input_dim": input_dim,  # Required for LUT-based nodes
         }
-        
+
         # Add node-specific parameters
         if node_type == "polylut":
             init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
-        
+
         node = node_class(
             init_fn=residual_init,
             init_kwargs=init_kwargs,
@@ -184,9 +184,7 @@ class TestResidualInitPerfectPass:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_perfect_residual_first_input_only_dependency(
-        self, node_class, node_kwargs
-    ):
+    def test_perfect_residual_first_input_only_dependency(self, node_class, node_kwargs):
         """
         Test that with noise_factor=0, output depends ONLY on first input.
 
@@ -195,7 +193,7 @@ class TestResidualInitPerfectPass:
         identical outputs.
         """
         input_dim = node_kwargs["input_dim"]
-        
+
         # Build init_kwargs with node_type and input_dim
         node_type = _get_node_type_for_init(node_class)
         init_kwargs = {
@@ -204,11 +202,11 @@ class TestResidualInitPerfectPass:
             "logit_clarity": 5.0,
             "input_dim": input_dim,  # Required for LUT-based nodes
         }
-        
+
         # Add node-specific parameters
         if node_type == "polylut":
             init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
-        
+
         node = node_class(
             init_fn=residual_init,
             init_kwargs=init_kwargs,
@@ -250,9 +248,7 @@ class TestResidualInitNoisyResidual:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_noisy_residual_has_noise_on_other_weights(
-        self, node_class, node_kwargs
-    ):
+    def test_noisy_residual_has_noise_on_other_weights(self, node_class, node_kwargs):
         """
         Test that with noise_factor > 0, other weights are noisy.
 
@@ -261,7 +257,7 @@ class TestResidualInitNoisyResidual:
         """
         noise_factor = 0.1
         input_dim = node_kwargs["input_dim"]
-        
+
         # Build init_kwargs with node_type and input_dim
         node_type = _get_node_type_for_init(node_class)
         init_kwargs = {
@@ -270,7 +266,7 @@ class TestResidualInitNoisyResidual:
             "logit_clarity": 5.0,
             "input_dim": input_dim,  # Required for LUT-based nodes
         }
-        
+
         # Add node-specific parameters
         if node_type == "polylut":
             init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
@@ -317,7 +313,7 @@ class TestResidualInitNoisyResidual:
         """
         noise_factor = 0.1
         input_dim = node_kwargs["input_dim"]
-        
+
         # Build init_kwargs with node_type and input_dim
         node_type = _get_node_type_for_init(node_class)
         init_kwargs = {
@@ -326,7 +322,7 @@ class TestResidualInitNoisyResidual:
             "logit_clarity": 5.0,
             "input_dim": input_dim,  # Required for LUT-based nodes
         }
-        
+
         # Add node-specific parameters
         if node_type == "polylut":
             init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
@@ -403,7 +399,9 @@ class TestResidualInitParameterPropagation:
 
         # Noisy should have similar or higher variance (noise adds variance)
         # Note: This depends on the parameter range, so we just check they're different
-        assert var_clean != var_noisy, "Clean and noisy nodes should have different parameter variance"
+        assert (
+            var_clean != var_noisy
+        ), "Clean and noisy nodes should have different parameter variance"
 
     def test_logit_clarity_parameter_propagation(self):
         """Test that logit_clarity parameter affects initialization."""
@@ -438,11 +436,11 @@ class TestResidualInitParameterPropagation:
         # Weight should be proportional to 2*logit_clarity
         assert abs(weight_low - 2.0) < 0.1, f"Expected weight ≈ 2.0, got {weight_low:.4f}"
         assert abs(weight_high - 20.0) < 0.1, f"Expected weight ≈ 20.0, got {weight_high:.4f}"
-        
+
         # Check bias is set to -logit_clarity
         bias_low = node_low.bias[0].item()
         bias_high = node_high.bias[0].item()
-        
+
         assert abs(bias_low - (-1.0)) < 0.1, f"Expected bias ≈ -1.0, got {bias_low:.4f}"
         assert abs(bias_high - (-10.0)) < 0.1, f"Expected bias ≈ -10.0, got {bias_high:.4f}"
 
