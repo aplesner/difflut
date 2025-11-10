@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 
 from ..nodes.node_config import NodeConfig
-from ..registry import register_convolutional_layer
+from ..registry import register_layer
 from .base_layer import LUTLayerMixin
 from .layer_config import LayerConfig, GroupedInputConfig
 
@@ -39,7 +39,7 @@ class ConvolutionConfig:
         self.seed = seed
 
 
-@register_convolutional_layer("convolutional")
+@register_layer("convolutional")
 class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     """
     Convolutional layer using LUT-based nodes with memory-efficient fused kernels.

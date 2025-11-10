@@ -14,7 +14,7 @@ Stage: build
     # Copy entire difflut package (including nested structure and setup.py)
     # Note: Build command is run from project root
     mkdir -p ${APPTAINER_ROOTFS}/opt/difflut
-    cp setup.py pyproject.toml apptainer/test_import.py requirements.txt ${APPTAINER_ROOTFS}/opt/difflut/
+    cp setup.py pyproject.toml apptainer/test_import.py requirements.txt README.md ${APPTAINER_ROOTFS}/opt/difflut/
     cp -r difflut ${APPTAINER_ROOTFS}/opt/difflut/
 
 %post
@@ -35,10 +35,16 @@ Stage: build
     # If not set (e.g., building manually), default to 8.6
     if [ -z "$TORCH_CUDA_ARCH_LIST" ]; then
         export TORCH_CUDA_ARCH_LIST="8.6"
-        echo "Using default CUDA architecture: 8.6"
+        echo "⚠️  TORCH_CUDA_ARCH_LIST not set in environment, using default: 8.6"
     else
-        echo "Using CUDA architectures from environment: $TORCH_CUDA_ARCH_LIST"
+        echo "✓ Using CUDA architectures from environment: $TORCH_CUDA_ARCH_LIST"
     fi
+    
+    # Verify the setting and output for logging
+    echo "================================================================"
+    echo "CUDA Architecture Configuration:"
+    echo "  TORCH_CUDA_ARCH_LIST=$TORCH_CUDA_ARCH_LIST"
+    echo "================================================================"
 
     export CUDA_HOME=/usr/local/cuda
     export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/nvidia/lib:/usr/local/nvidia/lib64:$LD_LIBRARY_PATH
@@ -59,9 +65,12 @@ Stage: build
     ##################################################
     # Install DiffLUT with CUDA Extensions
     ##################################################
+    echo ""
     echo "=============================================="
     echo "Building DiffLUT with CUDA extensions..."
+    echo "Configured architectures: $TORCH_CUDA_ARCH_LIST"
     echo "=============================================="
+    echo ""
 
     ls -l .
 

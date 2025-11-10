@@ -1,3 +1,4 @@
-# Core dependencies (already in base pytorch image, but listed for reference)
+# Core dependencies
 torch>=1.9.0
-numpy
+numpy>=1.19.0
+hydra-core>=1.1.0
