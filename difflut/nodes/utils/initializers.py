@@ -348,34 +348,48 @@ def _residual_init_linear(
     param: torch.Tensor, 
     noise_factor: float = DEFAULT_RESIDUAL_NOISE_FACTOR,
     logit_clarity: float = DEFAULT_RESIDUAL_LOGIT_CLARITY,
+    param_name: Optional[str] = None,
 ) -> None:
     """
     Linear residual initialization for linear nodes.
 
-    Initializes weights to pass through the first input:
-        c_i = logit_clarity if i=0, else ε_i ~ N(0, noise_factor²)
+    Initializes weights and bias to pass through the first input:
+        For weights:
+            c_i = 2*logit_clarity if i=0, else ε_i ~ N(0, noise_factor²)
+        For bias:
+            b = -logit_clarity
+
+    This creates a shifted sigmoid that passes through first input:
+        - When x[0]=0: z = -logit_clarity, sigmoid(-5) ≈ 0.007
+        - When x[0]=1: z = -logit_clarity + 2*logit_clarity = +logit_clarity, sigmoid(5) ≈ 0.993
 
     When noise_factor=0, this gives perfect pass-through during forward_eval.
-    During forward_train with sigmoid, logit_clarity=5 gives sigmoid(5)≈0.993.
+    During forward_train with sigmoid, logit_clarity=5 gives sigmoid(±5)≈0.993/0.007.
 
     Args:
-        param: Weight vector of shape (input_dim, output_dim)
+        param: Weight vector of shape (input_dim, output_dim) or bias vector of shape (output_dim,)
         noise_factor: Standard deviation for noise on other inputs (0 = no noise)
         logit_clarity: Scale for first input weight (default: 5.0)
+        param_name: Name of parameter ('weights' or 'bias')
     """
     with torch.no_grad():
-        if noise_factor > 0:
-            # Initialize all weights with noise
-            param.normal_(0, noise_factor)
+        if param_name == 'bias':
+            # Initialize bias to -logit_clarity (offset for proper sigmoid behavior)
+            param.fill_(-logit_clarity)
         else:
-            # Perfect initialization - all zeros
-            param.zero_()
+            # Initialize weights
+            if noise_factor > 0:
+                # Initialize all weights with noise
+                param.normal_(0, noise_factor)
+            else:
+                # Perfect initialization - all zeros
+                param.zero_()
 
-        # Set first input weight to logit_clarity for all outputs
-        if param.dim() >= 2:
-            param[0, :] = logit_clarity
-        else:
-            param[0] = logit_clarity
+            # Set first input weight to 2*logit_clarity for all outputs
+            if param.dim() >= 2:
+                param[0, :] = 2 * logit_clarity
+            else:
+                param[0] = 2 * logit_clarity
 
 
 def _residual_init_polynomial(
@@ -388,7 +402,13 @@ def _residual_init_polynomial(
     Polynomial residual initialization for polynomial nodes.
 
     Initializes coefficients to pass through the first input:
-        c_α = logit_clarity if α=(1,0,...,0), else ε_α ~ N(0, noise_factor²)
+        c_α = 2*logit_clarity if α=(1,0,...,0) [first input linear term]
+        c_α = -logit_clarity if α=(0,0,...,0) [constant/bias term]
+        c_α = ε_α ~ N(0, noise_factor²) otherwise
+
+    This creates a shifted sigmoid that passes through first input:
+        - When x[0]=0: z = -logit_clarity, sigmoid(-5) ≈ 0.007
+        - When x[0]=1: z = -logit_clarity + 2*logit_clarity = +logit_clarity, sigmoid(5) ≈ 0.993
 
     When noise_factor=0, this gives perfect pass-through during forward_eval.
 
@@ -406,21 +426,31 @@ def _residual_init_polynomial(
             # Perfect initialization - all zeros
             param.zero_()
 
-        # Find the index of the (1,0,...,0) monomial
-        # This represents the linear term for the first input
+        # Find the indices of the constant and first input linear terms
+        constant_idx = None
         first_input_linear_idx = None
+        
         for idx, exponents in enumerate(monomial_combinations):
-            # Check if this is (1, 0, 0, ..., 0)
-            if exponents[0] == 1 and all(e == 0 for e in exponents[1:]):
+            # Check if this is the constant term (0, 0, 0, ..., 0)
+            if all(e == 0 for e in exponents):
+                constant_idx = idx
+            # Check if this is the first input linear term (1, 0, 0, ..., 0)
+            elif exponents[0] == 1 and all(e == 0 for e in exponents[1:]):
                 first_input_linear_idx = idx
-                break
 
-        # Set coefficient for first input linear term to logit_clarity
+        # Set coefficient for constant term to -logit_clarity (bias offset)
+        if constant_idx is not None:
+            if param.dim() >= 2:
+                param[constant_idx, :] = -logit_clarity
+            else:
+                param[constant_idx] = -logit_clarity
+
+        # Set coefficient for first input linear term to 2*logit_clarity
         if first_input_linear_idx is not None:
             if param.dim() >= 2:
-                param[first_input_linear_idx, :] = logit_clarity
+                param[first_input_linear_idx, :] = 2 * logit_clarity
             else:
-                param[first_input_linear_idx] = logit_clarity
+                param[first_input_linear_idx] = 2 * logit_clarity
 
 
 def _residual_init_mlp(
@@ -694,7 +724,12 @@ def residual_init(
     node_type_lower = node_type.lower()
 
     if node_type_lower == "linear_lut":
-        _residual_init_linear(param, noise_factor=noise_factor, logit_clarity=logit_clarity)
+        _residual_init_linear(
+            param, 
+            noise_factor=noise_factor, 
+            logit_clarity=logit_clarity,
+            param_name=param_name,
+        )
 
     elif node_type_lower == "polylut":
         if monomial_combinations is None:

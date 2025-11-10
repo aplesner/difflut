@@ -45,12 +45,20 @@ class PolyLUTNode(BaseNode):
         temp_input_dim = input_dim if input_dim is not None else DEFAULT_NODE_INPUT_DIM
         monomial_combinations = PolyLUTNode._generate_monomial_combinations(temp_input_dim, degree)
         
-        # Inject monomial_combinations into init_kwargs for residual initialization
+        # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:
             init_kwargs = {}
+        else:
+            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+        
         # Always set monomial_combinations, even if it exists but is None
         if 'monomial_combinations' not in init_kwargs or init_kwargs['monomial_combinations'] is None:
             init_kwargs['monomial_combinations'] = monomial_combinations
+        
+        # Add input_dim to init_kwargs if not already present (needed for residual_init)
+        if 'input_dim' not in init_kwargs:
+            if input_dim is not None:
+                init_kwargs['input_dim'] = input_dim
         
         super().__init__(
             input_dim=input_dim,
