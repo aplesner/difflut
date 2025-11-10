@@ -79,6 +79,7 @@ def test_registry_list_all_structure():
     expected_keys = {
         "nodes",
         "layers",
+        "convolutional_layers",
         "encoders",
         "initializers",
         "regularizers",
@@ -100,6 +101,15 @@ def test_registry_list_layers_consistency():
     layers_direct = REGISTRY.list_layers()
     layers_from_all = REGISTRY.list_all()["layers"]
     assert layers_direct == layers_from_all, "list_layers() inconsistent with list_all()['layers']"
+
+
+def test_registry_list_convolutional_layers_consistency():
+    """Test that list_convolutional_layers() is consistent with list_all()."""
+    conv_layers_direct = REGISTRY.list_convolutional_layers()
+    conv_layers_from_all = REGISTRY.list_all()["convolutional_layers"]
+    assert (
+        conv_layers_direct == conv_layers_from_all
+    ), "list_convolutional_layers() inconsistent with list_all()['convolutional_layers']"
 
 
 def test_registry_list_encoders_consistency():
@@ -125,6 +135,15 @@ def test_registry_get_layer_works_for_all():
         assert layer_class is not None, f"get_layer('{layer_name}') returned None"
 
 
+def test_registry_get_convolutional_layer_works_for_all():
+    """Test that get_convolutional_layer() works for all listed convolutional layers."""
+    for conv_layer_name in REGISTRY.list_convolutional_layers():
+        conv_layer_class = REGISTRY.get_convolutional_layer(conv_layer_name)
+        assert (
+            conv_layer_class is not None
+        ), f"get_convolutional_layer('{conv_layer_name}') returned None"
+
+
 def test_registry_get_encoder_works_for_all():
     """Test that get_encoder() works for all listed encoders."""
     for encoder_name in REGISTRY.list_encoders():
@@ -142,6 +161,12 @@ def test_registry_invalid_layer_raises_error():
     """Test that getting invalid layer raises ValueError."""
     with pytest.raises(ValueError):
         REGISTRY.get_layer("nonexistent_layer_12345")
+
+
+def test_registry_invalid_convolutional_layer_raises_error():
+    """Test that getting invalid convolutional layer raises ValueError."""
+    with pytest.raises(ValueError):
+        REGISTRY.get_convolutional_layer("nonexistent_convolutional_layer_12345")
 
 
 def test_registry_invalid_encoder_raises_error():

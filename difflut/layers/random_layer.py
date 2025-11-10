@@ -30,15 +30,6 @@ except ImportError:
         stacklevel=2,
     )
 
-# Try to import the compiled CUDA extension for probabilistic nodes
-try:
-    import probabilistic_cuda as _probabilistic_cuda_module  # pyright: ignore[reportMissingImports]
-
-    _PROBABILISTIC_CUDA_AVAILABLE = True
-except ImportError:
-    _PROBABILISTIC_CUDA_AVAILABLE = False
-    _probabilistic_cuda_module = None
-
 
 class MappingFunction(torch.autograd.Function):
     """
@@ -154,6 +145,7 @@ class RandomLayer(BaseLUTLayer):
         grad_subtract_mean: Optional[bool] = None,
         grad_epsilon: Optional[float] = None,
         ensure_full_input_coverage: bool = True,
+        mapping_indices: Optional[torch.Tensor] = None,
     ) -> None:
         """
         Args:
@@ -170,6 +162,10 @@ class RandomLayer(BaseLUTLayer):
             grad_target_std: Target standard deviation for gradient rescaling
             grad_subtract_mean: Whether to subtract mean before rescaling
             grad_epsilon: Small constant for numerical stability
+            ensure_full_input_coverage: If True, ensures each input is used at least once per node
+                                        before any input is reused. If False, inputs are sampled independently.
+            mapping_indices: Optional pre-defined mapping indices tensor of shape (output_size, n).
+                             If provided, this mapping will be used instead of generating a new (random) one.
         """
         self.seed = seed
 
@@ -191,9 +187,16 @@ class RandomLayer(BaseLUTLayer):
         )
 
         # Initialize the random mapping
-        self._init_mapping(ensure_full_input_coverage=ensure_full_input_coverage)
+        self._init_mapping(
+            ensure_full_input_coverage=ensure_full_input_coverage,
+            mapping_indices=mapping_indices,
+        )
 
-    def _init_mapping(self, ensure_full_input_coverage: bool = True) -> None:
+    def _init_mapping(
+        self,
+        ensure_full_input_coverage: bool = True,
+        mapping_indices: Optional[torch.Tensor] = None,
+    ) -> None:
         """
         Initialize random mapping matrix.
         Ensures each input is used at least once per node before any reuse.
@@ -210,7 +213,10 @@ class RandomLayer(BaseLUTLayer):
         # Use int16 for memory efficiency (supports up to 32k input features)
         dtype = torch.int16 if self.input_size < 32768 else torch.int32
 
-        if not ensure_full_input_coverage:
+        if mapping_indices is not None:
+            mapping_indices = mapping_indices.to(dtype=dtype)
+
+        elif not ensure_full_input_coverage:
             mapping_indices = torch.multinomial(
                 input=torch.ones((self.output_size, self.input_size)),
                 num_samples=self.n,

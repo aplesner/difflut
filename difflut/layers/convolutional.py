@@ -5,9 +5,9 @@ import torch
 import torch.nn as nn
 
 from ..nodes.node_config import NodeConfig
-from ..registry import register_layer
+from ..registry import register_convolutional_layer
 from .base_layer import LUTLayerMixin
-from .layer_config import LayerConfig
+from .layer_config import GroupedInputConfig, LayerConfig
 
 
 class ConvolutionConfig:
@@ -39,7 +39,7 @@ class ConvolutionConfig:
         self.seed = seed
 
 
-@register_layer("convolutional")
+@register_convolutional_layer("convolutional")
 class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     """
     Convolutional layer using LUT-based nodes with memory-efficient fused kernels.
@@ -64,6 +64,8 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         grad_target_std: Optional[float] = None,
         grad_subtract_mean: Optional[bool] = None,
         grad_epsilon: Optional[float] = None,
+        grouped_connections: bool = False,
+        ensure_full_coverage: bool = False,
     ):
         super().__init__()
 
@@ -98,6 +100,25 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         ]
         self.hidden_layers = hidden_layers
 
+        # Create grouped input mapping if enabled
+        if grouped_connections:
+            n_groups = self.in_channels
+            assert (
+                self.input_size % n_groups == 0
+            ), "Input size must be divisible by number of groups. If you see this then something has gone very wrong..."
+
+            grouped_config = GroupedInputConfig(
+                n_groups=self.in_channels,
+                input_size=self.input_size,
+                output_trees=self.out_channels,
+                luts_per_tree=hidden_layers[0],
+                bits_per_node=self.n_inputs_per_node,
+                seed=self.seed,
+                ensure_full_coverage=ensure_full_coverage,
+            )
+        else:
+            grouped_config = None
+
         # OPTIMIZATION: Create first layers in chunks for memory/speed balance
         # Processing chunk_size trees at once balances:
         # - Speed: chunk_size kernel calls instead of out_channels (e.g., 4 vs 128)
@@ -112,9 +133,14 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
 
             layer = layer_type(
                 input_size=self.input_size,
-                output_size=hidden_layers[1] * actual_chunk_size,
+                output_size=hidden_layers[0] * actual_chunk_size,
                 node_type=node_type,
                 node_kwargs=node_kwargs,
+                mapping_indices=(
+                    grouped_config.get_mapping_indices(chunk_start, chunk_end)
+                    if grouped_config
+                    else None
+                ),
             )
 
             self.first_layer_chunks.append(layer)
@@ -126,9 +152,9 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         for tree_idx in range(self.out_channels):
             # Build layers for this tree (starting from second layer)
             tree_layers = nn.ModuleList()
-            current_input_size = hidden_layers[1]  # Output of first layer
+            current_input_size = hidden_layers[0]  # Output of first layer
 
-            for layer_idx, output_size in enumerate(hidden_layers[2:]):  # Skip first two elements
+            for layer_idx, output_size in enumerate(hidden_layers[1:]):  # Skip first two elements
                 layer = layer_type(
                     input_size=current_input_size,
                     output_size=output_size,
@@ -176,7 +202,6 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         # Reshape to (batch*num_patches, patch_size)
         patches = patches.transpose(1, 2).contiguous()
         patches = patches.view(-1, self.input_size)
-
         # Apply bit-flip augmentation during training
         if self.training and self.flip_probability > 0.0:
             patches = self._apply_bit_flip(patches)
@@ -191,7 +216,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         tree_idx = 0
         for chunk_idx, chunk_layer in enumerate(self.first_layer_chunks):
             # Process this chunk's first layer
-            x_chunk = chunk_layer(patches)  # (batch*num_patches, hidden_layers[1] * chunk_size)
+            x_chunk = chunk_layer(patches)  # (batch*num_patches, hidden_layers[0] * chunk_size)
 
             # Determine actual chunk size (last chunk may be smaller)
             chunk_start = chunk_idx * self.chunk_size
@@ -199,7 +224,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
             actual_chunk_size = chunk_end - chunk_start
 
             # Reshape to split per-tree: (batch*num_patches, chunk_size, hidden_layers[1])
-            x_chunk = x_chunk.view(batch_patches, actual_chunk_size, self.hidden_layers[1])
+            x_chunk = x_chunk.view(batch_patches, actual_chunk_size, self.hidden_layers[0])
 
             # Process remaining layers for trees in this chunk
             for local_tree_idx in range(actual_chunk_size):
