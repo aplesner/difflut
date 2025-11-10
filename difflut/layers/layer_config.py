@@ -8,6 +8,8 @@ the same pattern as ConvolutionConfig and NodeConfig.
 
 from dataclasses import dataclass
 
+import torch
+
 
 @dataclass
 class LayerConfig:
@@ -133,3 +135,86 @@ class LayerConfig:
             return "LayerConfig(default)"
 
         return f"LayerConfig({', '.join(params)})"
+
+
+@dataclass
+class GroupedInputConfig:
+    """
+    Configuration for grouped layers.
+
+    Here the input features are divided into k groups of equal size, and each node only receives inputs from a single group.
+
+    Parameters:
+        n_groups: Number of input groups
+            - Default: 1 (no grouping)
+            - Example: n_groups=4 divides inputs into 4 groups for group-wise processing
+    """
+
+    n_groups: int
+    mapping_indices: torch.Tensor
+    luts_per_tree: int
+
+    def __init__(
+        self,
+        n_groups: int,
+        input_size: int,
+        output_trees: int,
+        luts_per_tree: int,
+        bits_per_node: int,
+        seed: int,
+        ensure_full_coverage: bool = True,
+    ) -> None:
+        if n_groups < 1:
+            raise ValueError(
+                f"n_groups must be >= 1, got {n_groups}. Example: n_groups=4 for 4 input groups."
+            )
+        self.n_groups = n_groups
+        self.luts_per_tree = luts_per_tree
+
+        # The group size is the size of the receptive field. And the number of groups is the number of input channels/features.
+        # We need to create mapping indices for output_size = output_trees * luts_per_tree
+        output_size = output_trees * luts_per_tree
+
+        # Store current RNG state and set seed for reproducibility
+        rng_state = torch.get_rng_state()
+        torch.manual_seed(seed)
+
+        group_size = input_size // n_groups
+        # Create mapping indices of shape (output_size, n) with indices up to group_size
+        mapping_indices = torch.multinomial(
+            input=torch.ones((output_size, group_size)),
+            num_samples=bits_per_node,
+            replacement=bits_per_node > group_size,
+        )
+
+        if not ensure_full_coverage:
+            # Offset indices for each group
+            group_offsets = torch.randint(low=0, high=n_groups, size=(output_size, 1))
+            group_offsets *= group_size
+        else:
+            full_cycles = output_size // n_groups
+            remainder = output_size % n_groups
+            group_offsets = []
+            for _ in range(full_cycles):
+                group_offsets.append(torch.randperm(n_groups))
+            if remainder > 0:
+                group_offsets.append(
+                    torch.multinomial(
+                        input=torch.ones((n_groups,)),
+                        num_samples=remainder,
+                        replacement=False,
+                    )
+                )
+            group_offsets = torch.cat(group_offsets).unsqueeze(1) * group_size
+
+        mapping_indices += group_offsets
+
+        self.mapping_indices = mapping_indices
+
+        torch.set_rng_state(rng_state)
+
+    def get_mapping_indices(self, chunk_start: int, chunk_end: int) -> torch.Tensor:
+        """Get mapping indices for a specific chunk of output nodes. Chunk indices are relative to the output trees."""
+        start_idx = chunk_start * self.luts_per_tree
+        end_idx = chunk_end * self.luts_per_tree
+        return self.mapping_indices[start_idx:end_idx, :]
