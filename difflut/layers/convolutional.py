@@ -105,7 +105,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
             n_groups = self.in_channels
             assert (
                 self.input_size % n_groups == 0
-            ), "Input size must be divisible by number of groups. If you see this then somehthing has gone very wrong..."
+            ), "Input size must be divisible by number of groups. If you see this then something has gone very wrong..."
 
             grouped_config = GroupedInputConfig(
                 n_groups=self.in_channels,

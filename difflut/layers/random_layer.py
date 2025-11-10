@@ -7,7 +7,7 @@ import torch.nn as nn
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
 from .base_layer import BaseLUTLayer
-from .layer_config import GroupedInputConfig, LayerConfig
+from .layer_config import LayerConfig
 
 # Default random seed for reproducible random mapping
 DEFAULT_RANDOM_LAYER_SEED: int = 42
@@ -29,15 +29,6 @@ except ImportError:
         RuntimeWarning,
         stacklevel=2,
     )
-
-# Try to import the compiled CUDA extension for probabilistic nodes
-try:
-    import probabilistic_cuda as _probabilistic_cuda_module  # pyright: ignore[reportMissingImports]
-
-    _PROBABILISTIC_CUDA_AVAILABLE = True
-except ImportError:
-    _PROBABILISTIC_CUDA_AVAILABLE = False
-    _probabilistic_cuda_module = None
 
 
 class MappingFunction(torch.autograd.Function):
@@ -173,7 +164,8 @@ class RandomLayer(BaseLUTLayer):
             grad_epsilon: Small constant for numerical stability
             ensure_full_input_coverage: If True, ensures each input is used at least once per node
                                         before any input is reused. If False, inputs are sampled independently.
-            grouped_input_config: Optional GroupedInputConfig for grouped input handling.
+            mapping_indices: Optional pre-defined mapping indices tensor of shape (output_size, n).
+                             If provided, this mapping will be used instead of generating a new (random) one.
         """
         self.seed = seed
 

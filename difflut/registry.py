@@ -148,7 +148,7 @@ class Registry:
                 warnings.warn(
                     f"Convolutional Layer '{conv_layer_name}' is already registered and will be overwritten. "
                     f"This may lead to unexpected behavior if other code depends on the original implementation. "
-                    f"Consider using a unique name or checking existing registrations with registry.list_layers().",
+                    f"Consider using a unique name or checking existing registrations with registry.list_convolutional_layers().",
                     UserWarning,
                     stacklevel=2,
                 )
