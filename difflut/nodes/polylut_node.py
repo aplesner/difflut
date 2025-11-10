@@ -59,6 +59,13 @@ class PolyLUTNode(BaseNode):
         # Initialize weights for polynomial coefficients
         # Shape: (num_monomials, num_outputs)
         self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
+        
+        # Add monomial_combinations to init_kwargs for residual initialization
+        # Note: self.init_kwargs is guaranteed to be a dict by base class
+        if 'monomial_combinations' not in self.init_kwargs:
+            # Make a copy to avoid modifying the original dict passed by user
+            self.init_kwargs = {**self.init_kwargs, 'monomial_combinations': self.monomial_combinations}
+        
         self._apply_init_fn(self.weights, name="weights")
 
     def _generate_monomial_combinations(self, num_inputs: int, degree: int) -> list:
