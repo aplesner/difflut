@@ -154,13 +154,24 @@ class GroupedInputConfig:
     mapping_indices: torch.Tensor
     luts_per_tree: int
 
-    def __init__(self, n_groups: int, input_size: int, output_trees: int, luts_per_tree: int, bits_per_node: int, seed: int, ensure_full_coverage: bool = True) -> None:
+    def __init__(
+        self,
+        n_groups: int,
+        input_size: int,
+        output_trees: int,
+        luts_per_tree: int,
+        bits_per_node: int,
+        seed: int,
+        ensure_full_coverage: bool = True,
+    ) -> None:
         if n_groups < 1:
-            raise ValueError(f"n_groups must be >= 1, got {n_groups}. Example: n_groups=4 for 4 input groups.")
+            raise ValueError(
+                f"n_groups must be >= 1, got {n_groups}. Example: n_groups=4 for 4 input groups."
+            )
         self.n_groups = n_groups
         self.luts_per_tree = luts_per_tree
 
-        # The group size is the size of the receptive field. And the number of groups is the number of input channels/features. 
+        # The group size is the size of the receptive field. And the number of groups is the number of input channels/features.
         # We need to create mapping indices for output_size = output_trees * luts_per_tree
         output_size = output_trees * luts_per_tree
 
@@ -185,9 +196,7 @@ class GroupedInputConfig:
             remainder = output_size % n_groups
             group_offsets = []
             for _ in range(full_cycles):
-                group_offsets.append(
-                    torch.randperm(n_groups)
-                )
+                group_offsets.append(torch.randperm(n_groups))
             if remainder > 0:
                 group_offsets.append(
                     torch.multinomial(
@@ -198,13 +207,12 @@ class GroupedInputConfig:
                 )
             group_offsets = torch.cat(group_offsets).unsqueeze(1) * group_size
 
-
         mapping_indices += group_offsets
 
         self.mapping_indices = mapping_indices
 
         torch.set_rng_state(rng_state)
-    
+
     def get_mapping_indices(self, chunk_start: int, chunk_end: int) -> torch.Tensor:
         """Get mapping indices for a specific chunk of output nodes. Chunk indices are relative to the output trees."""
         start_idx = chunk_start * self.luts_per_tree

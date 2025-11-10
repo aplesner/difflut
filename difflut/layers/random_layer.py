@@ -7,7 +7,7 @@ import torch.nn as nn
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
 from .base_layer import BaseLUTLayer
-from .layer_config import LayerConfig, GroupedInputConfig
+from .layer_config import GroupedInputConfig, LayerConfig
 
 # Default random seed for reproducible random mapping
 DEFAULT_RANDOM_LAYER_SEED: int = 42

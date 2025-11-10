@@ -9,17 +9,17 @@ Tests across multiple seeds to ensure robustness.
 import warnings
 
 # Ignore general runtime warnings in tests
-warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 import pytest
 import torch
 from testing_utils import generate_uniform_input
 
-from difflut.utils.warnings import DefaultValueWarning, CUDAWarning
+from difflut.utils.warnings import CUDAWarning, DefaultValueWarning
 
 # Suppress DefaultValueWarnings and CUDAWarnings
-warnings.filterwarnings('ignore', category=DefaultValueWarning)
-warnings.filterwarnings('ignore', category=CUDAWarning)
+warnings.filterwarnings("ignore", category=DefaultValueWarning)
+warnings.filterwarnings("ignore", category=CUDAWarning)
 
 
 @pytest.mark.parametrize("seed", [42, 43, 44, 45, 100])
@@ -148,14 +148,11 @@ def test_grouped_connections_forward_pass(seed):
     # Verify output shape: (batch_size, out_channels, out_height, out_width)
     expected_output_shape = (4, 16, 14, 14)
     assert output.shape == expected_output_shape, (
-        f"Seed {seed}: Expected output shape {expected_output_shape}, "
-        f"got {output.shape}"
+        f"Seed {seed}: Expected output shape {expected_output_shape}, " f"got {output.shape}"
     )
 
     # Verify output contains valid values (not NaN or Inf)
-    assert torch.isfinite(output).all(), (
-        f"Seed {seed}: Output contains NaN or Inf values"
-    )
+    assert torch.isfinite(output).all(), f"Seed {seed}: Output contains NaN or Inf values"
 
 
 @pytest.mark.parametrize("seed", [42, 43])
@@ -206,12 +203,10 @@ def test_grouped_connections_gradient_flow(seed):
     loss.backward()
 
     # Check that input has gradients
-    assert input_tensor.grad is not None, (
-        f"Seed {seed}: Input tensor should have gradients after backward pass"
-    )
-    assert not torch.all(input_tensor.grad == 0), (
-        f"Seed {seed}: All input gradients are zero"
-    )
+    assert (
+        input_tensor.grad is not None
+    ), f"Seed {seed}: Input tensor should have gradients after backward pass"
+    assert not torch.all(input_tensor.grad == 0), f"Seed {seed}: All input gradients are zero"
 
     # Check that layer parameters have gradients
     param_count = 0

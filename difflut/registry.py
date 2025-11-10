@@ -172,7 +172,8 @@ class Registry:
         """
         if name not in self._convolutional_layers:
             raise ValueError(
-                f"Convolutional Layer '{name}' not found. " f"Available layers: {list(self._convolutional_layers.keys())}"
+                f"Convolutional Layer '{name}' not found. "
+                f"Available layers: {list(self._convolutional_layers.keys())}"
             )
         return self._convolutional_layers[name]
 

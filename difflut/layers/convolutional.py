@@ -7,7 +7,7 @@ import torch.nn as nn
 from ..nodes.node_config import NodeConfig
 from ..registry import register_convolutional_layer
 from .base_layer import LUTLayerMixin
-from .layer_config import LayerConfig, GroupedInputConfig
+from .layer_config import GroupedInputConfig, LayerConfig
 
 
 class ConvolutionConfig:
@@ -136,7 +136,11 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
                 output_size=hidden_layers[0] * actual_chunk_size,
                 node_type=node_type,
                 node_kwargs=node_kwargs,
-                mapping_indices=grouped_config.get_mapping_indices(chunk_start, chunk_end) if grouped_config else None,
+                mapping_indices=(
+                    grouped_config.get_mapping_indices(chunk_start, chunk_end)
+                    if grouped_config
+                    else None
+                ),
             )
 
             self.first_layer_chunks.append(layer)

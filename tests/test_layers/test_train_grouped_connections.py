@@ -12,18 +12,18 @@ This test demonstrates the value by creating a task that is:
 import warnings
 
 # Ignore general runtime warnings in tests
-warnings.filterwarnings('ignore', category=RuntimeWarning)
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 import pytest
 import torch
 import torch.nn as nn
 from testing_utils import is_cuda_available
 
-from difflut.utils.warnings import DefaultValueWarning, CUDAWarning
+from difflut.utils.warnings import CUDAWarning, DefaultValueWarning
 
 # Suppress DefaultValueWarnings and CUDAWarnings
-warnings.filterwarnings('ignore', category=DefaultValueWarning)
-warnings.filterwarnings('ignore', category=CUDAWarning)
+warnings.filterwarnings("ignore", category=DefaultValueWarning)
+warnings.filterwarnings("ignore", category=CUDAWarning)
 
 
 IN_CHANNELS = 128
@@ -165,10 +165,16 @@ def device():
 def train_test_data(device):
     """Create training and testing datasets."""
     train_images, train_labels = create_single_channel_pattern_dataset(
-        num_samples=TRAIN_SAMPLES_PER_CLASS, image_size=IMAGE_SIZE, num_channels=IN_CHANNELS, pattern_channel=0
+        num_samples=TRAIN_SAMPLES_PER_CLASS,
+        image_size=IMAGE_SIZE,
+        num_channels=IN_CHANNELS,
+        pattern_channel=0,
     )
     test_images, test_labels = create_single_channel_pattern_dataset(
-        num_samples=TEST_SAMPLES_PER_CLASS, image_size=IMAGE_SIZE, num_channels=IN_CHANNELS, pattern_channel=0
+        num_samples=TEST_SAMPLES_PER_CLASS,
+        image_size=IMAGE_SIZE,
+        num_channels=IN_CHANNELS,
+        pattern_channel=0,
     )
 
     return (
@@ -262,7 +268,9 @@ def test_grouped_connections_learning(
     # Calculate output size after convolution
     # Input: 8x8, Receptive field: 3x3, Stride: 1, Padding: 0
     # Output: (8 - 3) / 1 + 1 = 6x6
-    conv_output_size = out_channels * (IMAGE_SIZE - 2) * (IMAGE_SIZE - 2)  # 32 channels, 6x6 spatial
+    conv_output_size = (
+        out_channels * (IMAGE_SIZE - 2) * (IMAGE_SIZE - 2)
+    )  # 32 channels, 6x6 spatial
 
     # Create feedforward layer
     feedforward_layer = layer_type(
@@ -292,7 +300,9 @@ def test_grouped_connections_learning(
         test_accuracy = (test_predicted == test_labels).float().mean().item()
 
     # Verify accuracy is in expected range
-    config_name = "WITH grouped connections" if use_grouped_connections else "WITHOUT grouped connections"
+    config_name = (
+        "WITH grouped connections" if use_grouped_connections else "WITHOUT grouped connections"
+    )
 
     assert test_accuracy >= expected_min_accuracy, (
         f"{config_name}: Test accuracy {test_accuracy:.2%} is below minimum threshold {expected_min_accuracy:.0%}. "
