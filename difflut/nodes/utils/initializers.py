@@ -31,6 +31,10 @@ DEFAULT_KAIMING_NONLINEARITY: str = "leaky_relu"
 DEFAULT_VARIANCE_STABILIZED_V_TARGET: float = 1.0
 # Default number of samples for regularization computations
 DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
+# Default small standard deviation for residual initialization noise
+DEFAULT_RESIDUAL_SIGMA: float = 0.01
+# Default logit scale for LUT-based residual initialization
+DEFAULT_RESIDUAL_LOGIT_SCALE: float = 10.0
 
 
 @register_initializer("zeros")
@@ -333,3 +337,365 @@ def variance_stabilized_init(
     # Initialize the parameter with this variance
     with torch.no_grad():
         param.normal_(0, std)
+
+
+# ============================================================================
+# Residual Initialization Strategies
+# ============================================================================
+
+
+def _residual_init_linear(
+    param: torch.Tensor, sigma_small: float = DEFAULT_RESIDUAL_SIGMA
+) -> None:
+    """
+    Linear residual initialization for linear nodes.
+
+    Initializes weights to emphasize the first input component:
+        c_i = 1 if i=1, else ε_i ~ N(0, σ²_small)
+
+    This makes the node primarily sensitive to the first input while
+    maintaining differentiability.
+
+    Args:
+        param: Weight vector of shape (input_dim, output_dim)
+        sigma_small: Standard deviation for small noise terms
+    """
+    with torch.no_grad():
+        # Initialize all weights with small random noise
+        param.normal_(0, sigma_small)
+
+        # Set first input weight to 1 for all outputs
+        if param.dim() >= 2:
+            param[0, :] = 1.0
+        else:
+            param[0] = 1.0
+
+
+def _residual_init_polynomial(
+    param: torch.Tensor,
+    monomial_combinations: list,
+    sigma_small: float = DEFAULT_RESIDUAL_SIGMA,
+) -> None:
+    """
+    Polynomial residual initialization for polynomial nodes.
+
+    Initializes coefficients to capture first-order dependencies on the first input:
+        c_α = 1 if α=(1,0,...,0), else ε_α ~ N(0, σ²_small)
+
+    This focuses the polynomial expansion on linear terms involving the first
+    input component.
+
+    Args:
+        param: Coefficient tensor of shape (num_monomials, output_dim)
+        monomial_combinations: List of monomial exponent tuples
+        sigma_small: Standard deviation for small noise terms
+    """
+    with torch.no_grad():
+        # Initialize all coefficients with small random noise
+        param.normal_(0, sigma_small)
+
+        # Find the index of the (1,0,...,0) monomial
+        # This represents the linear term for the first input
+        first_input_linear_idx = None
+        for idx, exponents in enumerate(monomial_combinations):
+            # Check if this is (1, 0, 0, ..., 0)
+            if exponents[0] == 1 and all(e == 0 for e in exponents[1:]):
+                first_input_linear_idx = idx
+                break
+
+        # Set coefficient for first input linear term to 1
+        if first_input_linear_idx is not None:
+            if param.dim() >= 2:
+                param[first_input_linear_idx, :] = 1.0
+            else:
+                param[first_input_linear_idx] = 1.0
+
+
+def _residual_init_mlp(
+    param: torch.Tensor,
+    param_name: str,
+    layer_idx: int,
+    num_layers: int,
+    sigma_small: float = DEFAULT_RESIDUAL_SIGMA,
+) -> None:
+    """
+    MLP residual initialization for neural network nodes.
+
+    Employs skip connection-aware initialization:
+        W^(1)_{i,j} = 1 if i=j=1, else ε_{i,j} ~ N(0, σ²_small)
+        b^(l) = 0
+
+    The final layer weights are initialized to pass through the first component
+    of the transformed features, leveraging skip connections to preserve the
+    first input signal.
+
+    Args:
+        param: Weight or bias tensor
+        param_name: Name of the parameter ('weight' or 'bias')
+        layer_idx: Index of the current layer (0-based)
+        num_layers: Total number of layers
+        sigma_small: Standard deviation for small noise terms
+    """
+    with torch.no_grad():
+        if "bias" in param_name.lower():
+            # All biases initialized to zero
+            param.zero_()
+        elif "weight" in param_name.lower():
+            # Initialize weights with small random noise
+            param.normal_(0, sigma_small)
+
+            # For the first layer, set W[0,0] = 1 (pass through first input)
+            if layer_idx == 0 and param.dim() >= 2:
+                param[0, 0] = 1.0
+
+
+def _residual_init_fourier(
+    param: torch.Tensor,
+    param_name: str,
+    num_frequencies: int,
+    sigma_small: float = DEFAULT_RESIDUAL_SIGMA,
+) -> None:
+    """
+    Fourier residual initialization for Fourier nodes.
+
+    Initializes to capture low-frequency components aligned with the first input:
+        A_1 = 1, φ_1 = 0, b = 0.5, k_1 = (0.5, 0, ..., 0)
+
+    Other frequencies are initialized with small random amplitudes and random phases.
+
+    Args:
+        param: Parameter tensor (amplitudes, phases, or bias)
+        param_name: Name of the parameter ('amplitudes', 'phases', or 'bias')
+        num_frequencies: Total number of frequency components
+        sigma_small: Standard deviation for small amplitude noise
+    """
+    with torch.no_grad():
+        if "amplitude" in param_name.lower():
+            # Initialize amplitudes with small random values
+            param.normal_(0, sigma_small)
+            param.abs_()  # Amplitudes should be positive
+
+            # Set first frequency amplitude to 1
+            if param.dim() >= 2:
+                param[0, :] = 1.0
+            else:
+                param[0] = 1.0
+
+        elif "phase" in param_name.lower():
+            # Initialize phases randomly in [-π, π]
+            param.uniform_(-math.pi, math.pi)
+
+            # Set first frequency phase to 0
+            if param.dim() >= 2:
+                param[0, :] = 0.0
+            else:
+                param[0] = 0.0
+
+        elif "bias" in param_name.lower():
+            # Initialize bias to 0.5 (center of [0,1] range)
+            param.fill_(0.5)
+
+
+def _residual_init_lut(
+    param: torch.Tensor,
+    input_dim: int,
+    logit_scale: float = DEFAULT_RESIDUAL_LOGIT_SCALE,
+) -> None:
+    """
+    LUT-based residual initialization for weightless, probabilistic, and hybrid nodes.
+
+    Implements truth table initialization that passes through the first input:
+        sigmoid(c)_{ι(a)} = 1 if a_1=1, else 0 for all a ∈ {0,1}^k
+
+    This is achieved by setting raw logits to large positive values for patterns
+    where a_1=1 and large negative values for patterns where a_1=0.
+
+    Args:
+        param: Raw logits tensor of shape (2^input_dim, output_dim) or (output_dim, 2^input_dim)
+        input_dim: Number of Boolean inputs (k)
+        logit_scale: Scale for the logit values (default: 10.0)
+    """
+    with torch.no_grad():
+        # Determine the shape orientation
+        if param.shape[0] == 2**input_dim:
+            # Shape is (2^input_dim, output_dim) - typical for probabilistic nodes
+            table_size, output_dim = param.shape
+            transpose = False
+        elif param.shape[1] == 2**input_dim:
+            # Shape is (output_dim, 2^input_dim) - typical for DWN/hybrid nodes
+            output_dim, table_size = param.shape
+            transpose = True
+        else:
+            # Cannot determine proper orientation, initialize with small noise
+            param.normal_(0, DEFAULT_RESIDUAL_SIGMA)
+            return
+
+        # Generate all binary combinations for input_dim bits
+        # For each combination, check if the first bit (a_1) is 1
+        for idx in range(table_size):
+            # Extract bits in reverse order (LSB to MSB)
+            # Bit 0 (LSB) corresponds to the last input, bit (input_dim-1) to the first
+            bits = [(idx >> bit_pos) & 1 for bit_pos in range(input_dim)]
+
+            # Check the first input (most significant bit in terms of logic)
+            # In the indexing scheme, this is the last bit extracted
+            first_input_value = bits[-1]
+
+            # Set logit based on first input value
+            if first_input_value == 1:
+                logit_value = logit_scale  # High logit → sigmoid ≈ 1
+            else:
+                logit_value = -logit_scale  # Low logit → sigmoid ≈ 0
+
+            # Set the value based on orientation
+            if transpose:
+                param[:, idx] = logit_value
+            else:
+                param[idx, :] = logit_value
+
+
+@register_initializer("residual")
+def residual_init(
+    param: torch.Tensor,
+    node_type: Optional[str] = None,
+    param_name: Optional[str] = None,
+    input_dim: Optional[int] = None,
+    output_dim: Optional[int] = None,
+    sigma_small: float = DEFAULT_RESIDUAL_SIGMA,
+    logit_scale: float = DEFAULT_RESIDUAL_LOGIT_SCALE,
+    # Polynomial-specific
+    monomial_combinations: Optional[list] = None,
+    # MLP-specific
+    layer_idx: Optional[int] = None,
+    num_layers: Optional[int] = None,
+    # Fourier-specific
+    num_frequencies: Optional[int] = None,
+    **kwargs,
+) -> None:
+    """
+    Residual initialization strategy for differentiable LUT nodes.
+
+    Initializes nodes to approximate identity-like functions that pass through
+    the first input, providing meaningful initial function representations while
+    maintaining the ability to learn complex Boolean functions during training.
+
+    The specific initialization strategy depends on the node type:
+
+    **Linear Nodes** (`node_type='linear_lut'`):
+        Initializes weight vector c ∈ R^k to emphasize the first input:
+            c_i = 1 if i=1, else ε_i ~ N(0, σ²_small)
+
+    **Polynomial Nodes** (`node_type='polylut'`):
+        Initializes coefficients to capture first-order dependencies:
+            c_α = 1 if α=(1,0,...,0), else ε_α ~ N(0, σ²_small)
+
+    **MLP Nodes** (`node_type='neurallut'`):
+        Skip connection-aware initialization:
+            W^(1)_{i,j} = 1 if i=j=1, else ε_{i,j} ~ N(0, σ²_small)
+            b^(l) = 0
+
+    **Fourier Nodes** (`node_type='fourier'`):
+        Low-frequency initialization aligned with first input:
+            A_1 = 1, φ_1 = 0, b = 0.5, k_1 = (0.5, 0, ..., 0)
+        Other frequencies: A_k ~ N(0, σ²_small), φ_k ~ Uniform(-π, π)
+
+    **LUT-based Nodes** (`node_type` in ['dwn', 'probabilistic', 'hybrid']):
+        Truth table initialization for identity on first input:
+            sigmoid(c)_{ι(a)} = 1 if a_1=1, else 0, ∀a ∈ {0,1}^k
+
+    Args:
+        param: The parameter tensor to initialize
+        node_type: Type of node ('linear_lut', 'polylut', 'neurallut', 'fourier',
+                   'dwn', 'probabilistic', 'hybrid', etc.)
+        param_name: Name of the parameter being initialized
+        input_dim: Number of inputs (k) - required for LUT-based nodes
+        output_dim: Number of outputs (m)
+        sigma_small: Standard deviation for small random perturbations (default: 0.01)
+        logit_scale: Scale for logit values in LUT-based initialization (default: 10.0)
+        monomial_combinations: List of monomial exponent tuples (for polynomial nodes)
+        layer_idx: Layer index for MLP nodes (0-based)
+        num_layers: Total number of layers for MLP nodes
+        num_frequencies: Number of frequency components for Fourier nodes
+        **kwargs: Additional node-specific parameters
+
+    Raises:
+        ValueError: If required parameters are missing for the specified node type
+
+    Examples:
+        >>> # Linear node initialization
+        >>> weights = torch.zeros(6, 1)  # 6 inputs, 1 output
+        >>> residual_init(weights, node_type='linear_lut')
+
+        >>> # Polynomial node initialization
+        >>> coeffs = torch.zeros(num_monomials, 1)
+        >>> residual_init(coeffs, node_type='polylut',
+        ...              monomial_combinations=monomial_list)
+
+        >>> # LUT-based node initialization
+        >>> raw_weights = torch.zeros(64, 1)  # 2^6 entries, 1 output
+        >>> residual_init(raw_weights, node_type='probabilistic', input_dim=6)
+    """
+    # Warn about default values
+    if sigma_small == DEFAULT_RESIDUAL_SIGMA:
+        warn_default_value("sigma_small (residual_init)", sigma_small, stacklevel=3)
+    if logit_scale == DEFAULT_RESIDUAL_LOGIT_SCALE:
+        warn_default_value("logit_scale (residual_init)", logit_scale, stacklevel=3)
+
+    # Validate node_type is provided
+    if node_type is None:
+        raise ValueError(
+            "residual_init requires 'node_type' to determine initialization strategy. "
+            "Valid types: 'linear_lut', 'polylut', 'neurallut', 'fourier', "
+            "'dwn', 'probabilistic', 'hybrid'"
+        )
+
+    # Dispatch to appropriate initialization strategy
+    node_type_lower = node_type.lower()
+
+    if node_type_lower == "linear_lut":
+        _residual_init_linear(param, sigma_small=sigma_small)
+
+    elif node_type_lower == "polylut":
+        if monomial_combinations is None:
+            raise ValueError("residual_init for polylut nodes requires 'monomial_combinations'")
+        _residual_init_polynomial(
+            param, monomial_combinations=monomial_combinations, sigma_small=sigma_small
+        )
+
+    elif node_type_lower == "neurallut":
+        if layer_idx is None or num_layers is None:
+            raise ValueError("residual_init for neurallut nodes requires 'layer_idx' and 'num_layers'")
+        if param_name is None:
+            raise ValueError("residual_init for neurallut nodes requires 'param_name'")
+        _residual_init_mlp(
+            param,
+            param_name=param_name,
+            layer_idx=layer_idx,
+            num_layers=num_layers,
+            sigma_small=sigma_small,
+        )
+
+    elif node_type_lower == "fourier":
+        if num_frequencies is None:
+            raise ValueError("residual_init for fourier nodes requires 'num_frequencies'")
+        if param_name is None:
+            raise ValueError("residual_init for fourier nodes requires 'param_name'")
+        _residual_init_fourier(
+            param, param_name=param_name, num_frequencies=num_frequencies, sigma_small=sigma_small
+        )
+
+    elif node_type_lower in ["dwn", "dwn_stable", "probabilistic", "hybrid"]:
+        if input_dim is None:
+            raise ValueError(
+                f"residual_init for {node_type_lower} nodes requires 'input_dim' "
+                "to determine truth table size"
+            )
+        _residual_init_lut(param, input_dim=input_dim, logit_scale=logit_scale)
+
+    else:
+        raise ValueError(
+            f"Unknown node_type '{node_type}' for residual initialization. "
+            "Valid types: 'linear_lut', 'polylut', 'neurallut', 'fourier', "
+            "'dwn', 'dwn_stable', 'probabilistic', 'hybrid'"
+        )
+
