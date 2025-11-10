@@ -16,11 +16,21 @@ from difflut.registry import REGISTRY
 
 def _get_node_type_name(node_class):
     """Get the node type name for residual initialization."""
-    name = node_class.__name__.lower()
-    # Remove 'node' suffix if present
-    if name.endswith("node"):
-        name = name[:-4]
-    return name
+    name = node_class.__name__
+    
+    # Map specific node class names to their registered node_type strings
+    node_type_map = {
+        "DWNNode": "dwn",
+        "DWNStableNode": "dwn_stable",
+        "ProbabilisticNode": "probabilistic",
+        "HybridNode": "hybrid",
+        "LinearLUTNode": "linear_lut",
+        "PolyLUTNode": "polylut",
+        "NeuralLUTNode": "neurallut",
+        "FourierNode": "fourier",
+    }
+    
+    return node_type_map.get(name, name.lower().replace("node", ""))
 
 
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
@@ -90,10 +100,15 @@ def test_node_with_residual_initializer(node_name):
         "logit_clarity": 5.0,
     }
 
+    # Add input_dim for LUT-based nodes (required for truth table sizing)
+    if node_type in ["dwn", "dwn_stable", "probabilistic", "hybrid", "linear_lut"]:
+        init_kwargs["input_dim"] = 4
+
     # Add node-specific parameters
     if node_type == "polylut":
         # PolyLUT needs special handling - it adds monomial_combinations itself
         init_kwargs["monomial_combinations"] = None
+        init_kwargs["input_dim"] = 4
     elif node_type == "neurallut":
         init_kwargs["layer_idx"] = 0
         init_kwargs["num_layers"] = 1
