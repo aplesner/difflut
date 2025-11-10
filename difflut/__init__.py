@@ -41,6 +41,7 @@ from .registry import (
     register_encoder,
     register_initializer,
     register_layer,
+    register_convolutional_layer,
     register_node,
     register_regularizer,
 )
@@ -51,6 +52,7 @@ __all__ = [
     "REGISTRY",
     "register_node",
     "register_layer",
+    "register_convolutional_layer",
     "register_encoder",
     "register_initializer",
     "register_regularizer",

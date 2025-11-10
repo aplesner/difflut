@@ -1,7 +1,6 @@
 """Pytest configuration and fixtures for all tests."""
 
 import sys
-import warnings
 from pathlib import Path
 
 import pytest
@@ -11,7 +10,8 @@ tests_dir = Path(__file__).parent
 if str(tests_dir) not in sys.path:
     sys.path.insert(0, str(tests_dir))
 
-from testing_utils.device_utils import get_device, is_cuda_available
+from testing_utils import get_device, is_cuda_available
+
 
 @pytest.fixture
 def device(request):
@@ -45,4 +45,3 @@ def device(request):
     else:
         # Test is device-agnostic - use best available device
         return get_device()
-
