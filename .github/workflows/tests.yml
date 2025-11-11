@@ -60,13 +60,9 @@ jobs:
       run: |
         pip install -e .[cpu,dev]
 
-    - name: Run fast tests (CPU)
+    - name: Run tests (CPU)
       run: |
-        python -m pytest tests/ -v -m "not slow and not gpu and not skip_ci and not experimental" --tb=short
-
-    - name: Run slow tests with coverage (CPU)
-      run: |
-        python -m pytest tests/ -v -m "slow and not gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "not gpu and not skip_ci and not experimental" --tb=short
 
     - name: Upload coverage reports (CPU)
       if: always()
@@ -190,13 +186,9 @@ jobs:
         echo "⚠️  ============================================================"
         echo ""
 
-    - name: Run fast tests (GPU setup validation)
+    - name: Run tests (GPU setup validation)
       run: |
-        python -m pytest tests/ -v -m "not slow and not skip_ci and not experimental" --tb=short
-
-    - name: Run slow tests with coverage (GPU setup validation)
-      run: |
-        python -m pytest tests/ -v -m "slow and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "not skip_ci and not experimental" --tb=short
 
     - name: Upload coverage reports (GPU)
       if: always()
