@@ -2,14 +2,6 @@
 
 Get a DiffLUT LUT network running in 5 minutes!
 
-## Installation
-
-```bash
-pip install -e .
-```
-
-For detailed setup instructions, see [Installation Guide](INSTALLATION.md).
-
 ## Your First LUT Network
 
 ### Understanding Dimensions
@@ -144,20 +136,6 @@ loss = criterion(predictions, torch.randint(0, 10, (32,)))
 loss.backward()
 ```
 
-### Key Dimension Rules
-
-✓ **Encoder input** = (batch_size, input_features)  
-✓ **Encoder output (auto-flattened)** = (batch_size, input_features × num_bits)  
-✓ **Layer output** = (batch_size, output_size) - Each layer has output_size independent nodes  
-✓ **Node processing** = (batch_size, input_dim) → (batch_size, output_dim) - 2D tensors only  
-✓ **GroupSum input** = (batch_size, num_nodes)  
-✓ **GroupSum output** = (batch_size, k_groups)  
-❌ **Mismatch** = will raise clear error with expected/got dimensions
-
-**Architecture Note**: Layers use `nn.ModuleList` containing `output_size` independent node instances. Each node processes 2D tensors. The layer processes nodes efficiently using preallocated output tensors.
-
-
-
 ## Next Steps
 
 ### Train on MNIST
@@ -174,5 +152,5 @@ DiffLUT provides many options to customize your network. See [User Guide](USER_G
 - **Custom Components**: Learn how to implement [custom nodes, encoders, and layers](DEVELOPER_GUIDE/creating_components.md)
 - **Registry System**: Discover how to use the [component registry](USER_GUIDE/registry_pipeline.md)
 - **GPU Acceleration**: Use CUDA-accelerated nodes for better performance
-- **FPGA Export**: Export trained networks for hardware deployment
+- **Export Guide**: [Export](USER_GUIDE/export_guide.md) trained networks for hardware deployment 
 

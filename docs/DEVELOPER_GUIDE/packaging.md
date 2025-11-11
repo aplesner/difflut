@@ -209,48 +209,7 @@ Before publishing a new version:
 
 ---
 
-## Troubleshooting
-
-### CUDA Compilation Issues
-
-```bash
-# Check CUDA environment
-echo $CUDA_HOME
-nvcc --version
-
-# Build with verbose output
-python -m build -v 2>&1 | tee build.log
-
-# Force CPU-only if CUDA fails
-export CUDA_HOME=""
-pip install -e .
-```
-
-### Build Cache Issues
-
-```bash
-# Clean all build artifacts
-rm -rf build/ dist/ *.egg-info __pycache__
-find . -type d -name "__pycache__" -exec rm -rf {} +
-find . -type f -name "*.pyc" -delete
-
-# Rebuild from scratch
-python -m build
-```
-
-### Version Mismatch
-
-```bash
-# Check current version
-python -c "import difflut; print(difflut.__version__)"
-
-# Verify version consistency across files
-grep -r "version.*=.*[\"']1\." setup.py pyproject.toml difflut/__init__.py
-```
-
----
-
-## Additional Resources
+## Resources
 
 - **Installation Guide**: [`docs/INSTALLATION.md`](../INSTALLATION.md) - User installation instructions
 - **Version Management**: [`.github/GITHUB_GUIDE.md`](../../.github/GITHUB_GUIDE.md) - Version bumping and release workflow

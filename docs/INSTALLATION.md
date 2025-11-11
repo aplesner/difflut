@@ -27,13 +27,10 @@ will become available. Until then, use the source installation instructions belo
 
 | Component | Minimum | Notes |
 |-----------|---------|-------|
-| Python | 3.10+ | Required for modern typing (PEP 604 usage) |
+| Python | 3.7+ | PEP 484-compatible type hints were used |
 | PyTorch | 1.9.0+ | CUDA optional; CPU fallback works |
 | NumPy | 1.19.0+ | General tensor preprocessing |
-| CUDA Toolkit | Optional | Needed only for GPU-accelerated nodes |
-
-### GPU‑Accelerated Optional Nodes (CPU fallback exists)
-`fourier_cuda`, `hybrid_cuda`, `efd_cuda` (DWN), `dwn_stable_cuda`, `probabilistic_cuda`, `learnable_mapping_cuda`, `mapping_cuda`.
+| CUDA Toolkit | Optional | See [Installing previous versions of PyTorch](https://pytorch.org/get-started/previous-versions/) to see compatabilities with torch |
 
 ---
 
@@ -58,7 +55,7 @@ Older Python versions (3.7–3.9) appear in metadata for historical compatibilit
 
 ```bash
 git clone https://github.com/aplesner/difflut.git
-cd difflut/difflut
+cd difflut
 
 # Standard install (attempts CUDA if available)
 pip install .
@@ -152,9 +149,9 @@ Refer to: `docs/DEVELOPER_GUIDE/packaging.md` (wheel/sdist builds, TestPyPI, rel
 
 ---
 
-## 8. Quick Reference (Source Era vs Future PyPI)
+## 8. Quick Reference 
 
-| Scenario | Current (Source) | Future (PyPI) |
+| Scenario | Source | PyPI |
 |----------|------------------|---------------|
 | Standard install | `pip install .` | `pip install difflut` |
 | Force CPU | `pip install .[cpu]` | `pip install difflut[cpu]` |
@@ -163,15 +160,7 @@ Refer to: `docs/DEVELOPER_GUIDE/packaging.md` (wheel/sdist builds, TestPyPI, rel
 
 ---
 
-## 9. Developer References
-
-- Contribution workflow, formatting (Black/isort), branching, version bumps: see `docs/DEVELOPER_GUIDE/contributing.md` and `.github/GITHUB_GUIDE.md`.
-- Packaging, TestPyPI & releases: `docs/DEVELOPER_GUIDE/packaging.md`.
-- Container details: `apptainer/README.md`.
-
----
-
-## 10. Getting Help
+## 9. Getting Help
 
 | Resource | Location |
 |----------|----------|
@@ -184,4 +173,3 @@ If an installation problem persists, include: Python version, PyTorch version, C
 
 ---
 
-_Last updated: CI workflow sync – Python 3.10–3.12, PyTorch 2.4.0–2.9.0, CUDA 12.4/12.6/12.8._
