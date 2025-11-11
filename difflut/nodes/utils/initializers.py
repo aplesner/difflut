@@ -664,7 +664,7 @@ def residual_init(
 
     **Polynomial Nodes** (`node_type='polylut'`):
         Initializes coefficients to pass through first input:
-            c_{(1,0,...,0)} = logit_clarity, others = N(0, noise_factor²)
+            c_{(1,0,...,0)} = 2*logit_clarity, others = N(0, noise_factor²)
 
     **MLP Nodes** (`node_type='neurallut'`):
         Skip connection-aware initialization:
