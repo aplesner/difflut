@@ -38,6 +38,32 @@ class PolyLUTNode(BaseNode):
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
         """
+        # Generate monomial combinations BEFORE calling super().__init__
+        # This is needed because residual initialization requires monomial_combinations
+        # We need to determine input_dim first (use default if not provided)
+        from .base_node import DEFAULT_NODE_INPUT_DIM
+
+        temp_input_dim = input_dim if input_dim is not None else DEFAULT_NODE_INPUT_DIM
+        monomial_combinations = PolyLUTNode._generate_monomial_combinations(temp_input_dim, degree)
+
+        # Prepare init_kwargs with required parameters for residual initialization
+        if init_kwargs is None:
+            init_kwargs = {}
+        else:
+            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+
+        # Always set monomial_combinations, even if it exists but is None
+        if (
+            "monomial_combinations" not in init_kwargs
+            or init_kwargs["monomial_combinations"] is None
+        ):
+            init_kwargs["monomial_combinations"] = monomial_combinations
+
+        # Add input_dim to init_kwargs if not already present (needed for residual_init)
+        if "input_dim" not in init_kwargs:
+            if input_dim is not None:
+                init_kwargs["input_dim"] = input_dim
+
         super().__init__(
             input_dim=input_dim,
             output_dim=output_dim,
@@ -47,8 +73,8 @@ class PolyLUTNode(BaseNode):
         )
         self.degree = degree
 
-        # Generate all monomial combinations up to degree D
-        self.monomial_combinations = self._generate_monomial_combinations(self.num_inputs, degree)
+        # Store monomial combinations generated earlier
+        self.monomial_combinations = monomial_combinations
         self.num_monomials = len(self.monomial_combinations)
 
         # Store as buffer for efficient computation
@@ -59,9 +85,11 @@ class PolyLUTNode(BaseNode):
         # Initialize weights for polynomial coefficients
         # Shape: (num_monomials, num_outputs)
         self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
+
         self._apply_init_fn(self.weights, name="weights")
 
-    def _generate_monomial_combinations(self, num_inputs: int, degree: int) -> list:
+    @staticmethod
+    def _generate_monomial_combinations(num_inputs: int, degree: int) -> list:
         """Generate all monomial combinations up to given degree."""
         combinations = []
 
@@ -70,18 +98,19 @@ class PolyLUTNode(BaseNode):
 
         # Generate monomials for degrees 1 to D
         for d in range(1, degree + 1):
-            for exponents in self._integer_compositions(num_inputs, d):
+            for exponents in PolyLUTNode._integer_compositions(num_inputs, d):
                 combinations.append(exponents)
 
         return combinations
 
-    def _integer_compositions(self, n: int, d: int):
+    @staticmethod
+    def _integer_compositions(n: int, d: int):
         """Generate all n-tuples of non-negative integers that sum to d."""
         if n == 1:
             yield (d,)
         else:
             for i in range(d + 1):
-                for comp in self._integer_compositions(n - 1, d - i):
+                for comp in PolyLUTNode._integer_compositions(n - 1, d - i):
                     yield (i,) + comp
 
     def _compute_monomials(self, x: torch.Tensor) -> torch.Tensor:

@@ -65,9 +65,9 @@ class ProbabilisticFunction(torch.autograd.Function):
                 "CUDA extension not available. Please compile probabilistic_cuda extension."
             )
 
-        # Ensure correct dtypes and contiguity
+        # Ensure correct dtypes, contiguity, and device placement
         input = input.contiguous().float()
-        raw_weights = raw_weights.contiguous().float()
+        raw_weights = raw_weights.to(device=input.device, dtype=torch.float32).contiguous()
 
         # Convert temperature to tensor (C++ binding expects torch.Tensor)
         # Use torch.as_tensor to avoid unnecessary copy warning

@@ -33,6 +33,18 @@ class LinearLUTNode(BaseNode):
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
         """
+        # Prepare init_kwargs with required parameters for residual initialization
+        if init_kwargs is None:
+            init_kwargs = {}
+        else:
+            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+
+        # Add input_dim to init_kwargs if not already present (needed for residual_init)
+        if "input_dim" not in init_kwargs:
+            # Use the input_dim parameter, or default if not provided
+            if input_dim is not None:
+                init_kwargs["input_dim"] = input_dim
+
         super().__init__(
             input_dim=input_dim,
             output_dim=output_dim,
@@ -44,7 +56,34 @@ class LinearLUTNode(BaseNode):
         # Initialize weights
         # Shape: (input_dim, output_dim)
         self.weights = nn.Parameter(torch.randn(self.num_inputs, self.num_outputs) * 0.1)
-        self._apply_init_fn(self.weights, name="weights")
+
+        # Initialize bias (needed for residual initialization to work properly)
+        # Shape: (output_dim,)
+        self.bias = nn.Parameter(torch.zeros(self.num_outputs))
+
+        # Apply initialization with param_name for weights
+        if self.init_fn is not None:
+            weights_init_kwargs = self.init_kwargs.copy()
+            weights_init_kwargs["param_name"] = "weights"
+            try:
+                self.init_fn(self.weights, **weights_init_kwargs)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Initialization of 'weights' failed with error: {e}. "
+                    f"Check that init_fn is compatible with the parameter and init_kwargs are correct."
+                )
+
+        # Apply initialization with param_name for bias
+        if self.init_fn is not None:
+            bias_init_kwargs = self.init_kwargs.copy()
+            bias_init_kwargs["param_name"] = "bias"
+            try:
+                self.init_fn(self.bias, **bias_init_kwargs)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Initialization of 'bias' failed with error: {e}. "
+                    f"Check that init_fn is compatible with the parameter and init_kwargs are correct."
+                )
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -62,7 +101,7 @@ class LinearLUTNode(BaseNode):
         # x: (batch_size, input_dim)
         # weights: (input_dim, output_dim)
         # output: (batch_size, output_dim)
-        z = torch.matmul(x, self.weights)
+        z = torch.matmul(x, self.weights) + self.bias
         output = torch.sigmoid(z)
 
         return output
@@ -80,7 +119,7 @@ class LinearLUTNode(BaseNode):
         batch_size, input_dim = x.shape
 
         # Matrix multiplication
-        z = torch.matmul(x, self.weights)
+        z = torch.matmul(x, self.weights) + self.bias
         output = (torch.sigmoid(z) >= 0.5).float()
 
         return output

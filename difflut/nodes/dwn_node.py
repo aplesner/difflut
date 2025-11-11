@@ -375,6 +375,17 @@ class DWNNode(BaseNode):
             init_fn: Optional initialization function for LUT weights. Should take (param: torch.Tensor, **kwargs)
             init_kwargs: Keyword arguments for init_fn
         """
+        # Prepare init_kwargs with required parameters for residual initialization
+        if init_kwargs is None:
+            init_kwargs = {}
+        else:
+            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+
+        # Add input_dim to init_kwargs if not already present (needed for residual_init)
+        if "input_dim" not in init_kwargs:
+            if input_dim is not None:
+                init_kwargs["input_dim"] = input_dim
+
         super().__init__(
             input_dim=input_dim,
             output_dim=output_dim,
