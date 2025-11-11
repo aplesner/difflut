@@ -660,7 +660,7 @@ def residual_init(
 
     **Linear Nodes** (`node_type='linear_lut'`):
         Initializes weight vector to pass through first input:
-            c_0 = logit_clarity, c_i = N(0, noise_factor²) for i>0
+            c_0 = 2*logit_clarity, c_i = N(0, noise_factor²) for i>0
 
     **Polynomial Nodes** (`node_type='polylut'`):
         Initializes coefficients to pass through first input:
