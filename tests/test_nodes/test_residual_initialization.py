@@ -81,7 +81,6 @@ class TestResidualInitPerfectPass:
         )
         node.eval()
 
-        batch_size = 100
 
         # Generate all binary combinations for comprehensive testing
         # For PolyLUT with input_dim=4, generate all 2^4=16 combinations
