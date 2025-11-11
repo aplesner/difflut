@@ -134,7 +134,7 @@ The `.bumpversion.cfg` file ensures all three are updated together.
 
 ## GitHub Actions CI/CD
 
-DiffLUT has two main workflows in `.github/workflows/`:
+DiffLUT has multiple workflows in `.github/workflows/`:
 
 ```
 .github/
@@ -151,10 +151,9 @@ DiffLUT has two main workflows in `.github/workflows/`:
 
 **What it does:**
 1. **CPU Tests** - Runs on multiple Python versions (3.10, 3.11, 3.12) and PyTorch versions (2.4-2.9)
-2. **GPU Tests** - Builds CUDA extensions and tests on multiple CUDA versions (12.4, 12.6, 12.8)
+2. **GPU Tests** - Builds CUDA extensions and validates GPU setup on multiple CUDA versions (12.4, 12.6, 12.8)
 3. **Coverage** - Generates coverage reports and uploads to Codecov
-4. **Fast Tests** - Runs quick tests first to fail fast
-5. **Full Tests** - Runs complete test suite with coverage
+4. **Test Markers** - Uses pytest markers (`slow`, `gpu`, `skip_ci`, `experimental`) to organize tests
 
 **Test Matrix:**
 - **CPU**: 6 combinations (3 Python × 2 PyTorch versions)
@@ -162,8 +161,15 @@ DiffLUT has two main workflows in `.github/workflows/`:
 
 **When tests fail:**
 - Check the GitHub Actions tab for detailed logs
-- Tests are marked with `@pytest.mark.gpu` or `@pytest.mark.slow`
+- See [Testing Guide](../docs/DEVELOPER_GUIDE/tests.md) for test marker details
 - Fix issues before merging
+
+**For comprehensive testing information:**
+- 📖 **Test Structure & Organization**: See [Testing Guide - Current Test Structure](../docs/DEVELOPER_GUIDE/tests.md#current-test-structure)
+- 📊 **Test Markers**: See [Testing Guide - Test Markers](../docs/DEVELOPER_GUIDE/tests.md#test-markers)
+- 🔄 **CI/CD Details**: See [Testing Guide - CI/CD Workflow](../docs/DEVELOPER_GUIDE/tests.md#cicd-workflow)
+- ✍️ **Writing Tests**: See [Testing Guide - Writing Tests](../docs/DEVELOPER_GUIDE/tests.md#writing-tests-for-custom-components)
+- ⚙️ **Test Configuration**: See `pyproject.toml` (pytest section) and `tests/conftest.py`
 
 ### Version Management Workflow (`version-management.yml`)
 

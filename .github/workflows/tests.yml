@@ -62,11 +62,11 @@ jobs:
 
     - name: Run fast tests (CPU)
       run: |
-        python -m pytest tests/ -v -m "not slow and not gpu" --tb=short
+        python -m pytest tests/ -v -m "not slow and not gpu and not skip_ci and not experimental" --tb=short
 
-    - name: Run all tests with coverage (CPU)
+    - name: Run slow tests with coverage (CPU)
       run: |
-        python -m pytest tests/ -v -m "not gpu" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "slow and not gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports (CPU)
       if: always()
@@ -190,13 +190,13 @@ jobs:
         echo "⚠️  ============================================================"
         echo ""
 
-    - name: Run GPU tests (setup validation only)
+    - name: Run fast tests (GPU setup validation)
       run: |
-        python -m pytest tests/ -v -m "gpu and not slow and not skip_ci and not experimental" --tb=short
+        python -m pytest tests/ -v -m "not slow and not skip_ci and not experimental" --tb=short
 
-    - name: Run all GPU tests with coverage (setup validation)
+    - name: Run slow tests with coverage (GPU setup validation)
       run: |
-        python -m pytest tests/ -v -m "gpu and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
+        python -m pytest tests/ -v -m "slow and not skip_ci and not experimental" --tb=short --cov=difflut --cov-report=xml --cov-report=html
 
     - name: Upload coverage reports (GPU)
       if: always()

@@ -68,17 +68,6 @@ tests/
 
 ## Running Tests Locally
 
-### Prerequisites
-
-Install DiffLUT in development mode with test dependencies:
-
-```bash
-cd difflut
-pip install -e .[cpu,dev]  # CPU testing
-# OR
-pip install -e .[gpu,dev]  # GPU testing (requires CUDA)
-```
-
 ### Basic Test Execution
 
 Run all CPU tests (excluding GPU tests):
@@ -88,7 +77,7 @@ Run all CPU tests (excluding GPU tests):
 pytest tests/ -v -m "not slow and not gpu"
 
 # All CPU tests with coverage
-pytest tests/ -v --cov=difflut --cov-report=html
+pytest tests/ -v -m "not gpu"  --cov=difflut --cov-report=html
 
 # Fast tests with short traceback
 pytest tests/ -v -m "not slow and not gpu" --tb=short
@@ -316,9 +305,9 @@ pytest tests/ -v -m "gpu and experimental"
 
 ### Pytest Configuration
 
-Markers are defined in `pyproject.toml` (or `pytest.ini`):
+Markers are defined in `pyproject.toml`:
 
-```ini
+```toml
 [tool:pytest]
 markers =
     slow: marks tests as slow (deselect with '-m "not slow"')
@@ -330,25 +319,6 @@ markers =
 ---
 
 ## CI/CD Workflow
-
-### Workflow Overview
-
-DiffLUT uses GitHub Actions with two main jobs:
-
-1. **CPU Testing** (`test` job)
-   - Runs on all pushes to `main` and pull requests
-   - Tests Python 3.10, 3.11, 3.12
-   - PyTorch versions 2.4.0 through 2.9.0
-   - Excludes GPU tests
-   - Generates coverage reports
-
-2. **GPU Testing** (`test-gpu` job)
-   - Runs on pull requests and pushes to `main`
-   - Tests with CUDA 12.4, 12.6, 12.8
-   - **⚠️ GPU tests are skipped in CI** (no actual GPU hardware available)
-   - ✅ Validates GPU setup installation works
-   - Tests marked `@pytest.mark.gpu` are skipped, but setup is validated
-
 ### CPU Test Job
 
 ```yaml
@@ -366,11 +336,13 @@ test:
 
 **Run command:**
 ```bash
-pytest tests/ -v -m "not slow and not gpu" --tb=short
+# First run fast test
+pytest tests/ -v -m "not slow and not gpu and not skip_ci and not experimental" --tb=short
+# Then the slow ones
+pytest tests/ -v -m "slow and not gpu and not skip_ci and not experimental" --tb=short
 ```
 
 **Markers applied:**
-- ✅ `not slow` - Skip slow tests for faster CI feedback
 - ✅ `not gpu` - Skip GPU-specific tests (no GPU available)
 - ✅ `not skip_ci` - Skip CI-excluded tests
 - ✅ `not experimental` - Skip experimental features
@@ -393,7 +365,10 @@ test-gpu:
 
 **Run command:**
 ```bash
-pytest tests/ -v -m "gpu and not slow and not skip_ci and not experimental" --tb=short
+# First run fast tests
+pytest tests/ -v -m "not slow and not skip_ci and not experimental" --tb=short
+# Then the slow ones
+pytest tests/ -v -m "slow and not skip_ci and not experimental" --tb=short
 ```
 
 #### ⚠️ Important: GPU Testing in CI
@@ -420,7 +395,7 @@ What happens:
 
 ```bash
 # On a machine with NVIDIA GPU:
-pytest tests/ -v -m "gpu" --tb=short
+pytest tests/ -v --tb=short
 ```
 
 ### Coverage Reports
@@ -886,182 +861,6 @@ def check_gradients_flow(model, input_tensor):
     for param in model.parameters():
         assert param.grad is not None
 ```
-
----
-
-## GPU Testing
-
-### GPU Test Markers
-
-```python
-import pytest
-import torch
-
-
-@pytest.mark.gpu
-def test_cuda_kernel():
-    """Test requires GPU/CUDA."""
-    if not torch.cuda.is_available():
-        pytest.skip("CUDA not available")
-    
-    x = torch.randn(32, 10).cuda()
-    # ... test CUDA operations ...
-```
-
-### Running GPU Tests Locally
-
-On a machine with NVIDIA GPU:
-
-```bash
-# Fast GPU tests only
-pytest tests/ -v -m "gpu and not slow"
-
-# All GPU tests including slow ones
-pytest tests/ -v -m "gpu"
-
-# GPU tests with coverage
-pytest tests/ -v -m "gpu" --cov=difflut --cov-report=html
-
-# GPU tests for specific component
-pytest tests/test_nodes/ -v -m "gpu"
-```
-
-### GPU Device Detection
-
-Fixtures can handle device detection:
-
-```python
-@pytest.fixture
-def device():
-    """Get appropriate device for testing."""
-    if torch.cuda.is_available():
-        return torch.device('cuda')
-    return torch.device('cpu')
-
-
-def test_with_device(device):
-    """Test adapts to available device."""
-    x = torch.randn(10, 10, device=device)
-    # Tests automatically run on GPU if available
-```
-
----
-
-## Common Patterns
-
-### Testing Output Shapes
-
-```python
-def test_layer_output_shape():
-    """Test layer produces correct output shape."""
-    layer = RandomLayer(
-        input_size=100,
-        output_size=32,
-        node_type=LinearLUTNode,
-        n=4,
-        node_kwargs=NodeConfig(input_dim=4, output_dim=1)
-    )
-    
-    x = torch.randn(16, 100)
-    output = layer(x)
-    
-    expected_shape = (16, 32)  # batch_size, output_size
-    assert output.shape == expected_shape
-```
-
-### Testing Gradient Flow
-
-```python
-def test_gradients_flow():
-    """Test gradients propagate through component."""
-    node = LinearLUTNode(**NodeConfig(input_dim=4, output_dim=1).to_dict())
-    
-    x = torch.randn(32, 4, requires_grad=True)
-    output = node(x)
-    loss = output.mean()
-    loss.backward()
-    
-    # Check input gradients
-    assert x.grad is not None
-    assert not torch.all(x.grad == 0)
-    
-    # Check parameter gradients
-    for param in node.parameters():
-        assert param.grad is not None
-```
-
-### Testing Registry Integration
-
-```python
-def test_component_in_registry():
-    """Test component is registered."""
-    assert 'my_component' in REGISTRY.list_nodes()  # or list_encoders(), list_layers()
-    
-    ComponentClass = REGISTRY.get_node('my_component')
-    assert ComponentClass is not None
-```
-
-### Testing With Different Configurations
-
-```python
-@pytest.mark.parametrize("input_dim,output_dim", [
-    (4, 1),
-    (6, 2),
-    (8, 1),
-])
-def test_various_configs(input_dim, output_dim):
-    """Test node works with different configurations."""
-    config = NodeConfig(input_dim=input_dim, output_dim=output_dim)
-    node = LinearLUTNode(**config.to_dict())
-    
-    x = torch.randn(32, input_dim)
-    output = node(x)
-    
-    assert output.shape == (32, output_dim)
-```
-
-### Testing Error Handling
-
-```python
-def test_invalid_input_shape():
-    """Test error on invalid input shape."""
-    node = LinearLUTNode(**NodeConfig(input_dim=4, output_dim=1).to_dict())
-    
-    x_wrong = torch.randn(32, 5)  # Wrong dimension
-    
-    with pytest.raises((RuntimeError, ValueError)):
-        node(x_wrong)
-```
-
----
-
-## Checklist for Adding Tests
-
-When adding tests for a custom component:
-
-- [ ] Create test file in appropriate directory
-  - [ ] `tests/test_nodes/test_my_component.py` for nodes
-  - [ ] `tests/test_encoders/test_my_component.py` for encoders
-  - [ ] `tests/test_layers/test_my_component.py` for layers
-- [ ] Import necessary utilities and fixtures
-- [ ] Create test class with descriptive name
-- [ ] Add setup fixtures if needed
-- [ ] Write tests for:
-  - [ ] Component initialization
-  - [ ] Forward pass with correct output shape
-  - [ ] Gradient flow (if trainable)
-  - [ ] Registry integration
-  - [ ] Edge cases and error handling
-- [ ] Mark tests appropriately:
-  - [ ] Use `@pytest.mark.gpu` for GPU-specific tests
-  - [ ] Use `@pytest.mark.slow` for slow tests (> 5s)
-  - [ ] Use `@pytest.mark.experimental` for new features
-- [ ] Run tests locally before committing
-  - [ ] `pytest tests/ -v` for all tests
-  - [ ] `pytest tests/ -v -m "not slow"` for fast tests
-  - [ ] `pytest tests/ -v --cov=difflut` for coverage
-
----
 
 ## Resources
 

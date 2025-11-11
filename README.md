@@ -6,7 +6,7 @@
 
 DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neural networks, designed for efficient FPGA deployment and research. It provides encoders, LUT nodes, flexible layers, and CUDA acceleration.
 
-## ✨ Features
+## Features
 
 - **Modular Architecture**: Encoders, LUT nodes, and layers as composable building blocks
 - **Multiple Node Types**: LinearLUT, PolyLUT, NeuralLUT, DWN, DWNStable, Probabilistic, Fourier, Hybrid
@@ -16,7 +16,7 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
 - **FPGA Export**: Tools for deploying trained networks to FPGAs
 - **Component Registry**: Easy discovery and instantiation of components
 
-## 🚀 Quick Links
+## Quick Links
 
 ### For Users
 - **[Installation Guide](docs/INSTALLATION.md)** - Setup and requirements
@@ -24,6 +24,8 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
 - **[User Guide](docs/USER_GUIDE.md)** - Learn the library components and patterns
   - [Components Guide](docs/USER_GUIDE/components.md) - Encoders, nodes, and layers
   - [Registry & Pipelines](docs/USER_GUIDE/registry_pipeline.md) - Component discovery and pipeline building
+  - [Export Guide](docs/USER_GUIDE/export_guide.md) - Export for FPGA and C
+
 
 ### For Developers
 - **[Developer Guide](docs/DEVELOPER_GUIDE.md)** - Extend and contribute to DiffLUT
@@ -32,7 +34,7 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
   - [Contributing](docs/DEVELOPER_GUIDE/contributing.md) - Development setup and guidelines
   - [Tests](docs/DEVELOPER_GUIDE/tests.md) - Test setup and guidelines
 
-## 📦 Package Structure
+## Package Structure
 
 DiffLUT is organized as a self-contained Python package:
 
