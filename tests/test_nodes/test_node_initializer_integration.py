@@ -28,9 +28,21 @@ def _get_node_type_name(node_class):
         "PolyLUTNode": "polylut",
         "NeuralLUTNode": "neurallut",
         "FourierNode": "fourier",
+        "DiffLogicNode": "difflogic",
     }
 
     return node_type_map.get(name, name.lower().replace("node", ""))
+
+
+def _get_input_dim_for_node(node_name: str) -> int:
+    """Get appropriate input dimension for node type.
+
+    DiffLogic has exponential complexity (2^(2^n)), so we limit it to 2 inputs.
+    Other nodes can use larger dimensions.
+    """
+    if node_name == "difflogic":
+        return 2  # 2^(2^2) = 16 functions (manageable)
+    return 4  # Default for other nodes
 
 
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
@@ -39,6 +51,7 @@ def test_node_with_initializer(node_name, init_name):
     """Test that each node works with each registered initializer."""
     node_class = REGISTRY.get_node(node_name)
     init_fn = REGISTRY.get_initializer(init_name)
+    input_dim = _get_input_dim_for_node(node_name)
 
     # Skip residual init test if it requires special parameters
     # (residual_init needs node-specific kwargs)
@@ -51,10 +64,10 @@ def test_node_with_initializer(node_name, init_name):
     try:
         with IgnoreWarnings():
             # Create node with initializer
-            node = instantiate_node(node_class, input_dim=4, output_dim=2, init_fn=init_fn)
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2, init_fn=init_fn)
 
         # Test forward pass works
-        input_tensor = generate_uniform_input((8, 4), seed=42)
+        input_tensor = generate_uniform_input((8, input_dim), seed=42)
         with torch.no_grad():
             output = node(input_tensor)
 
@@ -90,6 +103,7 @@ def test_node_with_residual_initializer(node_name):
     """Test that each node works with residual initializer and appropriate init_kwargs."""
     node_class = REGISTRY.get_node(node_name)
     init_fn = REGISTRY.get_initializer("residual")
+    input_dim = _get_input_dim_for_node(node_name)
 
     node_type = _get_node_type_name(node_class)
 
@@ -101,8 +115,8 @@ def test_node_with_residual_initializer(node_name):
     }
 
     # Add input_dim for LUT-based nodes (required for truth table sizing)
-    if node_type in ["dwn", "dwn_stable", "probabilistic", "hybrid", "linear_lut"]:
-        init_kwargs["input_dim"] = 4
+    if node_type in ["dwn", "dwn_stable", "probabilistic", "hybrid", "linear_lut", "difflogic"]:
+        init_kwargs["input_dim"] = input_dim
 
     # Add node-specific parameters
     if node_type == "polylut":
@@ -122,14 +136,14 @@ def test_node_with_residual_initializer(node_name):
             # Create node with residual initializer
             node = instantiate_node(
                 node_class,
-                input_dim=4,
+                input_dim=input_dim,
                 output_dim=1,
                 init_fn=init_fn,
                 init_kwargs=init_kwargs,
             )
 
         # Test forward pass works
-        input_tensor = generate_uniform_input((8, 4), seed=42)
+        input_tensor = generate_uniform_input((8, input_dim), seed=42)
         with torch.no_grad():
             output = node(input_tensor)
 

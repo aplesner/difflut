@@ -135,10 +135,14 @@ def test_layer_with_node_type(layer_name, node_name, device):
     layer_class = REGISTRY.get_layer(layer_name)
     node_class = REGISTRY.get_node(node_name)
 
+    # Use n=2 for difflogic to avoid excessive memory usage
+    # (difflogic with n=4 would require 65,536 Boolean functions)
+    n = 2 if node_name == "difflogic" else 4
+
     try:
         with IgnoreWarnings():
             layer = instantiate_layer(
-                layer_class, input_size=256, output_size=128, node_type=node_class, n=4
+                layer_class, input_size=256, output_size=128, node_type=node_class, n=n
             ).to(device)
 
         # Test forward pass
