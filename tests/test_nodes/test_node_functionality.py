@@ -51,7 +51,7 @@ class TestNodeForwardPass:
 
         # Input shape: (batch_size, input_dim)
         batch_size = 8
-        input_tensor = generate_uniform_input((batch_size, 4), device=device)
+        input_tensor = generate_uniform_input((batch_size, input_dim), device=device)
 
         with torch.no_grad():
             output = node(input_tensor)

@@ -244,7 +244,7 @@ class DiffLogicNode(BaseNode):
             x: Input tensor of shape (batch_size, input_dim) in [0, 1]
         
         Returns:
-            Output tensor of shape (batch_size, output_dim)
+            Output tensor of shape (batch_size, output_dim) in [0, 1]
         """
         batch_size = x.shape[0]
         
@@ -266,6 +266,9 @@ class DiffLogicNode(BaseNode):
         
         output = (bool_funcs_expanded * probs_expanded).sum(dim=1)  # (batch_size, output_dim)
         
+        # Clamp to [0, 1] to handle numerical precision issues
+        output = torch.clamp(output, 0.0, 1.0)
+        
         return output
     
     def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
@@ -279,7 +282,7 @@ class DiffLogicNode(BaseNode):
             x: Input tensor of shape (batch_size, input_dim)
         
         Returns:
-            Output tensor of shape (batch_size, output_dim)
+            Output tensor of shape (batch_size, output_dim) in [0, 1]
         """
         if self.eval_mode == "expectation":
             # Same as training
@@ -305,6 +308,9 @@ class DiffLogicNode(BaseNode):
             for out_idx in range(self.output_dim):
                 func_idx = selected_funcs[out_idx]
                 output[:, out_idx] = bool_funcs[:, func_idx]
+            
+            # Clamp to [0, 1] to handle numerical precision issues
+            output = torch.clamp(output, 0.0, 1.0)
             
             return output
         
