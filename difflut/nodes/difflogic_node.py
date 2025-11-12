@@ -1,48 +1,47 @@
 """
-DiffLogic Node: Monomial-based differentiable logic gate node.
+DiffLogic Node: Differentiable logic gate node.
 
-Implements a monomial-based formulation for n-input differentiable logic gates.
-Each Boolean function is represented using Reed-Muller expansion with monomials.
+Implements differentiable 2-input logic gates.
+For each output, learns a distribution over all 16 possible 2-input Boolean functions.
 """
 
-import warnings
 from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
 
 from ..registry import register_node
-from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 
-# Default temperature for softmax over Boolean functions
-DEFAULT_DIFFLOGIC_TEMPERATURE: float = 1.0
-# Default evaluation mode for DiffLogic nodes
-# Options: 'expectation', 'deterministic'
 DEFAULT_DIFFLOGIC_EVAL_MODE: str = "expectation"
+
+BOOLEAN_FUNCTIONS_16 = torch.tensor([
+    [0, 0, 0, 0],  # 0:  False
+    [1, 0, 0, 0],  # 1:  a AND NOT b
+    [0, 1, 0, 0],  # 2:  NOT a AND b
+    [1, 1, 0, 0],  # 3:  a NAND b
+    [0, 0, 1, 0],  # 4:  a AND NOT b
+    [1, 0, 1, 0],  # 5:  b = NOT (a XOR b)
+    [0, 1, 1, 0],  # 6:  a XOR b
+    [1, 1, 1, 0],  # 7:  a OR b
+    [0, 0, 0, 1],  # 8:  a NOR b
+    [1, 0, 0, 1],  # 9:  a XNOR b
+    [0, 1, 0, 1],  # 10: NOT a
+    [1, 1, 0, 1],  # 11: a OR NOT b
+    [0, 0, 1, 1],  # 12: NOT b
+    [1, 0, 1, 1],  # 13: NOT a OR b
+    [0, 1, 1, 1],  # 14: a OR NOT b
+    [1, 1, 1, 1],  # 15: True
+], dtype=torch.float32)
 
 
 @register_node("difflogic")
 class DiffLogicNode(BaseNode):
     """
-    Differentiable Logic Gate Node with monomial-based formulation.
+    Differentiable Logic Gate Node.
 
-    For n inputs, learns a distribution over all 2^(2^n) Boolean functions
-    using softmax parameterization. Each Boolean function is computed via
-    its Reed-Muller monomial expansion.
-
-    Forward (training): Weighted sum of all Boolean function expectations
-    Forward (eval): Can use 'expectation' or 'deterministic' mode
-
-    Weights: Logits z ∈ ℝ^(2^(2^n)) over Boolean functions
-    Processes 2D tensors: (batch_size, input_dim) -> (batch_size, output_dim)
-
-    Warning: Complexity grows as 2^(2^n):
-        n=1: 4 functions
-        n=2: 16 functions
-        n=3: 256 functions (⚠️ warning issued)
-        n=4: 65,536 functions (❌ error - too large)
-        n=5+: infeasible
+    Takes n input dimensions and for each output, selects 2 inputs.
+    Learns a distribution over all 16 possible 2-input Boolean functions.
     """
 
     def __init__(
@@ -52,26 +51,22 @@ class DiffLogicNode(BaseNode):
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
         regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
-        temperature: float = DEFAULT_DIFFLOGIC_TEMPERATURE,
         eval_mode: str = DEFAULT_DIFFLOGIC_EVAL_MODE,
     ) -> None:
         """
         Args:
-            input_dim: Number of inputs (e.g., 2 for 2-input logic gates)
-            output_dim: Number of outputs (e.g., 1)
-            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
+            input_dim: Number of input dimensions (must be >= 2)
+            output_dim: Number of output dimensions
+            init_fn: Optional initialization function for parameters
             init_kwargs: Keyword arguments for init_fn
             regularizers: Dict of custom regularization functions
-            temperature: Temperature for softmax over Boolean functions
             eval_mode: Evaluation mode ('expectation' or 'deterministic')
         """
-        # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:
             init_kwargs = {}
         else:
-            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+            init_kwargs = init_kwargs.copy()
 
-        # Add node_type and input_dim to init_kwargs if not already present (needed for residual_init)
         if "node_type" not in init_kwargs:
             init_kwargs["node_type"] = "difflogic"
         if "input_dim" not in init_kwargs:
@@ -86,185 +81,101 @@ class DiffLogicNode(BaseNode):
             init_kwargs=init_kwargs,
         )
 
-        # Validate input dimension
-        if self.input_dim is not None:
-            if self.input_dim >= 3:
-                warnings.warn(
-                    f"DiffLogicNode with input_dim={self.input_dim} requires "
-                    f"{2 ** (2 ** self.input_dim)} Boolean functions. "
-                    f"This is computationally expensive and may cause memory issues. "
-                    f"(n=3 requires 256 functions, n=4 requires 65,536 functions, "
-                    f"n=5 requires ~4.3 billion functions). "
-                    f"Consider using input_dim=2 (16 functions) for better efficiency, "
-                    f"or tree-based compositions of 2-input nodes.",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
+        if self.input_dim < 2:
+            raise ValueError(
+                f"DiffLogicNode requires input_dim >= 2, but got {self.input_dim}. "
+                f"The node selects 2 inputs for each output."
+            )
 
-        self.register_buffer("temperature", torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic"}, f"Invalid eval_mode: {eval_mode}"
         self.eval_mode = eval_mode
 
-        # Number of Boolean functions: 2^(2^input_dim)
-        self.num_functions = 2 ** (2**self.input_dim)
+        # For each output, learn a distribution over 16 Boolean functions
+        # Shape: (output_dim, 16)
+        self.weights = nn.Parameter(torch.randn(self.output_dim, 16))
+        self._apply_init_fn(self.weights, name="weights")
 
-        # Number of monomials: 2^input_dim
-        self.num_monomials = 2**self.input_dim
+        # For each output, randomly select 2 input indices
+        # Shape: (output_dim, 2)
+        self.register_buffer("indices", self._get_connections())
 
-        # Store logits over Boolean functions
-        # Shape: (num_functions, output_dim)
-        self.logits = nn.Parameter(torch.zeros(self.num_functions, self.output_dim))
-        self._apply_init_fn(self.logits, name="logits")
+        # Register the truth tables as a buffer
+        self.register_buffer("truth_tables", BOOLEAN_FUNCTIONS_16)
 
-        # Precompute monomial coefficient matrix
-        # Shape: (num_functions, num_monomials)
-        # coefficients[i, k] = c_ik where g_i(a) = Σ_k c_ik * monomial_k(a)
-        self.register_buffer("coefficients", self._compute_monomial_coefficients())
+    def _get_connections(self) -> torch.Tensor:
+        """Get random input index pairs for each output."""
+        indices = torch.zeros((self.output_dim, 2), dtype=torch.int64)
 
-        # Precompute which input indices are used in each monomial
-        # monomial_masks[k] = list of input indices j where bit_j(k) = 1
-        self.monomial_masks = self._compute_monomial_masks()
+        for out_idx in range(self.output_dim):
+            perm = torch.randperm(self.input_dim)
+            indices[out_idx, 0] = perm[0]
+            indices[out_idx, 1] = perm[1]
 
-    def _compute_monomial_coefficients(self) -> torch.Tensor:
+        return indices
+
+    def _compute_boolean_function_output(
+        self,
+        a: torch.Tensor,
+        b: torch.Tensor,
+        func_idx: int,
+    ) -> torch.Tensor:
         """
-        Compute the monomial coefficient matrix for all Boolean functions.
-
-        For each Boolean function i ∈ {0, ..., 2^(2^n)-1}:
-            g_i(x) = Σ_{k=0}^{2^n-1} c_ik * monomial_k(x)
-
-        The coefficients c_ik are determined by the Reed-Muller expansion
-        of the Boolean function i.
-
-        Returns:
-            Tensor of shape (num_functions, num_monomials) with values in {0, 1}
-        """
-        n = self.input_dim
-        num_functions = 2 ** (2**n)
-        num_monomials = 2**n
-
-        coefficients = torch.zeros(num_functions, num_monomials, dtype=torch.float32)
-
-        # For each Boolean function i
-        for func_idx in range(num_functions):
-            # The function is defined by its truth table (func_idx in binary)
-            # truth_table[j] = output of function for input pattern j
-            truth_table = torch.tensor(
-                [(func_idx >> j) & 1 for j in range(num_monomials)], dtype=torch.float32
-            )
-
-            # Compute Reed-Muller coefficients via Möbius transform
-            # This is the ANF (Algebraic Normal Form) representation
-            coeffs = truth_table.clone()
-
-            # Apply Möbius transform: coefficient computation
-            # For each subset S (represented by k), compute XOR over supersets
-            for i in range(n):
-                bit = 1 << i
-                for k in range(num_monomials):
-                    if k & bit == 0:
-                        # XOR operation (mod 2): we use sum and then mod 2
-                        coeffs[k | bit] = (coeffs[k | bit] + coeffs[k]) % 2
-
-            coefficients[func_idx] = coeffs
-
-        return coefficients
-
-    def _compute_monomial_masks(self) -> list:
-        """
-        Precompute which input indices are involved in each monomial.
-
-        For monomial k, return the list of input indices j where bit_j(k) = 1.
-
-        Returns:
-            List of lists: monomial_masks[k] = [j1, j2, ...] for monomial k
-        """
-        masks = []
-        for k in range(self.num_monomials):
-            # Find which bits are set in k
-            indices = [j for j in range(self.input_dim) if (k >> j) & 1]
-            masks.append(indices)
-        return masks
-
-    def _compute_monomials(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Compute all monomial values for inputs x.
-
-        For each monomial k, compute:
-            monomial_k(x) = Π_{j: bit_j(k)=1} x_j
+        Compute the output of a Boolean function for continuous inputs.
 
         Args:
-            x: Input tensor of shape (batch_size, input_dim)
+            a: Tensor of shape (batch_size,) with values in [0, 1]
+            b: Tensor of shape (batch_size,) with values in [0, 1]
+            func_idx: Integer in [0, 15] specifying which Boolean function
 
         Returns:
-            Tensor of shape (batch_size, num_monomials)
+            Tensor of shape (batch_size,) with values in [0, 1]
         """
-        batch_size = x.shape[0]
-        monomials = torch.ones(batch_size, self.num_monomials, device=x.device, dtype=x.dtype)
+        truth_table = self.truth_tables[func_idx]
 
-        # Compute each monomial
-        for k in range(self.num_monomials):
-            indices = self.monomial_masks[k]
-            if len(indices) > 0:
-                # Product over selected inputs
-                for j in indices:
-                    monomials[:, k] *= x[:, j]
+        # Differentiable polynomial interpolation
+        # f(a, b) = (1-a)(1-b)*tt[0] + (1-a)*b*tt[1] + a*(1-b)*tt[2] + a*b*tt[3]
+        output = (
+            (1 - a) * (1 - b) * truth_table[0] +
+            (1 - a) * b * truth_table[1] +
+            a * (1 - b) * truth_table[2] +
+            a * b * truth_table[3]
+        )
 
-        return monomials
-
-    def _compute_boolean_functions(self, monomials: torch.Tensor) -> torch.Tensor:
-        """
-        Compute all Boolean function expectations from monomials.
-
-        For each Boolean function i:
-            g_i(x) = Σ_{k=0}^{2^n-1} c_ik * monomial_k(x)
-
-        Args:
-            monomials: Tensor of shape (batch_size, num_monomials)
-
-        Returns:
-            Tensor of shape (batch_size, num_functions)
-        """
-        # Matrix multiply: (batch_size, num_monomials) @ (num_monomials, num_functions)
-        # Result: (batch_size, num_functions)
-        return torch.matmul(monomials, self.coefficients.T)
+        return output
 
     def forward_train(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass during training: probabilistic expectation.
 
-        Computes weighted sum over all Boolean functions:
-            a' = Σ_i [softmax(z/T)_i · g_i(a)]
-
-        Where g_i is computed via monomial expansion.
+        For each output, computes:
+            y_i = Σ_{f=0}^{15} softmax(weights_i)_f * f(a_i, b_i)
 
         Args:
-            x: Input tensor of shape (batch_size, input_dim) in [0, 1]
+            x: Input tensor of shape (batch_size, input_dim) with values in [0, 1]
 
         Returns:
-            Output tensor of shape (batch_size, output_dim) in [0, 1]
+            Output tensor of shape (batch_size, output_dim) with values in [0, 1]
         """
         batch_size = x.shape[0]
 
-        # Compute all monomials: (batch_size, num_monomials)
-        monomials = self._compute_monomials(x)
+        # Compute softmax over Boolean functions for each output
+        # Shape: (output_dim, 16)
+        probs = torch.softmax(self.weights, dim=-1)
 
-        # Compute all Boolean function expectations: (batch_size, num_functions)
-        bool_funcs = self._compute_boolean_functions(monomials)
+        # Initialize output
+        output = torch.zeros(batch_size, self.output_dim, device=x.device, dtype=x.dtype)
 
-        # Apply temperature-scaled softmax to logits: (num_functions, output_dim)
-        probs = torch.softmax(self.logits / self.temperature, dim=0)
+        # For each output dimension
+        for out_idx in range(self.output_dim):
+            # Get the 2 selected input indices
+            idx_a, idx_b = self.indices[out_idx]
+            a = x[:, idx_a]
+            b = x[:, idx_b]
 
-        # Weighted sum over Boolean functions
-        # bool_funcs: (batch_size, num_functions, 1)
-        # probs: (1, num_functions, output_dim)
-        # Result: (batch_size, output_dim)
-        bool_funcs_expanded = bool_funcs.unsqueeze(-1)  # (batch_size, num_functions, 1)
-        probs_expanded = probs.unsqueeze(0)  # (1, num_functions, output_dim)
-
-        output = (bool_funcs_expanded * probs_expanded).sum(dim=1)  # (batch_size, output_dim)
-
-        # Clamp to [0, 1] to handle numerical precision issues
-        output = torch.clamp(output, 0.0, 1.0)
+            # Compute weighted sum over all 16 Boolean functions
+            for func_idx in range(16):
+                func_output = self._compute_boolean_function_output(a, b, func_idx)
+                output[:, out_idx] += probs[out_idx, func_idx] * func_output
 
         return output
 
@@ -273,41 +184,35 @@ class DiffLogicNode(BaseNode):
         Forward pass during evaluation.
 
         Mode 'expectation': Same as training (probabilistic)
-        Mode 'deterministic': Use argmax Boolean function
+        Mode 'deterministic': Select the Boolean function with highest logit
 
         Args:
             x: Input tensor of shape (batch_size, input_dim)
 
         Returns:
-            Output tensor of shape (batch_size, output_dim) in [0, 1]
+            Output tensor of shape (batch_size, output_dim)
         """
         if self.eval_mode == "expectation":
-            # Same as training
             return self.forward_train(x)
 
         elif self.eval_mode == "deterministic":
             batch_size = x.shape[0]
 
-            # Compute all monomials: (batch_size, num_monomials)
-            monomials = self._compute_monomials(x)
+            # For each output, select the Boolean function with highest weight
+            selected_funcs = torch.argmax(self.weights, dim=-1)
 
-            # Compute all Boolean function expectations: (batch_size, num_functions)
-            bool_funcs = self._compute_boolean_functions(monomials)
-
-            # For each output, select the Boolean function with highest logit
-            # argmax over functions: (output_dim,)
-            selected_funcs = torch.argmax(self.logits, dim=0)  # (output_dim,)
-
-            # Gather selected Boolean function outputs
-            # bool_funcs: (batch_size, num_functions)
-            # selected_funcs: (output_dim,)
             output = torch.zeros(batch_size, self.output_dim, device=x.device, dtype=x.dtype)
-            for out_idx in range(self.output_dim):
-                func_idx = selected_funcs[out_idx]
-                output[:, out_idx] = bool_funcs[:, func_idx]
 
-            # Clamp to [0, 1] to handle numerical precision issues
-            output = torch.clamp(output, 0.0, 1.0)
+            # For each output dimension
+            for out_idx in range(self.output_dim):
+                # Get the 2 selected input indices
+                idx_a, idx_b = self.indices[out_idx]
+                a = x[:, idx_a]
+                b = x[:, idx_b]
+
+                # Compute output using selected Boolean function
+                func_idx = selected_funcs[out_idx].item()
+                output[:, out_idx] = self._compute_boolean_function_output(a, b, func_idx)
 
             return output
 
@@ -316,12 +221,11 @@ class DiffLogicNode(BaseNode):
 
     def _builtin_regularization(self) -> torch.Tensor:
         """No built-in regularization for DiffLogic nodes."""
-        return torch.tensor(0.0, device=self.logits.device)
+        return torch.tensor(0.0, device=self.weights.device)
 
     def extra_repr(self) -> str:
         """Extra information for print/repr."""
         return (
             f"input_dim={self.input_dim}, output_dim={self.output_dim}, "
-            f"num_functions={self.num_functions}, num_monomials={self.num_monomials}, "
-            f"temperature={self.temperature.item():.3f}, eval_mode='{self.eval_mode}'"
+            f"eval_mode='{self.eval_mode}'"
         )
