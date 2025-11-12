@@ -631,6 +631,143 @@ def _residual_init_lut(
                     param[idx, :] = base_value
 
 
+def _residual_init_difflogic(
+    param: torch.Tensor,
+    input_dim: int,
+    noise_factor: float = DEFAULT_RESIDUAL_NOISE_FACTOR,
+    logit_clarity: float = DEFAULT_RESIDUAL_LOGIT_CLARITY,
+) -> None:
+    """
+    Residual initialization for DiffLogic nodes.
+
+    Initializes logits over Boolean functions to strongly prefer the identity function
+    that passes through the first input:
+        B_identity(x) = x_1
+
+    For an n-input DiffLogic node:
+        - The identity function has truth table where output = first input bit
+        - We set its logit to +logit_clarity
+        - All other function logits initialized to noise ~ N(0, noise_factor²)
+
+    This creates initial behavior: softmax(z/T) ≈ one-hot at identity function
+    → output ≈ first_input during training
+
+    For n=1: Identity is function index 2 (truth table: 01)
+    For n=2: Identity is function index 10 (truth table: 0101 = output A)
+    For n=3: Identity is function index 170 (truth table: 01010101)
+
+    Args:
+        param: Logits tensor of shape (num_functions, output_dim)
+               where num_functions = 2^(2^input_dim)
+        input_dim: Number of inputs (n)
+        noise_factor: Standard deviation for noise on other function logits (0 = no noise)
+        logit_clarity: Value for identity function logit (default: 5.0)
+    """
+    with torch.no_grad():
+        num_functions = 2 ** (2 ** input_dim)
+        
+        # Validate parameter shape
+        if param.shape[0] != num_functions:
+            raise ValueError(
+                f"Parameter shape mismatch: expected first dim = {num_functions} "
+                f"(2^(2^{input_dim})) but got {param.shape[0]}"
+            )
+        
+        # Find the identity function index
+        # Identity function: B(x) = x_1
+        # Truth table: [B(0,0,...), B(0,0,...,1), B(0,1,...), ..., B(1,1,...)]
+        # For each input pattern idx, output = bit_0(idx) (first input bit)
+        # So truth table is: [0, 1, 0, 1, 0, 1, ...] for 2^input_dim entries
+        
+        # Construct identity truth table
+        num_inputs_patterns = 2 ** input_dim
+        identity_truth_table = 0
+        for idx in range(num_inputs_patterns):
+            # Check if first bit (LSB) is set
+            if idx & 1:
+                # Set bit at position idx in truth table
+                identity_truth_table |= (1 << idx)
+        
+        identity_func_idx = identity_truth_table
+        
+        # Initialize all logits with noise
+        if noise_factor > 0:
+            param.normal_(mean=0.0, std=noise_factor)
+        else:
+            param.fill_(0.0)
+        
+        # Set identity function logit to high value
+        param[identity_func_idx, :] = logit_clarity
+
+
+def _residual_init_warp(
+    param: torch.Tensor,
+    input_dim: int,
+    noise_factor: float = DEFAULT_RESIDUAL_NOISE_FACTOR,
+    logit_clarity: float = DEFAULT_RESIDUAL_LOGIT_CLARITY,
+) -> None:
+    """
+    Residual initialization for WARP nodes using Walsh-Hadamard decomposition.
+
+    Initializes Walsh coefficients to favor the identity function that passes
+    through the first input. In the Walsh basis:
+        f(x) = Σ_{S ⊆ {1,...,n}} c_S · Π_{i ∈ S} B̃(x_i)
+
+    For identity (output = first input), we want:
+        f(x) ≈ B̃(x_1) = 2x_1 - 1
+
+    Since B̃(x_1) is the Walsh basis function for subset S = {1} (index 2^0 = 1),
+    we set:
+        c_1 = logit_clarity  (coefficient for first input linear term)
+        c_0 = 0  (constant term, to center around 0)
+        c_i = ε_i ~ N(0, noise_factor²) for other coefficients
+
+    This gives: f(x) ≈ logit_clarity · B̃(x_1)
+    With sigmoid: σ(f(x)/τ) ≈ σ(logit_clarity · (2x_1 - 1) / τ)
+
+    For logit_clarity=5 and τ=1:
+        - When x_1=0: σ(5·(-1)) = σ(-5) ≈ 0.007
+        - When x_1=1: σ(5·(+1)) = σ(+5) ≈ 0.993
+
+    Walsh basis indexing:
+        - Index 0: constant term (empty subset)
+        - Index 1 = 2^0: first input only (subset {1})
+        - Index 2 = 2^1: second input only (subset {2})
+        - Index 3 = 2^0 + 2^1: both inputs (subset {1,2})
+        - etc.
+
+    Args:
+        param: Walsh coefficients tensor of shape (num_coefficients, output_dim)
+               where num_coefficients = 2^input_dim
+        input_dim: Number of inputs (n)
+        noise_factor: Standard deviation for noise on other coefficients (0 = no noise)
+        logit_clarity: Value for first input coefficient (default: 5.0)
+    """
+    with torch.no_grad():
+        num_coefficients = 2 ** input_dim
+        
+        # Validate parameter shape
+        if param.shape[0] != num_coefficients:
+            raise ValueError(
+                f"Parameter shape mismatch: expected first dim = {num_coefficients} "
+                f"(2^{input_dim}) but got {param.shape[0]}"
+            )
+        
+        # Initialize all coefficients with noise
+        if noise_factor > 0:
+            param.normal_(mean=0.0, std=noise_factor)
+        else:
+            param.fill_(0.0)
+        
+        # Set coefficient for first input linear term
+        # In Walsh basis, subset {1} (first input only) has index 2^0 = 1
+        identity_index = 1
+        param[identity_index, :] = logit_clarity
+        
+        # Set constant term to 0 (optional, for centering)
+        param[0, :] = 0.0
+
+
 @register_initializer("residual")
 def residual_init(
     param: torch.Tensor,
@@ -684,10 +821,27 @@ def residual_init(
             - forward_eval: Perfect pass-through (output = first_input)
             - forward_train: Near-perfect (sigmoid(±5) ≈ 0.993/0.007)
 
+    **DiffLogic Nodes** (`node_type='difflogic'`):
+        Boolean function distribution initialization for identity:
+            logits[identity_idx] = logit_clarity
+            logits[other] = N(0, noise_factor²)
+
+        Sets high logit for identity function (output = first_input),
+        creating softmax distribution strongly favoring pass-through behavior.
+
+    **WARP Nodes** (`node_type='warp'`):
+        Walsh coefficient initialization for identity:
+            c_1 = logit_clarity  (first input linear term)
+            c_0 = 0  (constant term)
+            c_other = N(0, noise_factor²)
+
+        Sets Walsh coefficient for first input to create pass-through behavior
+        in signed basis: f(x) ≈ logit_clarity · B̃(x_1).
+
     Args:
         param: The parameter tensor to initialize
         node_type: Type of node ('linear_lut', 'polylut', 'neurallut', 'fourier',
-                   'dwn', 'dwn_stable', 'probabilistic', 'hybrid', etc.)
+                   'dwn', 'dwn_stable', 'probabilistic', 'hybrid', 'difflogic', 'warp', etc.)
         param_name: Name of the parameter being initialized
         input_dim: Number of inputs - required for LUT-based nodes
         output_dim: Number of outputs
@@ -711,6 +865,12 @@ def residual_init(
 
         >>> # Custom logit clarity for stronger signal
         >>> residual_init(luts, node_type='hybrid', input_dim=6, logit_clarity=10.0)
+
+        >>> # DiffLogic identity initialization
+        >>> residual_init(logits, node_type='difflogic', input_dim=2, logit_clarity=5.0)
+
+        >>> # WARP Walsh coefficient initialization
+        >>> residual_init(coeffs, node_type='warp', input_dim=2, logit_clarity=5.0)
     """
     # Warn about default values
     if noise_factor == DEFAULT_RESIDUAL_NOISE_FACTOR:
@@ -723,7 +883,7 @@ def residual_init(
         raise ValueError(
             "residual_init requires 'node_type' to determine initialization strategy. "
             "Valid types: 'linear_lut', 'polylut', 'neurallut', 'fourier', "
-            "'dwn', 'dwn_stable', 'probabilistic', 'hybrid'"
+            "'dwn', 'dwn_stable', 'probabilistic', 'hybrid', 'difflogic', 'warp'"
         )
 
     # Dispatch to appropriate initialization strategy
@@ -789,9 +949,35 @@ def residual_init(
             logit_clarity=logit_clarity,
         )
 
+    elif node_type_lower == "difflogic":
+        if input_dim is None:
+            raise ValueError(
+                "residual_init for difflogic nodes requires 'input_dim' "
+                "to determine number of Boolean functions"
+            )
+        _residual_init_difflogic(
+            param,
+            input_dim=input_dim,
+            noise_factor=noise_factor,
+            logit_clarity=logit_clarity,
+        )
+
+    elif node_type_lower == "warp":
+        if input_dim is None:
+            raise ValueError(
+                "residual_init for warp nodes requires 'input_dim' "
+                "to determine number of Walsh coefficients"
+            )
+        _residual_init_warp(
+            param,
+            input_dim=input_dim,
+            noise_factor=noise_factor,
+            logit_clarity=logit_clarity,
+        )
+
     else:
         raise ValueError(
             f"Unknown node_type '{node_type}' for residual initialization. "
             "Valid types: 'linear_lut', 'polylut', 'neurallut', 'fourier', "
-            "'dwn', 'dwn_stable', 'probabilistic', 'hybrid'"
+            "'dwn', 'dwn_stable', 'probabilistic', 'hybrid', 'difflogic', 'warp'"
         )
