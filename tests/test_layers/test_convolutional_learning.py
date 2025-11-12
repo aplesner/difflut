@@ -166,7 +166,7 @@ def train_test_data(device):
 def test_convolutional_learning_scenarios(scenario_name, layer_config, device, train_test_data):
     """Test ConvolutionalLayer learning with different configurations."""
     from difflut import REGISTRY
-    from difflut.layers import ConvolutionConfig, ConvolutionalLayer, LayerConfig
+    from difflut.layers import ConvolutionalLayer, ConvolutionConfig, LayerConfig
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
 

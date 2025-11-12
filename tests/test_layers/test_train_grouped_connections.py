@@ -98,7 +98,9 @@ def create_single_channel_pattern_dataset(
     # Add random noise to OTHER channels (not the pattern channel)
     generator = torch.Generator()
     generator.manual_seed(42)
-    noise = torch.rand((total_samples, num_channels, image_size, image_size), generator=generator).float()
+    noise = torch.rand(
+        (total_samples, num_channels, image_size, image_size), generator=generator
+    ).float()
     # Keep only noise for non-pattern channels
     for c in range(num_channels):
         if c != pattern_channel:

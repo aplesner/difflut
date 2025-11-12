@@ -28,7 +28,7 @@ from difflut.registry import REGISTRY
 
 def _get_input_dim_for_node(node_name: str) -> int:
     """Get appropriate input dimension for node type.
-    
+
     DiffLogic has exponential complexity (2^(2^n)), so we limit it to 2 inputs.
     Other nodes can use larger dimensions.
     """
@@ -153,16 +153,16 @@ def test_node_different_dimensions(node_name, device):
     - Different output dimensions (1, 2, 4, 8)
     - Various batch sizes (1, 16, 64)
     - Edge cases (single input/output, large dimensions)
-    
+
     Note: DiffLogic is limited to input_dim=2 due to exponential complexity.
     """
     node_class = REGISTRY.get_node(node_name)
-    
+
     # DiffLogic has 2^(2^n) complexity - limit to 2 inputs max
     if node_name == "difflogic":
         test_configs = [
             # DiffLogic limited to 2 inputs (16 functions)
-            (1, 2, 1),   # Minimal: single sample
+            (1, 2, 1),  # Minimal: single sample
             (16, 2, 2),  # Standard: with 2 outputs
             (64, 2, 4),  # Larger batch with more outputs
         ]

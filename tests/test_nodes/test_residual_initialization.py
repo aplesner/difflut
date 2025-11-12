@@ -81,7 +81,6 @@ class TestResidualInitPerfectPass:
         )
         node.eval()
 
-
         # Generate all binary combinations for comprehensive testing
         # For PolyLUT with input_dim=4, generate all 2^4=16 combinations
         # For other nodes with input_dim=6, generate a subset (all 2^6=64 combinations)

@@ -664,38 +664,38 @@ def _residual_init_difflogic(
         logit_clarity: Value for identity function logit (default: 5.0)
     """
     with torch.no_grad():
-        num_functions = 2 ** (2 ** input_dim)
-        
+        num_functions = 2 ** (2**input_dim)
+
         # Validate parameter shape
         if param.shape[0] != num_functions:
             raise ValueError(
                 f"Parameter shape mismatch: expected first dim = {num_functions} "
                 f"(2^(2^{input_dim})) but got {param.shape[0]}"
             )
-        
+
         # Find the identity function index
         # Identity function: B(x) = x_1
         # Truth table: [B(0,0,...), B(0,0,...,1), B(0,1,...), ..., B(1,1,...)]
         # For each input pattern idx, output = bit_0(idx) (first input bit)
         # So truth table is: [0, 1, 0, 1, 0, 1, ...] for 2^input_dim entries
-        
+
         # Construct identity truth table
-        num_inputs_patterns = 2 ** input_dim
+        num_inputs_patterns = 2**input_dim
         identity_truth_table = 0
         for idx in range(num_inputs_patterns):
             # Check if first bit (LSB) is set
             if idx & 1:
                 # Set bit at position idx in truth table
-                identity_truth_table |= (1 << idx)
-        
+                identity_truth_table |= 1 << idx
+
         identity_func_idx = identity_truth_table
-        
+
         # Initialize all logits with noise
         if noise_factor > 0:
             param.normal_(mean=0.0, std=noise_factor)
         else:
             param.fill_(0.0)
-        
+
         # Set identity function logit to high value
         param[identity_func_idx, :] = logit_clarity
 
@@ -744,26 +744,26 @@ def _residual_init_warp(
         logit_clarity: Value for first input coefficient (default: 5.0)
     """
     with torch.no_grad():
-        num_coefficients = 2 ** input_dim
-        
+        num_coefficients = 2**input_dim
+
         # Validate parameter shape
         if param.shape[0] != num_coefficients:
             raise ValueError(
                 f"Parameter shape mismatch: expected first dim = {num_coefficients} "
                 f"(2^{input_dim}) but got {param.shape[0]}"
             )
-        
+
         # Initialize all coefficients with noise
         if noise_factor > 0:
             param.normal_(mean=0.0, std=noise_factor)
         else:
             param.fill_(0.0)
-        
+
         # Set coefficient for first input linear term
         # In Walsh basis, subset {1} (first input only) has index 2^0 = 1
         identity_index = 1
         param[identity_index, :] = logit_clarity
-        
+
         # Set constant term to 0 (optional, for centering)
         param[0, :] = 0.0
 

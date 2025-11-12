@@ -16,7 +16,7 @@ from difflut.registry import REGISTRY
 
 def _get_input_dim_for_node(node_name: str) -> int:
     """Get appropriate input dimension for node type.
-    
+
     DiffLogic has exponential complexity (2^(2^n)), so we limit it to 2 inputs.
     Other nodes can use larger dimensions.
     """
