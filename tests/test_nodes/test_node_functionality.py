@@ -26,6 +26,17 @@ from difflut.registry import REGISTRY
 # ============================================================================
 
 
+def _get_input_dim_for_node(node_name: str) -> int:
+    """Get appropriate input dimension for node type.
+    
+    DiffLogic has exponential complexity (2^(2^n)), so we limit it to 2 inputs.
+    Other nodes can use larger dimensions.
+    """
+    if node_name == "difflogic":
+        return 2  # 2^(2^2) = 16 functions (manageable)
+    return 4  # Default for other nodes
+
+
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 class TestNodeForwardPass:
     """Comprehensive forward pass tests for nodes."""
@@ -33,9 +44,10 @@ class TestNodeForwardPass:
     def test_shape_correct(self, node_name, device):
         """Test 1.1: Forward pass produces correct output shape."""
         node_class = REGISTRY.get_node(node_name)
+        input_dim = _get_input_dim_for_node(node_name)
 
         with IgnoreWarnings():
-            node = instantiate_node(node_class, input_dim=4, output_dim=2).to(device)
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(device)
 
         # Input shape: (batch_size, input_dim)
         batch_size = 8
@@ -51,14 +63,15 @@ class TestNodeForwardPass:
     def test_output_range_01(self, node_name, device):
         """Test 1.2: Output range is [0, 1]."""
         node_class = REGISTRY.get_node(node_name)
+        input_dim = _get_input_dim_for_node(node_name)
 
         with IgnoreWarnings():
-            node = instantiate_node(node_class, input_dim=4, output_dim=2).to(device)
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(device)
         node.eval()
 
         # Test multiple random inputs
         for seed in [42, 123, 456]:
-            input_tensor = generate_uniform_input((8, 4), seed=seed, device=device)
+            input_tensor = generate_uniform_input((8, input_dim), seed=seed, device=device)
             with torch.no_grad():
                 output = node(input_tensor)
 
@@ -71,19 +84,20 @@ class TestNodeForwardPass:
             pytest.skip("CUDA not available")
 
         node_class = REGISTRY.get_node(node_name)
+        input_dim = _get_input_dim_for_node(node_name)
 
         # Set seed before creating nodes to ensure deterministic initialization
         # (important for nodes like FourierNode that use random initialization)
         torch.manual_seed(42)
 
         with IgnoreWarnings():
-            node_cpu = instantiate_node(node_class, input_dim=4, output_dim=2)
+            node_cpu = instantiate_node(node_class, input_dim=input_dim, output_dim=2)
 
         # Reset seed to get same random initialization for GPU node
         torch.manual_seed(42)
 
         with IgnoreWarnings():
-            node_gpu = instantiate_node(node_class, input_dim=4, output_dim=2).cuda()
+            node_gpu = instantiate_node(node_class, input_dim=input_dim, output_dim=2).cuda()
 
         # Copy parameters from CPU to GPU (in case there are differences from device transfer)
         node_gpu.load_state_dict(node_cpu.state_dict())
@@ -92,7 +106,7 @@ class TestNodeForwardPass:
         node_cpu.eval()
         node_gpu.eval()
 
-        input_cpu = generate_uniform_input((8, 4), seed=42, device="cpu")
+        input_cpu = generate_uniform_input((8, input_dim), seed=42, device="cpu")
         input_gpu = input_cpu.cuda()
 
         with torch.no_grad():
@@ -107,12 +121,13 @@ class TestNodeForwardPass:
     def test_gradients_exist(self, node_name, device):
         """Test 1.4: Gradients exist and are not all zero."""
         node_class = REGISTRY.get_node(node_name)
+        input_dim = _get_input_dim_for_node(node_name)
 
         with IgnoreWarnings():
-            node = instantiate_node(node_class, input_dim=4, output_dim=2).to(device)
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(device)
 
         node.train()
-        input_tensor = generate_uniform_input((8, 4), seed=42, device=device)
+        input_tensor = generate_uniform_input((8, input_dim), seed=42, device=device)
         input_tensor.requires_grad = True
 
         output = node(input_tensor)
@@ -138,22 +153,33 @@ def test_node_different_dimensions(node_name, device):
     - Different output dimensions (1, 2, 4, 8)
     - Various batch sizes (1, 16, 64)
     - Edge cases (single input/output, large dimensions)
+    
+    Note: DiffLogic is limited to input_dim=2 due to exponential complexity.
     """
     node_class = REGISTRY.get_node(node_name)
-
-    # Test configurations: (batch_size, input_dim, output_dim)
-    test_configs = [
-        # Edge cases
-        (1, 2, 1),  # Minimal: single sample, small dims
-        (1, 16, 8),  # Single sample, large dims
-        # Common configurations
-        (16, 4, 1),  # Standard: single output
-        (16, 4, 2),  # Standard: dual output
-        (16, 8, 4),  # Larger dims
-        # Stress tests
-        (64, 16, 8),  # Large batch, large dims
-        (128, 4, 2),  # Very large batch
-    ]
+    
+    # DiffLogic has 2^(2^n) complexity - limit to 2 inputs max
+    if node_name == "difflogic":
+        test_configs = [
+            # DiffLogic limited to 2 inputs (16 functions)
+            (1, 2, 1),   # Minimal: single sample
+            (16, 2, 2),  # Standard: with 2 outputs
+            (64, 2, 4),  # Larger batch with more outputs
+        ]
+    else:
+        # Standard test configs for other nodes
+        test_configs = [
+            # Edge cases
+            (1, 2, 1),  # Minimal: single sample, small dims
+            (1, 16, 8),  # Single sample, large dims
+            # Common configurations
+            (16, 4, 1),  # Standard: single output
+            (16, 4, 2),  # Standard: dual output
+            (16, 8, 4),  # Larger dims
+            # Stress tests
+            (64, 16, 8),  # Large batch, large dims
+            (128, 4, 2),  # Very large batch
+        ]
 
     for batch_size, input_dim, output_dim in test_configs:
         with IgnoreWarnings():

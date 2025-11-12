@@ -270,6 +270,56 @@ pytest tests/ -v
 # Local development can run full suite: pytest tests/ -v
 ```
 
+#### 5. `training`
+
+Marks tests that involve model training or learning. Useful for identifying tests that require longer execution time and consume more resources.
+
+```python
+import pytest
+
+@pytest.mark.training
+def test_model_convergence():
+    """Test that model converges on training data."""
+    model = create_model()
+    # ... training loop ...
+    assert final_loss < initial_loss
+
+@pytest.mark.training
+@pytest.mark.slow
+def test_extended_training():
+    """Test extended training with many epochs."""
+    model = create_model()
+    # ... long training loop ...
+    pass
+```
+
+**Usage:**
+```bash
+# Run only training tests
+pytest tests/ -v -m "training"
+
+# Skip training tests (faster development)
+pytest tests/ -v -m "not training"
+
+# Run training tests that are not slow
+pytest tests/ -v -m "training and not slow"
+
+# Run slow training tests (e.g., convergence validation)
+pytest tests/ -v -m "slow and training"
+```
+
+**Common combinations:**
+```bash
+# Training tests on GPU
+pytest tests/ -v -m "training and gpu"
+
+# Fast training tests (mini-batch convergence checks)
+pytest tests/ -v -m "training and not slow"
+
+# All training and learning validation tests
+pytest tests/ -v -m "training"
+```
+
 ### Combining Markers
 
 ```python
@@ -288,6 +338,26 @@ def test_large_model_gpu():
 def test_experimental_slow_feature():
     """New feature that runs slowly."""
     pass
+
+# Test marked as training AND slow (extended training)
+@pytest.mark.training
+@pytest.mark.slow
+def test_extended_training_convergence():
+    """Test convergence over many training epochs."""
+    pass
+
+# Test marked as training AND gpu (GPU training)
+@pytest.mark.training
+@pytest.mark.gpu
+def test_gpu_training_optimization():
+    """Test GPU-accelerated training."""
+    pass
+
+# Quick training test (not slow)
+@pytest.mark.training
+def test_quick_convergence():
+    """Test quick convergence on mini-batch."""
+    pass
 ```
 
 Run combined markers:
@@ -301,6 +371,21 @@ pytest tests/ -v -m "slow and not experimental"
 
 # Run experimental GPU tests
 pytest tests/ -v -m "gpu and experimental"
+
+# Run all training tests
+pytest tests/ -v -m "training"
+
+# Run fast training tests (skip slow training tests)
+pytest tests/ -v -m "training and not slow"
+
+# Run GPU training tests
+pytest tests/ -v -m "training and gpu"
+
+# Run slow GPU training tests
+pytest tests/ -v -m "training and gpu and slow"
+
+# Run everything EXCEPT training tests (quick development iteration)
+pytest tests/ -v -m "not training"
 ```
 
 ### Pytest Configuration
@@ -738,6 +823,44 @@ class TestCustomLayer:
         loss.backward()
         
         assert x.grad is not None
+    
+    @pytest.mark.training
+    def test_layer_learning(self):
+        """Test layer can learn from data (training test)."""
+        node_config = NodeConfig(input_dim=4, output_dim=1)
+        layer = RandomLayer(
+            input_size=100,
+            output_size=32,
+            node_type=LinearLUTNode,
+            n=4,
+            node_kwargs=node_config
+        )
+        
+        optimizer = torch.optim.Adam(layer.parameters(), lr=0.01)
+        
+        # Simple synthetic dataset
+        x = torch.randn(100, 100)
+        y = torch.randn(100, 32)
+        
+        initial_loss = None
+        for epoch in range(10):
+            optimizer.zero_grad()
+            output = layer(x)
+            loss = ((output - y) ** 2).mean()
+            
+            if epoch == 0:
+                initial_loss = loss.item()
+            
+            loss.backward()
+            optimizer.step()
+        
+        final_loss = loss.item()
+        
+        # Verify that loss decreased during training
+        assert final_loss < initial_loss, (
+            f"Layer did not learn: initial_loss={initial_loss:.4f}, "
+            f"final_loss={final_loss:.4f}"
+        )
 ```
 
 ### Experimental Features
