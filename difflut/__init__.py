@@ -46,6 +46,16 @@ from .registry import (
     register_regularizer,
 )
 
+# Import model zoo
+from .models import (
+    get_model,
+    list_models,
+    BaseModel,
+    MNISTLinearSmall,
+    MNISTDWNSmall,
+    CIFAR10Conv,
+)
+
 __version__ = "1.4.4"
 
 __all__ = [
@@ -59,4 +69,11 @@ __all__ = [
     "BaseNode",
     "BaseLUTLayer",
     "BaseEncoder",
+    # Model zoo
+    "get_model",
+    "list_models",
+    "BaseModel",
+    "MNISTLinearSmall",
+    "MNISTDWNSmall",
+    "CIFAR10Conv",
 ]

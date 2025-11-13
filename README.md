@@ -21,6 +21,7 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
 ### For Users
 - **[Installation Guide](docs/INSTALLATION.md)** - Setup and requirements
 - **[Quick Start](docs/QUICK_START.md)** - Get running in 5 minutes
+- **[Model Zoo](docs/MODEL_ZOO.md)** - Ready-to-use pre-designed models
 - **[User Guide](docs/USER_GUIDE.md)** - Learn the library components and patterns
   - [Components Guide](docs/USER_GUIDE/components.md) - Encoders, nodes, and layers
   - [Registry & Pipelines](docs/USER_GUIDE/registry_pipeline.md) - Component discovery and pipeline building
@@ -51,7 +52,8 @@ difflut/                       # Top-level package directory
 │   ├── encoder/               # Input encoders
 │   ├── layers/                # Layer types
 │   ├── nodes/                 # LUT node implementations
-│   │   └── utils/             # initializers and regularizer
+│   │   └── utils/             # initializers and regularizers
+│   ├── models/                # Model Zoo (ready-to-use architectures)
 │   └── utils/                 # Utility functions (FPGA export)
 ├── examples/                  # Example scripts and notebooks
 └── tests/                     # Test suite

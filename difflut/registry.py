@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Type
 class Registry:
     """
     Global registry for DiffLUT components.
-    Manages registration and retrieval of nodes, layers, encoders, initializers, and regularizers.
+    Manages registration and retrieval of nodes, layers, encoders, initializers, regularizers, and models.
     """
 
     def __init__(self) -> None:
@@ -21,6 +21,7 @@ class Registry:
         self._encoders: Dict[str, Type] = {}
         self._initializers: Dict[str, Callable] = {}
         self._regularizers: Dict[str, Callable] = {}
+        self._models: Dict[str, Type] = {}
 
     # ==================== Node Registration ====================
 
@@ -420,6 +421,73 @@ class Registry:
         encoder_cls = self.get_encoder(name)
         return encoder_cls(**kwargs)
 
+    # ==================== Model Registration ====================
+
+    def register_model(self, name: Optional[str] = None) -> Callable:
+        """
+        Decorator to register a model class.
+
+        Args:
+            name: Name to register the model under. If None, uses class name.
+
+        Example:
+            @registry.register_model("mnist_fc_8k")
+            class MNISTSmall(BaseModel):
+                pass
+        """
+
+        def decorator(cls: Type) -> Type:
+            model_name = name if name is not None else cls.__name__
+            if model_name in self._models:
+                warnings.warn(
+                    f"Model '{model_name}' is already registered and will be overwritten. "
+                    f"This may lead to unexpected behavior if other code depends on the original implementation. "
+                    f"Consider using a unique name or checking existing registrations with registry.list_models().",
+                    UserWarning,
+                    stacklevel=2,
+                )
+            self._models[model_name] = cls
+            return cls
+
+        return decorator
+
+    def get_model(self, name: str) -> Type:
+        """
+        Get a registered model class by name.
+
+        Args:
+            name: Name of the model
+
+        Returns:
+            Model class
+
+        Raises:
+            ValueError: If model not found
+        """
+        if name not in self._models:
+            raise ValueError(
+                f"Model '{name}' not found. " f"Available models: {list(self._models.keys())}"
+            )
+        return self._models[name]
+
+    def list_models(self) -> List[str]:
+        """List all registered model names."""
+        return list(self._models.keys())
+
+    def build_model(self, name: str, **kwargs) -> Any:
+        """
+        Build a model instance from its registered name.
+
+        Args:
+            name: Name of the model
+            **kwargs: Arguments to pass to the model constructor
+
+        Returns:
+            Instance of the model
+        """
+        model_cls = self.get_model(name)
+        return model_cls(**kwargs)
+
     # ==================== Utility Methods ====================
 
     def list_all(self) -> Dict[str, List[str]]:
@@ -431,6 +499,7 @@ class Registry:
             "encoders": self.list_encoders(),
             "initializers": self.list_initializers(),
             "regularizers": self.list_regularizers(),
+            "models": self.list_models(),
         }
 
     def __repr__(self) -> str:
@@ -441,7 +510,8 @@ class Registry:
             f"  convolutional_layers={len(self._convolutional_layers)},\n"
             f"  encoders={len(self._encoders)},\n"
             f"  initializers={len(self._initializers)},\n"
-            f"  regularizers={len(self._regularizers)}\n"
+            f"  regularizers={len(self._regularizers)},\n"
+            f"  models={len(self._models)}\n"
             f")"
         )
 
@@ -456,3 +526,4 @@ register_convolutional_layer = REGISTRY.register_convolutional_layer
 register_encoder = REGISTRY.register_encoder
 register_initializer = REGISTRY.register_initializer
 register_regularizer = REGISTRY.register_regularizer
+register_model = REGISTRY.register_model
