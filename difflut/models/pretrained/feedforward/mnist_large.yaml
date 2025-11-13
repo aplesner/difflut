@@ -1,0 +1,89 @@
+# SimpleFeedForward Model Configuration for MNIST (Large)
+# This is an example pretrained model configuration
+# 
+# To use this model:
+#   from difflut.models import build_model
+#   model = build_model("mnist_large", load_weights=True)
+#
+# To train from this config without loading weights:
+#   model = build_model("mnist_large", load_weights=False)
+
+# ==================== Model Architecture ====================
+# These parameters define the model structure and MUST match
+# pretrained weights if loading them.
+
+model_type: feedforward
+layer_type: random
+node_type: probabilistic
+
+# Encoder configuration
+encoder_config:
+  name: thermometer
+  num_bits: 4
+  feature_wise: true
+  clip_inputs: true
+
+# Node and layer structure
+node_input_dim: 6
+layer_widths: [1024, 1000]
+num_classes: 10
+
+# Input information
+input_size: 784  # 28x28 MNIST images flattened
+dataset: mnist
+
+# Random seed for reproducibility
+seed: 42
+
+# ==================== Runtime Parameters ====================
+# These parameters can be safely overridden at runtime without
+# affecting model structure or pretrained weight compatibility.
+
+runtime:
+  # Probabilistic node parameters
+  temperature: 1.0
+  eval_mode: expectation  # or "sampling"
+  use_cuda: true
+  
+  # Initialization (used during training, not for pretrained)
+  init_fn: xavier_uniform
+  init_v_target: 0.25
+  
+  # Regularization (used during training)
+  regularizers:
+    entropy:
+      weight: 0.001
+    clarity:
+      weight: 0.0001
+  
+  # Layer-level parameters
+  flip_probability: 0.0
+  grad_stabilization: none
+  grad_target_std: 1.0
+  grad_subtract_mean: false
+  grad_epsilon: 1.0e-08
+  
+  # Output layer
+  output_tau: 1.0
+
+# ==================== Pretrained Information ====================
+pretrained: true
+pretrained_name: mnist_large
+
+# ==================== Model Metadata ====================
+# Additional information (not used by model, for documentation)
+metadata:
+  description: "Large feedforward model for MNIST classification"
+  accuracy: 98.5  # Example accuracy on test set
+  parameters: ~6.5M  # Approximate parameter count
+  training_epochs: 50
+  optimizer: Adam
+  learning_rate: 0.001
+  batch_size: 128
+  notes: |
+    This model uses:
+    - Thermometer encoding with 4 bits per feature
+    - Two hidden layers (1024, 1000 nodes)
+    - 6-input probabilistic LUT nodes
+    - Xavier uniform initialization
+    - Entropy and clarity regularization

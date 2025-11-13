@@ -1,136 +1,125 @@
 """
-Base class for DiffLUT model zoo models.
+Base model infrastructure for DiffLUT models.
 
-Provides common functionality for all models:
-- Encoder fitting
-- Regularization loss computation
-- Parameter counting
-- Model serialization
+Provides a template for all DiffLUT models with config management,
+runtime parameter overrides, and standardized forward pass structure.
 """
 
 import torch
 import torch.nn as nn
-from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, Tuple, Any
-from pathlib import Path
+from typing import Dict, Any, Optional
+from .model_config import ModelConfig
 
 
-class BaseModel(nn.Module, ABC):
+class BaseLUTModel(nn.Module):
     """
-    Base class for all DiffLUT model zoo models.
+    Base class for all DiffLUT models.
     
-    This class provides:
-    - Common encoder fitting workflow
-    - Regularization loss aggregation from all layers
-    - Parameter counting utilities
-    - Model metadata tracking
+    Features:
+    - Config-based initialization for reproducibility
+    - Runtime parameter overrides (safe to change without affecting structure)
+    - Hooks for subclasses to respond to runtime changes
+    - Standardized serialization and deserialization
     
-    Subclasses must implement:
-    - fit_encoder(): Prepare encoder on training data
-    - forward(): Model inference
-    - _build_layers(): Create network architecture
+    Subclasses should implement:
+    - forward(): The actual forward pass logic
+    - on_runtime_update(): React to runtime parameter changes (optional)
     """
     
-    def __init__(self, name: str, input_size: int, num_classes: int):
+    def __init__(self, config: ModelConfig):
         """
-        Initialize base model.
+        Initialize the base model.
         
         Args:
-            name: Model name for identification (e.g., 'mnist_fc_8k_linear')
-            input_size: Size of raw input features
-            num_classes: Number of output classes
+            config: ModelConfig instance containing all model parameters
         """
         super().__init__()
-        self.model_name = name
-        self.input_size = input_size
-        self.num_classes = num_classes
-        self.encoder_fitted = False
-    
-    @abstractmethod
-    def fit_encoder(self, data: torch.Tensor) -> None:
-        """
-        Fit the encoder on training data.
+        self.config = config
+        self.runtime = config.runtime.copy() if config.runtime else {}
         
-        This is a required step before training the model, as it determines
-        the number of encoded features that become the network input.
-        
-        Args:
-            data: Training data tensor (N, ...) where ... represents feature dimensions
-        
-        Raises:
-            RuntimeError: If encoder is already fitted
-        """
-        pass
-    
-    @abstractmethod
-    def _build_layers(self) -> None:
-        """
-        Build the network layers after encoder is fitted.
-        
-        This is called automatically by fit_encoder() and should create:
-        - self.layers: nn.ModuleList of DiffLUT layers
-        - self.output_layer: Final classification layer (GroupSum)
-        - self.layer_sizes: List tracking layer dimensions
-        """
-        pass
-    
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass through the model.
         
         Args:
-            x: Input tensor (N, ...) - raw input (images, sequences, etc.)
-        
+            x: Input tensor
+            
         Returns:
-            Output logits (N, num_classes)
-        
+            Output tensor
+            
         Raises:
-            RuntimeError: If encoder is not fitted
+            NotImplementedError: Subclasses must implement this
         """
-        if not self.encoder_fitted:
-            raise RuntimeError(
-                f"Encoder must be fitted before forward pass. "
-                f"Call {self.__class__.__name__}.fit_encoder(data) first."
-            )
-        return self._forward_impl(x)
+        raise NotImplementedError("Subclasses must implement forward()")
     
-    @abstractmethod
-    def _forward_impl(self, x: torch.Tensor) -> torch.Tensor:
+    def apply_runtime_overrides(self, overrides: Optional[Dict[str, Any]] = None):
         """
-        Actual forward pass implementation (called by forward()).
+        Apply runtime-only parameter overrides.
         
-        Subclasses implement this instead of forward().
+        These are parameters that can be changed without affecting the model
+        structure (e.g., dropout rate, bitflip probability, temperature).
         
         Args:
-            x: Input tensor (N, ...) - raw input
+            overrides: Dictionary of runtime parameters to override
+        """
+        if overrides:
+            self.runtime.update(overrides)
+            self.on_runtime_update()
+    
+    def on_runtime_update(self):
+        """
+        Hook for subclasses to react to runtime parameter changes.
         
-        Returns:
-            Output logits (N, num_classes)
+        This is called after runtime parameters are updated via
+        apply_runtime_overrides(). Subclasses can override this to
+        apply the changes to internal components.
+        
+        Example:
+            def on_runtime_update(self):
+                if "temperature" in self.runtime:
+                    for layer in self.layers:
+                        if hasattr(layer, 'temperature'):
+                            layer.temperature = self.runtime["temperature"]
         """
         pass
     
-    def get_regularization_loss(self) -> torch.Tensor:
+    def get_config(self) -> ModelConfig:
         """
-        Compute total regularization loss from all layers.
-        
-        Aggregates regularization contributions from all DiffLUT nodes
-        across all layers in the model.
+        Get the model configuration.
         
         Returns:
-            Total regularization loss (scalar tensor, or 0 if no regularizers)
+            ModelConfig instance with current configuration
         """
-        if not hasattr(self, 'layers'):
-            return torch.tensor(0.0, device=self.get_device())
+        return self.config
+    
+    def save_config(self, path: str):
+        """
+        Save model configuration to YAML file.
         
-        reg_loss = 0.0
-        for layer in self.layers:
-            if hasattr(layer, 'get_regularization_loss'):
-                reg_loss = reg_loss + layer.get_regularization_loss()
+        Args:
+            path: Path to save configuration file
+        """
+        self.config.to_yaml(path)
+    
+    def save_weights(self, path: str):
+        """
+        Save model weights to file.
         
-        # Ensure it's a tensor
-        if isinstance(reg_loss, (int, float)):
-            return torch.tensor(reg_loss, device=self.get_device())
-        return reg_loss
+        Args:
+            path: Path to save weights file
+        """
+        torch.save(self.state_dict(), path)
+    
+    def load_weights(self, path: str, map_location: str = "cpu"):
+        """
+        Load model weights from file.
+        
+        Args:
+            path: Path to weights file
+            map_location: Device to map tensors to (default: "cpu")
+        """
+        state_dict = torch.load(path, map_location=map_location)
+        self.load_state_dict(state_dict)
     
     def count_parameters(self) -> Dict[str, int]:
         """
@@ -148,66 +137,31 @@ class BaseModel(nn.Module, ABC):
             'non_trainable': total - trainable
         }
     
-    def get_layer_topology(self) -> List[Dict[str, Any]]:
+    def get_regularization_loss(self) -> torch.Tensor:
         """
-        Get the layer topology for debugging/visualization.
+        Compute total regularization loss from all layers.
+        
+        This is a default implementation that can be overridden by subclasses.
         
         Returns:
-            List of dicts with 'input' and 'output' sizes for each layer
+            Total regularization loss (scalar tensor)
         """
-        if hasattr(self, 'layer_sizes'):
-            return self.layer_sizes
-        return []
-    
-    def get_device(self) -> torch.device:
-        """Get the device this model is on."""
-        return next(self.parameters()).device
-    
-    def save_checkpoint(self, path: Path) -> None:
-        """
-        Save model checkpoint with config.
+        reg_loss = torch.tensor(0.0, device=next(self.parameters()).device)
         
-        Args:
-            path: Path to save checkpoint
-        """
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        # Iterate through all submodules looking for regularization
+        for module in self.modules():
+            if hasattr(module, 'get_regularization_loss') and module != self:
+                reg_loss = reg_loss + module.get_regularization_loss()
         
-        checkpoint = {
-            'model_state': self.state_dict(),
-            'model_name': self.model_name,
-            'input_size': self.input_size,
-            'num_classes': self.num_classes,
-            'encoder_fitted': self.encoder_fitted,
-        }
-        
-        if hasattr(self, 'encoder'):
-            checkpoint['encoder_state'] = self.encoder.state_dict()
-        
-        torch.save(checkpoint, path)
-    
-    def load_checkpoint(self, path: Path) -> None:
-        """
-        Load model checkpoint.
-        
-        Args:
-            path: Path to checkpoint
-        """
-        checkpoint = torch.load(path, map_location=self.get_device())
-        self.load_state_dict(checkpoint['model_state'])
-        self.encoder_fitted = checkpoint.get('encoder_fitted', True)
-        
-        if 'encoder_state' in checkpoint and hasattr(self, 'encoder'):
-            self.encoder.load_state_dict(checkpoint['encoder_state'])
+        return reg_loss
     
     def __repr__(self) -> str:
-        """String representation of model."""
-        param_counts = self.count_parameters()
+        """String representation of the model."""
+        param_count = self.count_parameters()
         return (
-            f"{self.model_name}(\n"
-            f"  input_size={self.input_size},\n"
-            f"  num_classes={self.num_classes},\n"
-            f"  encoder_fitted={self.encoder_fitted},\n"
-            f"  parameters={param_counts['total']:,}\n"
+            f"{self.__class__.__name__}(\n"
+            f"  config={self.config.__class__.__name__},\n"
+            f"  parameters={param_count['total']:,} ({param_count['trainable']:,} trainable),\n"
+            f"  runtime={self.runtime}\n"
             f")"
         )

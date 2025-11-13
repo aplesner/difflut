@@ -487,6 +487,27 @@ class Registry:
         """
         model_cls = self.get_model(name)
         return model_cls(**kwargs)
+    
+    def get_model_config(self, name: str) -> Optional[Any]:
+        """
+        Get the default configuration for a registered model.
+        
+        This looks for a default config associated with the model class,
+        either as a class attribute or in the pretrained directory.
+        
+        Args:
+            name: Name of the model
+        
+        Returns:
+            Model configuration (if available), None otherwise
+        """
+        model_cls = self.get_model(name)
+        
+        # Check if model class has a default_config class attribute
+        if hasattr(model_cls, 'default_config'):
+            return model_cls.default_config
+        
+        return None
 
     # ==================== Utility Methods ====================
 
@@ -501,6 +522,27 @@ class Registry:
             "regularizers": self.list_regularizers(),
             "models": self.list_models(),
         }
+    
+    def get_pretrained_models(self) -> Dict[str, List[str]]:
+        """
+        Get list of available pretrained models.
+        
+        This is a convenience method that delegates to the factory module
+        to discover pretrained models in the pretrained directory.
+        
+        Returns:
+            Dictionary mapping model type to list of pretrained model names
+        """
+        try:
+            from .models.factory import list_pretrained_models
+            return list_pretrained_models()
+        except ImportError:
+            warnings.warn(
+                "Could not import factory module to list pretrained models. "
+                "Make sure the models subpackage is properly installed.",
+                UserWarning
+            )
+            return {}
 
     def __repr__(self) -> str:
         return (
