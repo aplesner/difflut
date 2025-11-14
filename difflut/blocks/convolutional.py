@@ -26,6 +26,7 @@ class ConvolutionConfig:
         stride: int | tuple[int, int] = 1,
         padding: int | tuple[int, int] = 0,
         seed: int = 42,
+        patch_chunk_size: int | None = None,  # Process patches in chunks to save memory
     ):
         assert in_channels is not None, "in_channels must be specified"
         assert out_channels is not None, "out_channels must be specified"
@@ -37,6 +38,7 @@ class ConvolutionConfig:
         self.stride = stride
         self.padding = padding
         self.seed = seed
+        self.patch_chunk_size = patch_chunk_size  # None = process all at once
 
 
 @register_block("convolutional")
@@ -93,6 +95,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         self.layer_type = layer_type
         self.n_inputs_per_node = n_inputs_per_node
         self.seed = convolution_config.seed
+        self.patch_chunk_size = convolution_config.patch_chunk_size  # For memory-efficient processing
 
         # Build tree architecture: each layer reduces by factor of n_inputs_per_node
         # Example: tree_depth=2, n_inputs_per_node=6
@@ -166,6 +169,27 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
             return (x, x)
         return x
 
+    def _process_patches_through_trees(self, patches):
+        """
+        Process a batch of patches through all trees.
+        
+        Args:
+            patches: Tensor of shape (num_patches, patch_size)
+            
+        Returns:
+            Tensor of shape (num_patches, out_channels)
+        """
+        outputs = []
+        for tree_layers in self.trees:
+            x_tree = patches
+            for layer in tree_layers:
+                x_tree = layer(x_tree)
+            # x_tree is now (num_patches, 1)
+            outputs.append(x_tree)
+        
+        # Stack outputs: list of (num_patches, 1) -> (num_patches, out_channels)
+        return torch.cat(outputs, dim=1)
+
     def __repr__(self) -> str:
         """Simple model overview."""
         return (
@@ -210,18 +234,30 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         if self.training and self.flip_probability > 0.0:
             patches = self._apply_bit_flip(patches)
 
-        # Process all patches through each tree independently
-        # Each tree processes all patches and produces one output per patch
-        outputs = []
-        for tree_layers in self.trees:
-            x_tree = patches
-            for layer in tree_layers:
-                x_tree = layer(x_tree)
-            # x_tree is now (batch*num_patches, 1)
-            outputs.append(x_tree)
+        # Process patches in chunks to reduce memory usage
+        # Instead of processing all batch*patches at once (e.g., 450 samples),
+        # we process them in smaller chunks (e.g., 100 samples at a time).
+        # This reduces peak memory proportionally to chunk size.
         
-        # Stack outputs: list of (batch*num_patches, 1) -> (batch*num_patches, out_channels)
-        x_out = torch.cat(outputs, dim=1)
+        if self.patch_chunk_size is None or self.patch_chunk_size >= patches.shape[0]:
+            # Process all patches at once (original behavior)
+            x_out = self._process_patches_through_trees(patches)
+        else:
+            # Process patches in chunks
+            num_patches_total = patches.shape[0]
+            chunk_outputs = []
+            
+            for chunk_start in range(0, num_patches_total, self.patch_chunk_size):
+                chunk_end = min(chunk_start + self.patch_chunk_size, num_patches_total)
+                patch_chunk = patches[chunk_start:chunk_end]
+                
+                # Process this chunk through all trees
+                chunk_out = self._process_patches_through_trees(patch_chunk)
+                chunk_outputs.append(chunk_out)
+            
+            # Concatenate all chunk outputs
+            x_out = torch.cat(chunk_outputs, dim=0)
+        
         
         # Reshape to (batch, num_patches, out_channels)
         x_out = x_out.view(batch_size, num_patches, self.out_channels)

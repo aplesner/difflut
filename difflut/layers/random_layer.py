@@ -270,7 +270,9 @@ class RandomLayer(BaseLUTLayer):
         """
         # Try CUDA kernel first (fastest, eliminates expand + gather overhead)
         if _MAPPING_CUDA_AVAILABLE and x.is_cuda:
-            mapped_inputs = mapping_forward_cuda(x, self._mapping_indices, self.input_size)
+            # Ensure indices are on the same device as input
+            indices = self._mapping_indices.to(x.device)
+            mapped_inputs = mapping_forward_cuda(x, indices, self.input_size)
             if mapped_inputs is not None:
                 return mapped_inputs
 

@@ -131,6 +131,12 @@ class SimpleConvolutional(BaseLUTModel):
 
         # Now build convolutional layers
         self._build_conv_layers()
+        
+        # Move layers to the same device as the input data
+        # This ensures GPU compatibility when model.cuda() is called before fit_encoder()
+        if data.is_cuda:
+            for layer in self.conv_layers:
+                layer.to(data.device)
 
         self.encoder_fitted = True
 
@@ -186,6 +192,7 @@ class SimpleConvolutional(BaseLUTModel):
                 stride=self.conv_stride,
                 padding=self.conv_padding,
                 seed=config.seed + layer_idx,  # Different seed for each layer
+                patch_chunk_size=runtime.get("patch_chunk_size", 100),  # Default: 100 patches per chunk
             )
 
             # Create convolutional layer

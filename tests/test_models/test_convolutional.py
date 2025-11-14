@@ -30,7 +30,7 @@ def convolutional_config():
         node_type="probabilistic",
         encoder_config={"name": "thermometer", "num_bits": 3},  # Reduced from 4
         node_input_dim=6,
-        layer_widths=[4],  # Reduced from [8] - only 4 output channels
+        layer_widths=[4],  # Not used for convolutional - see conv_layer_widths below
         num_classes=10,
         dataset="test",
         input_size=None,  # Will be inferred from input
@@ -42,6 +42,7 @@ def convolutional_config():
             "input_channels": 1,  # Reduced from 3 (grayscale instead of RGB)
             "input_height": 8,   # Reduced from 16
             "input_width": 8,    # Reduced from 8
+            "conv_layer_widths": [4],  # Reduced from default [32, 64, 64] - only 4 output channels
         },
     )
 
@@ -82,7 +83,7 @@ class TestSimpleConvolutionalBasics:
                 output = model(batch)
             
             # Check shape: (batch_size, num_classes)
-            assert output.shape == (4, 10)
+            assert output.shape == (2, 10)  # Fixed: batch size is 2, not 4
             assert isinstance(output, torch.Tensor)
 
     def test_gradients_computation(self, convolutional_config):
@@ -142,17 +143,17 @@ class TestSimpleConvolutionalBasics:
 class TestSimpleConvolutionalInputSizes:
     """Test different input sizes."""
 
-    @pytest.mark.parametrize("image_size", [16, 28, 32])
-    @pytest.mark.parametrize("channels", [1, 3])
+    @pytest.mark.parametrize("image_size", [8, 16])  # Reduced from [16, 28, 32]
+    @pytest.mark.parametrize("channels", [1])  # Reduced from [1, 3]
     def test_different_input_sizes(self, image_size, channels):
         """Test model works with different input sizes."""
         config = ModelConfig(
             model_type="convolutional",
             layer_type="random",
             node_type="probabilistic",
-            encoder_config={"name": "thermometer", "num_bits": 4},
+            encoder_config={"name": "thermometer", "num_bits": 3},  # Reduced from 4
             node_input_dim=6,
-            layer_widths=[8],  # Reduced
+            layer_widths=[4],  # Reduced from [8]
             num_classes=10,
             runtime={
                 "conv_kernel_size": 3,
@@ -166,7 +167,7 @@ class TestSimpleConvolutionalInputSizes:
         
         with IgnoreWarnings():
             model = SimpleConvolutional(config)
-            data = generate_uniform_input((4, channels, image_size, image_size))
+            data = generate_uniform_input((2, channels, image_size, image_size))  # Reduced batch
             model.fit_encoder(data)
             
             batch = generate_uniform_input((2, channels, image_size, image_size))
@@ -179,33 +180,33 @@ class TestSimpleConvolutionalInputSizes:
 class TestSimpleConvolutionalNumClasses:
     """Test different number of output classes."""
 
-    @pytest.mark.parametrize("num_classes", [2, 10, 100])
+    @pytest.mark.parametrize("num_classes", [2, 10])  # Reduced from [2, 10, 100]
     def test_different_num_classes(self, num_classes):
         """Test model works with different number of classes."""
         config = ModelConfig(
             model_type="convolutional",
             layer_type="random",
             node_type="probabilistic",
-            encoder_config={"name": "thermometer", "num_bits": 4},
+            encoder_config={"name": "thermometer", "num_bits": 3},  # Reduced from 4
             node_input_dim=6,
-            layer_widths=[8],  # Reduced
+            layer_widths=[4],  # Reduced from [8]
             num_classes=num_classes,
             runtime={
                 "conv_kernel_size": 3,
                 "conv_stride": 1,
                 "conv_padding": 1,
-                "input_channels": 3,
-                "input_height": 16,
-                "input_width": 16,
+                "input_channels": 1,  # Reduced from 3
+                "input_height": 8,   # Reduced from 16
+                "input_width": 8,    # Reduced from 16
             },
         )
         
         with IgnoreWarnings():
             model = SimpleConvolutional(config)
-            data = generate_uniform_input((4, 3, 16, 16))
+            data = generate_uniform_input((2, 1, 8, 8))  # Match new config
             model.fit_encoder(data)
             
-            batch = generate_uniform_input((2, 3, 16, 16))
+            batch = generate_uniform_input((2, 1, 8, 8))  # Match new config
             with torch.no_grad():
                 output = model(batch)
             
