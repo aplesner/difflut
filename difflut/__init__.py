@@ -32,6 +32,17 @@ warnings.filterwarnings('error', module='difflut')
 from .encoder.base_encoder import BaseEncoder
 from .layers.base_layer import BaseLUTLayer
 
+# Import model zoo
+from .models import (
+    BaseLUTModel,
+    ModelConfig,
+    SimpleFeedForward,
+    build_model,
+    get_pretrained_model_info,
+    list_pretrained_models,
+    load_pretrained,
+)
+
 # Import base classes
 from .nodes.base_node import BaseNode
 
@@ -45,17 +56,6 @@ from .registry import (
     register_model,
     register_node,
     register_regularizer,
-)
-
-# Import model zoo
-from .models import (
-    build_model,
-    load_pretrained,
-    list_pretrained_models,
-    get_pretrained_model_info,
-    ModelConfig,
-    BaseLUTModel,
-    SimpleFeedForward,
 )
 
 __version__ = "1.4.4"

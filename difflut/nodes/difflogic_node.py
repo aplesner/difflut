@@ -15,24 +15,27 @@ from .base_node import BaseNode
 
 DEFAULT_DIFFLOGIC_EVAL_MODE: str = "expectation"
 
-BOOLEAN_FUNCTIONS_16 = torch.tensor([
-    [0, 0, 0, 0],  # 0:  False
-    [1, 0, 0, 0],  # 1:  a AND NOT b
-    [0, 1, 0, 0],  # 2:  NOT a AND b
-    [1, 1, 0, 0],  # 3:  a NAND b
-    [0, 0, 1, 0],  # 4:  a AND NOT b
-    [1, 0, 1, 0],  # 5:  b = NOT (a XOR b)
-    [0, 1, 1, 0],  # 6:  a XOR b
-    [1, 1, 1, 0],  # 7:  a OR b
-    [0, 0, 0, 1],  # 8:  a NOR b
-    [1, 0, 0, 1],  # 9:  a XNOR b
-    [0, 1, 0, 1],  # 10: NOT a
-    [1, 1, 0, 1],  # 11: a OR NOT b
-    [0, 0, 1, 1],  # 12: NOT b
-    [1, 0, 1, 1],  # 13: NOT a OR b
-    [0, 1, 1, 1],  # 14: a OR NOT b
-    [1, 1, 1, 1],  # 15: True
-], dtype=torch.float32)
+BOOLEAN_FUNCTIONS_16 = torch.tensor(
+    [
+        [0, 0, 0, 0],  # 0:  False
+        [1, 0, 0, 0],  # 1:  a AND NOT b
+        [0, 1, 0, 0],  # 2:  NOT a AND b
+        [1, 1, 0, 0],  # 3:  a NAND b
+        [0, 0, 1, 0],  # 4:  a AND NOT b
+        [1, 0, 1, 0],  # 5:  b = NOT (a XOR b)
+        [0, 1, 1, 0],  # 6:  a XOR b
+        [1, 1, 1, 0],  # 7:  a OR b
+        [0, 0, 0, 1],  # 8:  a NOR b
+        [1, 0, 0, 1],  # 9:  a XNOR b
+        [0, 1, 0, 1],  # 10: NOT a
+        [1, 1, 0, 1],  # 11: a OR NOT b
+        [0, 0, 1, 1],  # 12: NOT b
+        [1, 0, 1, 1],  # 13: NOT a OR b
+        [0, 1, 1, 1],  # 14: a OR NOT b
+        [1, 1, 1, 1],  # 15: True
+    ],
+    dtype=torch.float32,
+)
 
 
 @register_node("difflogic")
@@ -135,10 +138,10 @@ class DiffLogicNode(BaseNode):
         # Differentiable polynomial interpolation
         # f(a, b) = (1-a)(1-b)*tt[0] + (1-a)*b*tt[1] + a*(1-b)*tt[2] + a*b*tt[3]
         output = (
-            (1 - a) * (1 - b) * truth_table[0] +
-            (1 - a) * b * truth_table[1] +
-            a * (1 - b) * truth_table[2] +
-            a * b * truth_table[3]
+            (1 - a) * (1 - b) * truth_table[0]
+            + (1 - a) * b * truth_table[1]
+            + a * (1 - b) * truth_table[2]
+            + a * b * truth_table[3]
         )
 
         return output
