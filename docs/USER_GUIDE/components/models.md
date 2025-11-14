@@ -11,8 +11,11 @@ Learn how to load, configure, and use DiffLUT models for inference and training.
 ```python
 from difflut.models import build_model
 
-# Load a pretrained model
+# Load a pretrained model (latest version)
 model = build_model("mnist_large", load_weights=True)
+
+# Or load a specific version
+model = build_model("feedforward/mnist_large/v1", load_weights=True)
 
 # Use for inference
 predictions = model(test_data)
@@ -232,9 +235,19 @@ from difflut.models import list_pretrained_models
 models = list_pretrained_models()
 # Returns dict like:
 # {
-#     "feedforward": ["mnist_large", "mnist_small", "cifar10_large"],
-#     "convnet": [...]
+#     "feedforward": [
+#         "mnist_large",                    # non-versioned
+#         "cifar10_ffn_baseline/v1",        # versioned
+#         "cifar10_ffn_baseline/v2",
+#         "mnist_small/v1",
+#     ]
 # }
+
+# List all available models
+for model_type, model_names in models.items():
+    print(f"\n{model_type}:")
+    for name in model_names:
+        print(f"  - {name}")
 ```
 
 ### Getting Model Information
@@ -291,27 +304,6 @@ model = build_model(
 )
 ```
 
-### Parameter Effects
-
-**Temperature (Probabilistic Nodes)**
-- Low (0.1): Sharp, confident predictions
-- Medium (1.0): Standard behavior
-- High (2.0): Soft, uncertain predictions
-
-**Evaluation Mode**
-- `"expectation"`: Use expected values (faster, deterministic)
-- `"sampling"`: Sample from probabilities (stochastic, more realistic)
-
-**Flip Probability**
-- 0.0: No bit flipping (baseline)
-- 0.05-0.1: Mild robustness testing
-- 0.2+: Harsh noise for stress testing
-
-**Gradient Stabilization**
-- `"none"`: No normalization
-- `"layerwise"`: Normalize per layer
-- `"nodewise"`: Normalize per node
-- `"batch"`: Normalize per batch
 
 ---
 
@@ -447,21 +439,21 @@ print(f"Final Accuracy: {accuracy:.2f}%")
 
 ## Saving and Loading Models
 
-### Save Model Configuration
+#### Save Model Configuration
 
 ```python
 # Save architecture to YAML
 model.save_config("my_model.yaml")
 ```
 
-### Save Model Weights
+#### Save Model Weights
 
 ```python
 # Save trained weights
 model.save_weights("my_model.pth")
 ```
 
-### Load Model Weights
+#### Load Model Weights
 
 ```python
 # Load weights into existing model
@@ -469,7 +461,7 @@ model = build_model(config)
 model.load_weights("my_model.pth")
 ```
 
-### Complete Save/Load Cycle
+#### Complete Save/Load Cycle
 
 ```python
 # After training
@@ -493,9 +485,12 @@ predictions = model(test_data)
 ```python
 from difflut.models import build_model
 
-# One line - load and use
+# One line - load and use (automatically uses latest version)
 model = build_model("mnist_large", load_weights=True)
 predictions = model(test_data)
+
+# Or explicitly specify version
+model = build_model("feedforward/mnist_large/v2", load_weights=True)
 ```
 
 ### Workflow 2: Experiment with Different Parameters
@@ -567,56 +562,6 @@ for rate in flip_rates:
 
 ---
 
-## Troubleshooting
-
-### Issue: "Encoder must be fitted before forward pass"
-
-```
-RuntimeError: Encoder must be fitted before forward pass. Call fit_encoder() first.
-```
-
-**Solution:** Fit the encoder on your data before using the model:
-
-```python
-model.fit_encoder(train_data)  # Or sample of it
-output = model(test_data)
-```
-
-### Issue: "Pretrained model not found"
-
-```
-FileNotFoundError: Pretrained model 'xyz' not found
-```
-
-**Solution:** Check available models:
-
-```python
-from difflut.models import list_pretrained_models
-print(list_pretrained_models())
-```
-
-### Issue: Weight loading fails with shape mismatch
-
-**Solution:** Ensure config and weights are compatible:
-
-```python
-# Load config from same source as weights
-model = build_model("my_model.yaml")
-model.load_weights("my_model.pth")  # Must be from same training
-```
-
-### Issue: Out of memory on GPU
-
-**Solution:** Reduce layer sizes or batch size:
-
-```python
-config = ModelConfig(
-    layer_widths=[512, 256],  # Smaller than before
-    # ... other params ...
-)
-```
-
----
 
 ## Next Steps
 
@@ -628,67 +573,5 @@ config = ModelConfig(
 ### Create Custom Models
 - See [Creating Custom Models](../../DEVELOPER_GUIDE/creating_components/creating_models.md)
 
-### Use in Experiments
-- See [Experiment Configuration](../experiment_configuration.md) for setting up training pipelines
-
 ---
 
-## API Reference
-
-### Building Models
-
-```python
-from difflut.models import build_model
-
-build_model(
-    source,                  # Model name, YAML file, or ModelConfig
-    load_weights=True,       # Load pretrained weights
-    overrides=None          # Runtime parameter overrides
-) -> BaseLUTModel
-```
-
-### Model Configuration
-
-```python
-from difflut.models import ModelConfig
-
-ModelConfig(
-    model_type: str,
-    layer_type: str,
-    node_type: str,
-    encoder_config: Dict,
-    node_input_dim: int,
-    layer_widths: List[int],
-    num_classes: int,
-    input_size: Optional[int] = None,
-    dataset: Optional[str] = None,
-    seed: int = 42,
-    runtime: Dict[str, Any] = None,
-    pretrained: bool = False,
-    pretrained_name: Optional[str] = None
-)
-```
-
-### Model Methods
-
-```python
-class BaseLUTModel(nn.Module):
-    def fit_encoder(self, data: torch.Tensor) -> None
-    def forward(self, x: torch.Tensor) -> torch.Tensor
-    def get_regularization_loss(self) -> torch.Tensor
-    def apply_runtime_overrides(self, overrides: Dict) -> None
-    def save_config(self, path: str) -> None
-    def save_weights(self, path: str) -> None
-    def load_weights(self, path: str) -> None
-    def get_config(self) -> ModelConfig
-    def count_parameters(self) -> Dict[str, int]
-```
-
----
-
-## See Also
-
-- **Models Overview**: Pretrained architectures and benchmarks
-- **Components Guide**: Understanding encoders, nodes, and layers
-- **Registry**: Discovering available components
-- **Experiment Configuration**: Using models in Hydra configs

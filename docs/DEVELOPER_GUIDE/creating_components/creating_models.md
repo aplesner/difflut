@@ -320,8 +320,6 @@ for epoch in range(50):
 - `num_classes`: Output classes
 
 **Runtime Parameters** (can be overridden safely):
-- `temperature`: Probabilistic node temperature
-- `eval_mode`: Expectation or sampling
 - `flip_probability`: Bit flip probability
 - `regularizers`: Regularization weights
 - Any other non-structural parameter in `runtime` dict
@@ -432,13 +430,25 @@ model = ModelClass(config)
 
 ### Directory Structure
 
+The system supports both versioned and non-versioned model structures:
+
 ```
 pretrained/
 ├── feedforward/
-│   ├── mnist_large.yaml
+│   ├── mnist_large.yaml                    # non-versioned
 │   ├── mnist_large.pth
 │   ├── mnist_small.yaml
 │   ├── mnist_small.pth
+│   ├── cifar10_ffn_baseline/               # versioned models
+│   │   ├── v1/
+│   │   │   ├── cifar10_ffn_baseline.yaml
+│   │   │   └── cifar10_ffn_baseline.pth
+│   │   ├── v2/
+│   │   │   ├── cifar10_ffn_baseline.yaml
+│   │   │   └── cifar10_ffn_baseline.pth
+│   │   └── v3/
+│   │       ├── cifar10_ffn_baseline.yaml
+│   │       └── cifar10_ffn_baseline.pth
 │   └── cifar10_large.yaml
 ├── convnet/
 │   ├── cifar10_conv.yaml
@@ -473,20 +483,24 @@ model.fit_encoder(train_data)
 # (training code here)
 ```
 
-**Step 2: Save config and weights**
+**Step 2: Save config and weights (versioned)**
 
 ```python
 from pathlib import Path
 
 # Create directory
-pretrained_dir = Path("difflut/models/pretrained/feedforward")
-pretrained_dir.mkdir(parents=True, exist_ok=True)
+pretrained_dir = Path("difflut/models/pretrained")
 
-# Save config
-model.save_config(str(pretrained_dir / "mnist_large.yaml"))
+# Save to versioned location (auto-increments: v1, v2, v3, ...)
+config_path, weights_path = config.save_to_pretrained(
+    "mnist_large",
+    pretrained_dir=pretrained_dir,
+    version="v1"  # Explicitly specify version
+)
+model.save_weights(str(weights_path))
 
-# Save weights
-model.save_weights(str(pretrained_dir / "mnist_large.pth"))
+# Or auto-increment (will create v1 on first call, v2 on second, etc.)
+# config.save_to_pretrained("mnist_large", pretrained_dir=pretrained_dir)
 ```
 
 **Step 3: Update config with metadata**
@@ -511,33 +525,99 @@ pretrained_name: mnist_large
 from difflut.models import build_model, list_pretrained_models
 
 # Check it's available
-print("mnist_large" in list_pretrained_models()["feedforward"])
+models = list_pretrained_models()
+print("mnist_large/v1" in models["feedforward"])
 
-# Load and use
+# Load specific version
+model = build_model("feedforward/mnist_large/v1", load_weights=True)
+
+# Or load latest version (automatic)
 model = build_model("mnist_large", load_weights=True)
+
 predictions = model(test_data)
 ```
 
 ### Loading Pretrained Models
 
 ```python
-from difflut.models import build_model, get_pretrained_model_info
+from difflut.models import build_model, get_pretrained_model_info, list_pretrained_models
 
-# List available models
-from difflut.models import list_pretrained_models
-print(list_pretrained_models())
+# List available models (shows both versioned and non-versioned)
+models = list_pretrained_models()
+print(models)
+# Output:
+# {
+#     "feedforward": [
+#         "mnist_large",                        # non-versioned
+#         "mnist_small",
+#         "cifar10_ffn_baseline/v1",            # versioned
+#         "cifar10_ffn_baseline/v2",
+#     ]
+# }
+
+# Load by name (uses latest version if multiple exist)
+model = build_model("mnist_large", load_weights=True)
+
+# Load specific version
+model = build_model("feedforward/cifar10_ffn_baseline/v1", load_weights=True)
+
+# Or explicitly with model_type
+model = build_model("feedforward/cifar10_ffn_baseline/v2", load_weights=True)
 
 # Get info about a model
 info = get_pretrained_model_info("mnist_large")
 print(f"Accuracy: {info.get('accuracy')}")
 print(f"Architecture: {info['model_type']}")
 
-# Load with weights
-model = build_model("mnist_large", load_weights=True)
-
 # Load architecture only (for fine-tuning)
 model = build_model("mnist_large", load_weights=False)
 ```
+
+### Model Version Management
+
+The system automatically manages model versions for you:
+
+```python
+from difflut.models import ModelConfig
+
+config = ModelConfig(...)
+
+# Auto-increment version (creates v1, v2, v3, ... automatically)
+config.save_to_pretrained("my_model")  # First call: saves to v1
+config.save_to_pretrained("my_model")  # Second call: saves to v2
+config.save_to_pretrained("my_model")  # Third call: saves to v3
+
+# Explicit version (you control the version)
+config.save_to_pretrained("my_model", version="v1")
+
+# Directory structure created:
+# pretrained/
+# └── feedforward/
+#     └── my_model/
+#         ├── v1/
+#         │   ├── my_model.yaml
+#         │   └── my_model.pth
+#         ├── v2/
+#         │   ├── my_model.yaml
+#         │   └── my_model.pth
+#         └── v3/
+#             ├── my_model.yaml
+#             └── my_model.pth
+
+# Load specific version
+from difflut.models import build_model
+model = build_model("feedforward/my_model/v2", load_weights=True)
+
+# Load latest version (automatic)
+model = build_model("my_model", load_weights=True)  # Loads v3
+```
+
+**Version Auto-Increment Behavior:**
+
+1. **First save**: Creates `v1` directory
+2. **Second save**: Creates `v2` directory
+3. **Explicit version**: Saves to specified version directly
+4. **Non-versioned migration**: If old non-versioned model exists, migrates to `v1`
 
 ### Organizing Pretrained Models
 
@@ -547,12 +627,18 @@ Best practices for pretrained model organization:
    - Good: `mnist_large`, `cifar10_small`, `imagenet32_medium`
    - Bad: `model1`, `final`, `best_v2`
 
-2. **Directory**: One directory per model type
+2. **Versioning**: Use semantic versioning (v1, v2, v3, ...)
+   - `v1`: Initial version
+   - `v2`: Minor architecture or hyperparameter changes
+   - `v3+`: Incremental improvements or different training runs
+   - Non-versioned files are supported but versioned is recommended
+
+3. **Directory**: One directory per model type
    - `pretrained/feedforward/`: All feedforward models
    - `pretrained/convnet/`: All convolutional models
    - `pretrained/residual/`: All residual models
 
-3. **Metadata in YAML**: Include training details
+4. **Metadata in YAML**: Include training details
 
 ```yaml
 # Training metadata
@@ -574,22 +660,39 @@ validation_date: "2025-01-16"
 
 # Notes
 notes: "Trained with bit flip probability 0.05"
+version_notes: "Improved accuracy over v1 by tuning learning rate"
 ```
 
-4. **README in directory**:
+5. **README in directory**:
 
 ```markdown
 # Pretrained Feedforward Models
 
 ## Available Models
 
-- `mnist_large`: 98.5% accuracy on MNIST
-- `mnist_small`: 97.2% accuracy on MNIST (faster)
-- `cifar10_large`: 75.3% accuracy on CIFAR-10
+### Latest Versions
+- `mnist_large/v2`: 98.5% accuracy on MNIST (current best)
+- `mnist_small/v1`: 97.2% accuracy on MNIST (faster, smaller)
+- `cifar10_ffn_baseline/v1`: 75.3% accuracy on CIFAR-10
+
+### Version History
+- `mnist_large/v1`: 98.2% accuracy on MNIST (legacy)
 
 ## Usage
 
 See [MODEL_USAGE_GUIDE.md](../MODEL_USAGE_GUIDE.md)
+
+## Loading Models
+
+```python
+from difflut.models import build_model
+
+# Load latest version
+model = build_model("mnist_large", load_weights=True)
+
+# Load specific version
+model = build_model("feedforward/mnist_large/v1", load_weights=True)
+```
 ```
 
 ---
