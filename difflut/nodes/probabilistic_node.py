@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
+from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import CUDAWarning, warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
@@ -189,10 +190,11 @@ class ProbabilisticNode(BaseNode):
         self.register_buffer("temperature", torch.tensor(float(temperature)))
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
         self.eval_mode = eval_mode
-        self.use_cuda = use_cuda and is_cuda_available()
+        # NOTE: use_cuda is no longer stored - CUDA kernels are selected based on device
+        # Device determines kernel selection via should_use_cuda_from_tensor()
 
-        # Determine which implementation is being used and warn accordingly
-        if self.use_cuda and _CUDA_EXT_AVAILABLE and is_cuda_available():
+        # Warn if CUDA extension is available but not provided in init
+        if _CUDA_EXT_AVAILABLE and is_cuda_available():
             # Using CUDA implementation
             pass  # Optimal configuration, no warning needed
         elif use_cuda and not _CUDA_EXT_AVAILABLE:
@@ -273,8 +275,9 @@ class ProbabilisticNode(BaseNode):
         """
         batch_size, input_dim = x.shape
 
-        # Try CUDA kernel first
-        if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
+        # Try CUDA kernel first based on tensor device
+        # Device determines kernel selection, not config parameters
+        if should_use_cuda_from_tensor(x) and _CUDA_EXT_AVAILABLE:
             # raw_weights shape: (2^input_dim, output_dim)
             # self.temperature is already a tensor buffer
             output = probabilistic_forward(x, self.raw_weights, self.temperature.item())

@@ -170,6 +170,44 @@ config = ModelConfig(
 )
 ```
 
+### Device Placement (CPU/GPU)
+
+DiffLUT models follow PyTorch conventions for device placement. Models always start on CPU and can be moved to GPU using standard PyTorch methods. The device automatically determines which kernels are used - no configuration needed.
+
+```python
+from difflut.models import ModelConfig, SimpleConvolutional
+
+config = ModelConfig(
+    model_type='convolutional',
+    node_type='dwn_stable',
+    ...
+)
+
+model = SimpleConvolutional(config)  # Always starts on CPU
+output = model(input)  # Runs on CPU
+
+model = model.cuda()  # Move to GPU
+output = model(input)  # Now runs on GPU - CUDA kernels used automatically
+```
+
+You can also use `.to(device)` for more control:
+
+```python
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+model = model.to(device)
+output = model(input.to(device))  # Runs on specified device
+
+# Move back to CPU
+model = model.cpu()
+output = model(input)  # Runs on CPU again
+```
+
+**Key Points:**
+- No `use_cuda` configuration needed - device placement is automatic
+- CUDA kernels are used when model is on GPU (`.cuda()`)
+- CPU kernels are used when model is on CPU (default)
+- Move models and data to the same device for correct execution
+
 ---
 
 ## Documentation Links

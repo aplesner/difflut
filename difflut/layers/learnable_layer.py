@@ -7,6 +7,7 @@ import torch.nn.functional as F
 
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
+from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import warn_default_value
 from .base_layer import BaseLUTLayer
 from .layer_config import LayerConfig
@@ -191,7 +192,8 @@ class LearnableMappingModule(nn.Module):
         self.input_size = input_size
         self.output_size = output_size  # This is actually layer_output_size * n
         self.tau = tau
-        self.use_cuda_soft = use_cuda_soft
+        # NOTE: use_cuda_soft is no longer stored - CUDA kernels are selected based on device
+        # Device determines kernel selection via should_use_cuda_from_tensor()
 
         # Weight matrix: (output_size, input_size) where output_size = layer_output_size * n
         self.W = nn.Parameter(torch.randn(output_size, input_size))
@@ -238,14 +240,15 @@ class LearnableMappingModule(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Soft selection (training) or hard selection (eval).
-        Uses CUDA kernels when available for optimal performance.
+        Uses CUDA kernels when available based on tensor device.
         Training: softmax + matmul (PyTorch default, or optional CUDA kernel)
         Eval: CUDA kernel for direct lookup (faster than einsum)
         """
         if self.training:
             # Soft selection - training mode
-            # Try CUDA kernel first if enabled (can be faster for very large matrices)
-            if self.use_cuda_soft and _LEARNABLE_MAPPING_CUDA_AVAILABLE and x.is_cuda:
+            # Try CUDA kernel first if available based on tensor device
+            # Device determines kernel selection, not config parameters
+            if should_use_cuda_from_tensor(x) and _LEARNABLE_MAPPING_CUDA_AVAILABLE:
                 output = learnable_mapping_soft_forward_cuda(x, self.W, self.tau)
                 if output is not None:
                     return output
@@ -260,8 +263,9 @@ class LearnableMappingModule(nn.Module):
                 self._compute_hard_selection()
                 self._cache_valid = True
 
-            # Try CUDA kernel first (fastest)
-            if _LEARNABLE_MAPPING_CUDA_AVAILABLE and x.is_cuda:
+            # Try CUDA kernel first based on tensor device (fastest)
+            # Device determines kernel selection, not config parameters
+            if should_use_cuda_from_tensor(x) and _LEARNABLE_MAPPING_CUDA_AVAILABLE:
                 output = learnable_mapping_forward_cuda(
                     x, self._cached_hard_indices, self.input_size
                 )
@@ -381,7 +385,8 @@ class LearnableLayer(BaseLUTLayer):
         self.tau_min = tau_min
         self.tau_decay_iters = tau_decay_iters
         self.tau = tau_start  # Start with tau_start instead of tau
-        self.use_cuda_soft = use_cuda_soft
+        # NOTE: use_cuda_soft is no longer stored - CUDA kernels are selected based on device
+        # Device determines kernel selection via should_use_cuda_from_tensor()
 
         # Create learnable mapping module (helper, not registered)
         # Note: self.n is now available from parent's __init__

@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
+from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import CUDAWarning, warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
@@ -267,10 +268,11 @@ class DWNStableNode(BaseNode):
             init_fn=init_fn,
             init_kwargs=init_kwargs,
         )
-        self.use_cuda = use_cuda and is_cuda_available()
+        # NOTE: use_cuda is no longer stored - CUDA kernels are selected based on device
+        # Device determines kernel selection via should_use_cuda_from_tensor()
 
-        # Determine which implementation is being used and warn accordingly
-        if self.use_cuda and _CUDA_EXT_AVAILABLE and is_cuda_available():
+        # Warn if CUDA extension is available but not provided in init
+        if _CUDA_EXT_AVAILABLE and is_cuda_available():
             # Using CUDA implementation
             pass  # Optimal configuration, no warning needed
         elif use_cuda and not _CUDA_EXT_AVAILABLE:
@@ -327,8 +329,9 @@ class DWNStableNode(BaseNode):
         # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
 
-        # Use CUDA if available and requested
-        if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
+        # Use CUDA if available based on tensor device
+        # Device determines kernel selection, not config parameters
+        if should_use_cuda_from_tensor(x) and _CUDA_EXT_AVAILABLE:
             output = dwn_stable_forward(x, luts, self.gradient_scale.item())
         else:
             # CPU fallback

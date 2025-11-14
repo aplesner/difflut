@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
+from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import CUDAWarning, warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
@@ -292,7 +293,8 @@ class FourierNode(BaseNode):
 
         self.use_all_frequencies = use_all_frequencies
         self.max_amplitude = max_amplitude
-        self.use_cuda = use_cuda and is_cuda_available()
+        # NOTE: use_cuda is no longer stored - CUDA kernels are selected based on device
+        # Device determines kernel selection via should_use_cuda_from_tensor()
 
         # Generate frequency vectors k
         # CRITICAL: We cannot use integer frequencies {0,1}^n because at binary corners,
@@ -403,8 +405,9 @@ class FourierNode(BaseNode):
         """
         batch_size, input_dim = x.shape
 
-        # Use CUDA-accelerated forward if available, otherwise Python fallback
-        if self.use_cuda and x.is_cuda and _FOURIER_CUDA_EXT_AVAILABLE:
+        # Use CUDA-accelerated forward if available based on tensor device
+        # Device determines kernel selection, not config parameters
+        if should_use_cuda_from_tensor(x) and _FOURIER_CUDA_EXT_AVAILABLE:
             output = fourier_forward(
                 x,
                 self.frequencies,
@@ -432,8 +435,9 @@ class FourierNode(BaseNode):
         """
         batch_size, input_dim = x.shape
 
-        # Use CUDA-accelerated forward_eval if available
-        if self.use_cuda and x.is_cuda and _FOURIER_CUDA_EXT_AVAILABLE:
+        # Use CUDA-accelerated forward_eval if available based on tensor device
+        # Device determines kernel selection, not config parameters
+        if should_use_cuda_from_tensor(x) and _FOURIER_CUDA_EXT_AVAILABLE:
             output = fourier_forward(
                 x,
                 self.frequencies,
