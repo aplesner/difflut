@@ -54,7 +54,7 @@ class TestSimpleFeedForwardBasics:
         with IgnoreWarnings():
             model = SimpleFeedForward(feedforward_config)
             data = generate_uniform_input((8, 50))  # Reduced batch size
-            
+
             assert not model.encoder_fitted
             model.fit_encoder(data)
             assert model.encoder_fitted
@@ -65,12 +65,12 @@ class TestSimpleFeedForwardBasics:
             model = SimpleFeedForward(feedforward_config)
             data = generate_uniform_input((8, 50))
             model.fit_encoder(data)
-            
+
             # Forward pass
             batch = generate_uniform_input((4, 50), seed=42)
             with torch.no_grad():
                 output = model(batch)
-            
+
             # Check shape: (batch_size, num_classes)
             assert output.shape == (4, 10)
             assert isinstance(output, torch.Tensor)
@@ -81,15 +81,15 @@ class TestSimpleFeedForwardBasics:
             model = SimpleFeedForward(feedforward_config)
             data = generate_uniform_input((8, 50))
             model.fit_encoder(data)
-            
+
             model.train()
             batch = generate_uniform_input((2, 50), seed=42)
             batch.requires_grad = True
-            
+
             output = model(batch)
             loss = output.sum()
             loss.backward()
-            
+
             # Check gradients exist
             assert_gradients_exist(model)
 
@@ -98,33 +98,33 @@ class TestSimpleFeedForwardBasics:
         """Test that CPU and GPU give same results."""
         if not is_cuda_available():
             pytest.skip("CUDA not available")
-        
+
         with IgnoreWarnings():
             # Create models
             torch.manual_seed(42)
             model_cpu = SimpleFeedForward(feedforward_config)
-            
+
             torch.manual_seed(42)
             model_gpu = SimpleFeedForward(feedforward_config).cuda()
-            
+
             # Fit encoders - reduced batch size
             data_cpu = generate_uniform_input((8, 50), seed=42)
             data_gpu = data_cpu.cuda()
-            
+
             model_cpu.fit_encoder(data_cpu)
             model_gpu.fit_encoder(data_gpu)
-            
+
             # Forward pass - reduced batch size
             model_cpu.eval()
             model_gpu.eval()
-            
+
             input_cpu = generate_uniform_input((4, 50), seed=123)
             input_gpu = input_cpu.cuda()
-            
+
             with torch.no_grad():
                 output_cpu = model_cpu(input_cpu)
                 output_gpu = model_gpu(input_gpu).cpu()
-            
+
             # Compare outputs
             torch.testing.assert_close(output_cpu, output_gpu, atol=1e-5, rtol=1e-4)
 
@@ -145,16 +145,16 @@ class TestSimpleFeedForwardInputSizes:
             num_classes=10,
             input_size=input_size,
         )
-        
+
         with IgnoreWarnings():
             model = SimpleFeedForward(config)
             data = generate_uniform_input((4, input_size))
             model.fit_encoder(data)
-            
+
             batch = generate_uniform_input((2, input_size))
             with torch.no_grad():
                 output = model(batch)
-            
+
             assert output.shape == (2, 10)
 
 
@@ -174,16 +174,16 @@ class TestSimpleFeedForwardNumClasses:
             num_classes=num_classes,
             input_size=50,  # Reduced
         )
-        
+
         with IgnoreWarnings():
             model = SimpleFeedForward(config)
             data = generate_uniform_input((4, 50))
             model.fit_encoder(data)
-            
+
             batch = generate_uniform_input((2, 50))
             with torch.no_grad():
                 output = model(batch)
-            
+
             assert output.shape == (2, num_classes)
 
 

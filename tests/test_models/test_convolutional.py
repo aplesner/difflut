@@ -40,8 +40,8 @@ def convolutional_config():
             "conv_stride": 1,
             "conv_padding": 1,
             "input_channels": 1,  # Reduced from 3 (grayscale instead of RGB)
-            "input_height": 8,   # Reduced from 16
-            "input_width": 8,    # Reduced from 8
+            "input_height": 8,  # Reduced from 16
+            "input_width": 8,  # Reduced from 8
             "conv_layer_widths": [4],  # Reduced from default [32, 64, 64] - only 4 output channels
         },
     )
@@ -65,7 +65,7 @@ class TestSimpleConvolutionalBasics:
             model = SimpleConvolutional(convolutional_config)
             # Input: (batch, channels, height, width) - reduced to 1 channel, 8x8
             data = generate_uniform_input((4, 1, 8, 8))  # Reduced batch and size
-            
+
             assert not model.encoder_fitted
             model.fit_encoder(data)
             assert model.encoder_fitted
@@ -76,12 +76,12 @@ class TestSimpleConvolutionalBasics:
             model = SimpleConvolutional(convolutional_config)
             data = generate_uniform_input((4, 1, 8, 8))  # Match new config
             model.fit_encoder(data)
-            
+
             # Forward pass
             batch = generate_uniform_input((2, 1, 8, 8), seed=42)  # Match new config
             with torch.no_grad():
                 output = model(batch)
-            
+
             # Check shape: (batch_size, num_classes)
             assert output.shape == (2, 10)  # Fixed: batch size is 2, not 4
             assert isinstance(output, torch.Tensor)
@@ -92,15 +92,15 @@ class TestSimpleConvolutionalBasics:
             model = SimpleConvolutional(convolutional_config)
             data = generate_uniform_input((4, 1, 8, 8))  # Match new config
             model.fit_encoder(data)
-            
+
             model.train()
             batch = generate_uniform_input((2, 1, 8, 8), seed=42)  # Match new config
             batch.requires_grad = True
-            
+
             output = model(batch)
             loss = output.sum()
             loss.backward()
-            
+
             # Check gradients exist
             assert_gradients_exist(model)
 
@@ -109,33 +109,33 @@ class TestSimpleConvolutionalBasics:
         """Test that CPU and GPU give same results."""
         if not is_cuda_available():
             pytest.skip("CUDA not available")
-        
+
         with IgnoreWarnings():
             # Create models
             torch.manual_seed(42)
             model_cpu = SimpleConvolutional(convolutional_config)
-            
+
             torch.manual_seed(42)
             model_gpu = SimpleConvolutional(convolutional_config).cuda()
-            
+
             # Fit encoders - match new config
             data_cpu = generate_uniform_input((4, 1, 8, 8), seed=42)  # Match new config
             data_gpu = data_cpu.cuda()
-            
+
             model_cpu.fit_encoder(data_cpu)
             model_gpu.fit_encoder(data_gpu)
-            
+
             # Forward pass
             model_cpu.eval()
             model_gpu.eval()
-            
+
             input_cpu = generate_uniform_input((2, 1, 8, 8), seed=123)  # Match new config
             input_gpu = input_cpu.cuda()
-            
+
             with torch.no_grad():
                 output_cpu = model_cpu(input_cpu)
                 output_gpu = model_gpu(input_gpu).cpu()
-            
+
             # Compare outputs - should be identical with same seed and weights
             torch.testing.assert_close(output_cpu, output_gpu, atol=1e-5, rtol=1e-4)
 
@@ -164,16 +164,16 @@ class TestSimpleConvolutionalInputSizes:
                 "input_width": image_size,
             },
         )
-        
+
         with IgnoreWarnings():
             model = SimpleConvolutional(config)
             data = generate_uniform_input((2, channels, image_size, image_size))  # Reduced batch
             model.fit_encoder(data)
-            
+
             batch = generate_uniform_input((2, channels, image_size, image_size))
             with torch.no_grad():
                 output = model(batch)
-            
+
             assert output.shape == (2, 10)
 
 
@@ -196,20 +196,20 @@ class TestSimpleConvolutionalNumClasses:
                 "conv_stride": 1,
                 "conv_padding": 1,
                 "input_channels": 1,  # Reduced from 3
-                "input_height": 8,   # Reduced from 16
-                "input_width": 8,    # Reduced from 16
+                "input_height": 8,  # Reduced from 16
+                "input_width": 8,  # Reduced from 16
             },
         )
-        
+
         with IgnoreWarnings():
             model = SimpleConvolutional(config)
             data = generate_uniform_input((2, 1, 8, 8))  # Match new config
             model.fit_encoder(data)
-            
+
             batch = generate_uniform_input((2, 1, 8, 8))  # Match new config
             with torch.no_grad():
                 output = model(batch)
-            
+
             assert output.shape == (2, num_classes)
 
 

@@ -101,7 +101,7 @@ class SimpleFeedForward(BaseLUTModel):
 
         # Now build layers with correct input size
         self._build_layers()
-        
+
         # Move layers to the same device as the input data
         # This ensures GPU compatibility when model.cuda() is called before fit_encoder()
         if data.is_cuda:
@@ -119,7 +119,7 @@ class SimpleFeedForward(BaseLUTModel):
         """
         config = self.config
         current_size = self.encoded_input_size
-        
+
         # Set random seed to ensure reproducibility
         # This is critical for CPU/GPU consistency since layers are built
         # after model initialization (inside fit_encoder)

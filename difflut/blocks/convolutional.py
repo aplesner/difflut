@@ -13,7 +13,7 @@ from ..registry import register_block
 class ConvolutionConfig:
     """
     Configuration for ConvolutionalBlock.
-    
+
     Simplified configuration - no chunking needed.
     """
 
@@ -45,13 +45,13 @@ class ConvolutionConfig:
 class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     """
     Simplified convolutional block using LUT-based nodes.
-    
+
     Strategy:
     1. Build a tree of layers once (reusable across all spatial positions)
     2. Use nn.Unfold to extract patches from input image
     3. Process all patches through the same tree in parallel
     4. Reshape output back to spatial format
-    
+
     This is much simpler than the previous chunked implementation and reuses
     the same tree weights for all spatial positions (like standard convolution).
     """
@@ -95,7 +95,9 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         self.layer_type = layer_type
         self.n_inputs_per_node = n_inputs_per_node
         self.seed = convolution_config.seed
-        self.patch_chunk_size = convolution_config.patch_chunk_size  # For memory-efficient processing
+        self.patch_chunk_size = (
+            convolution_config.patch_chunk_size
+        )  # For memory-efficient processing
 
         # Build tree architecture: each layer reduces by factor of n_inputs_per_node
         # Example: tree_depth=2, n_inputs_per_node=6
@@ -128,7 +130,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         for tree_idx in range(self.out_channels):
             # Build one tree: input_size -> ... -> 1
             tree_layers = nn.ModuleList()
-            
+
             # First layer: input_size -> hidden_layers[0]
             first_layer = layer_type(
                 input_size=self.input_size,
@@ -142,12 +144,12 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
                 ),
             )
             tree_layers.append(first_layer)
-            
+
             # Remaining layers: progressively reduce to 1 output
             current_input_size = hidden_layers[0]
             for layer_idx in range(1, len(hidden_layers)):
                 output_size = hidden_layers[layer_idx]
-                
+
                 layer = layer_type(
                     input_size=current_input_size,
                     output_size=output_size,
@@ -156,7 +158,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
                 )
                 tree_layers.append(layer)
                 current_input_size = output_size
-            
+
             self.trees.append(tree_layers)
 
         # For convolution, we use the unfold operation to extract patches
@@ -172,10 +174,10 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     def _process_patches_through_trees(self, patches):
         """
         Process a batch of patches through all trees.
-        
+
         Args:
             patches: Tensor of shape (num_patches, patch_size)
-            
+
         Returns:
             Tensor of shape (num_patches, out_channels)
         """
@@ -186,7 +188,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
                 x_tree = layer(x_tree)
             # x_tree is now (num_patches, 1)
             outputs.append(x_tree)
-        
+
         # Stack outputs: list of (num_patches, 1) -> (num_patches, out_channels)
         return torch.cat(outputs, dim=1)
 
@@ -207,10 +209,10 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     def forward(self, x):
         """
         Forward pass through convolutional LUT block.
-        
+
         Args:
             x: Input tensor of shape (batch, in_channels, height, width)
-            
+
         Returns:
             Output tensor of shape (batch, out_channels, out_height, out_width)
         """
@@ -238,7 +240,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         # Instead of processing all batch*patches at once (e.g., 450 samples),
         # we process them in smaller chunks (e.g., 100 samples at a time).
         # This reduces peak memory proportionally to chunk size.
-        
+
         if self.patch_chunk_size is None or self.patch_chunk_size >= patches.shape[0]:
             # Process all patches at once (original behavior)
             x_out = self._process_patches_through_trees(patches)
@@ -246,22 +248,21 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
             # Process patches in chunks
             num_patches_total = patches.shape[0]
             chunk_outputs = []
-            
+
             for chunk_start in range(0, num_patches_total, self.patch_chunk_size):
                 chunk_end = min(chunk_start + self.patch_chunk_size, num_patches_total)
                 patch_chunk = patches[chunk_start:chunk_end]
-                
+
                 # Process this chunk through all trees
                 chunk_out = self._process_patches_through_trees(patch_chunk)
                 chunk_outputs.append(chunk_out)
-            
+
             # Concatenate all chunk outputs
             x_out = torch.cat(chunk_outputs, dim=0)
-        
-        
+
         # Reshape to (batch, num_patches, out_channels)
         x_out = x_out.view(batch_size, num_patches, self.out_channels)
-        
+
         # Transpose to (batch, out_channels, num_patches)
         x_out = x_out.transpose(1, 2)
 
@@ -270,6 +271,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
 
         # Register gradient stabilization hook if enabled
         if self.grad_stabilization != "none" and self.training and output.requires_grad:
+
             def grad_hook(grad):
                 original_shape = grad.shape
                 # Flatten to 2D: (batch, channels*h*w)

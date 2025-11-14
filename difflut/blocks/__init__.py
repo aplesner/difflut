@@ -8,6 +8,6 @@ Unlike layers which are individual processing units, blocks combine multiple lay
 to create reusable architectural patterns.
 """
 
-from .convolutional import ConvolutionConfig, ConvolutionalLayer
+from .convolutional import ConvolutionalLayer, ConvolutionConfig
 
 __all__ = ["ConvolutionConfig", "ConvolutionalLayer"]

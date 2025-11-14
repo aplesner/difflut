@@ -19,10 +19,10 @@ from testing_utils import (
     is_cuda_available,
 )
 
-from difflut.registry import REGISTRY
 from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
 from difflut.layers import LayerConfig
 from difflut.nodes.node_config import NodeConfig
+from difflut.registry import REGISTRY
 
 # ============================================================================
 # Block Forward Pass Tests
@@ -180,9 +180,12 @@ def test_block_with_node_type(block_name, node_name, device):
         with torch.no_grad():
             output = block(input_tensor)
 
-        assert output.shape == (2, 8, 14, 14), (
-            f"{block_name} with {node_name} produced wrong shape {output.shape}"
-        )
+        assert output.shape == (
+            2,
+            8,
+            14,
+            14,
+        ), f"{block_name} with {node_name} produced wrong shape {output.shape}"
 
     except TypeError as e:
         # Some block/node combinations might not be compatible
@@ -237,9 +240,12 @@ def test_block_different_sizes(block_name, device):
         with torch.no_grad():
             output = block(input_tensor)
 
-        assert output.shape == (2, out_channels, 14, 14), (
-            f"{block_name} failed for sizes ({in_channels} → {out_channels})"
-        )
+        assert output.shape == (
+            2,
+            out_channels,
+            14,
+            14,
+        ), f"{block_name} failed for sizes ({in_channels} → {out_channels})"
 
 
 @pytest.mark.parametrize("block_name", _testable_blocks)
@@ -278,6 +284,9 @@ def test_block_grouped_connections(block_name, device):
     with torch.no_grad():
         output = block(input_tensor)
 
-    assert output.shape == (2, 8, 14, 14), (
-        f"{block_name} with grouped_connections failed, got shape {output.shape}"
-    )
+    assert output.shape == (
+        2,
+        8,
+        14,
+        14,
+    ), f"{block_name} with grouped_connections failed, got shape {output.shape}"

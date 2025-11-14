@@ -241,7 +241,7 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
     # Note: bit_flip alone without grad_stabilization can hurt learning due to added noise,
     # so we use a lower threshold for bit_flip-only scenario
     min_accuracy = 0.55 if (scenario_name == "bit_flip") else 0.70
-    
+
     assert test_accuracy > min_accuracy, (
         f"Test accuracy {test_accuracy.item():.2%} is below threshold {min_accuracy:.0%}. "
         f"Train accuracy: {train_acc:.2%} "

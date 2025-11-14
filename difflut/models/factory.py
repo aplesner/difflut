@@ -245,7 +245,7 @@ def build_model_for_experiment(
         # Parse pretrained_name to extract model_type, model_name, and version
         # Format: model_type/model_name[/version]
         pretrained_parts = pretrained_name.split("/")
-        
+
         if len(pretrained_parts) == 2:
             model_type, model_name = pretrained_parts
             version = None
@@ -335,9 +335,7 @@ def _load_pretrained_model(
     if model_type:
         model_type_dir = pretrained_dir / model_type
         if not model_type_dir.is_dir():
-            raise FileNotFoundError(
-                f"Model type directory not found: {model_type_dir}"
-            )
+            raise FileNotFoundError(f"Model type directory not found: {model_type_dir}")
         config_path, weights_path = _find_model_in_dir(
             model_type_dir, model_name, version, load_weights
         )
@@ -395,11 +393,9 @@ def _find_model_in_dir(
         FileNotFoundError: If model not found in any version
     """
     model_name_dir = model_type_dir / model_name
-    
+
     if not model_name_dir.is_dir():
-        raise FileNotFoundError(
-            f"Model '{model_name}' not found in {model_type_dir}"
-        )
+        raise FileNotFoundError(f"Model '{model_name}' not found in {model_type_dir}")
 
     if version:
         # Search for specific version
@@ -408,7 +404,7 @@ def _find_model_in_dir(
         # Find latest version
         versions = sorted(
             [d.name for d in model_name_dir.iterdir() if d.is_dir()],
-            key=lambda v: _version_sort_key(v)
+            key=lambda v: _version_sort_key(v),
         )
         if not versions:
             raise FileNotFoundError(
@@ -419,9 +415,7 @@ def _find_model_in_dir(
 
     config_path = version_dir / f"{model_name}.yaml"
     if not config_path.exists():
-        raise FileNotFoundError(
-            f"Config not found for model '{model_name}' in {version_dir}"
-        )
+        raise FileNotFoundError(f"Config not found for model '{model_name}' in {version_dir}")
 
     weights_path = None
     if load_weights:
@@ -445,7 +439,7 @@ def _version_sort_key(version: str) -> tuple:
         Tuple for sorting (higher versions sort later)
     """
     # Extract numeric part if it starts with 'v'
-    if version.startswith('v') and version[1:].isdigit():
+    if version.startswith("v") and version[1:].isdigit():
         return (0, int(version[1:]))
     else:
         # Non-standard version strings sort before numeric ones
@@ -481,19 +475,19 @@ def _prepare_pretrained_save_paths(
     model_type_dir.mkdir(parents=True, exist_ok=True)
 
     model_name_dir = model_type_dir / model_name
-    
+
     if version is None:
         # Auto-increment: find next available version
         if model_name_dir.exists() and model_name_dir.is_dir():
             # Find all version directories
             versions = sorted(
                 [d.name for d in model_name_dir.iterdir() if d.is_dir()],
-                key=lambda v: _version_sort_key(v)
+                key=lambda v: _version_sort_key(v),
             )
             if versions:
                 latest_version = versions[-1]
                 # Increment version number
-                if latest_version.startswith('v') and latest_version[1:].isdigit():
+                if latest_version.startswith("v") and latest_version[1:].isdigit():
                     next_version_num = int(latest_version[1:]) + 1
                     version = f"v{next_version_num}"
                 else:
@@ -504,7 +498,7 @@ def _prepare_pretrained_save_paths(
         else:
             # First time: start with v1
             version = "v1"
-    
+
     # Create versioned directory
     version_dir = model_name_dir / version
     version_dir.mkdir(parents=True, exist_ok=True)
@@ -657,7 +651,9 @@ def get_pretrained_model_info(
             for model_type_dir in pretrained_dir.iterdir():
                 if not model_type_dir.is_dir():
                     continue
-                candidate = model_type_dir / model_name / potential_model_type / f"{model_name}.yaml"
+                candidate = (
+                    model_type_dir / model_name / potential_model_type / f"{model_name}.yaml"
+                )
                 if candidate.exists():
                     config_path = candidate
                     break

@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 import torch
 import torch.nn as nn
 
-from ..blocks.convolutional import ConvolutionConfig, ConvolutionalLayer
+from ..blocks.convolutional import ConvolutionalLayer, ConvolutionConfig
 from ..layers.layer_config import LayerConfig
 from ..nodes.node_config import NodeConfig
 from ..registry import REGISTRY
@@ -131,7 +131,7 @@ class SimpleConvolutional(BaseLUTModel):
 
         # Now build convolutional layers
         self._build_conv_layers()
-        
+
         # Move layers to the same device as the input data
         # This ensures GPU compatibility when model.cuda() is called before fit_encoder()
         if data.is_cuda:
@@ -149,7 +149,7 @@ class SimpleConvolutional(BaseLUTModel):
         """
         config = self.config
         runtime = self.runtime
-        
+
         # Set random seed to ensure reproducibility
         # This is critical for CPU/GPU consistency since layers are built
         # after model initialization (inside fit_encoder)
@@ -198,7 +198,9 @@ class SimpleConvolutional(BaseLUTModel):
                 stride=self.conv_stride,
                 padding=self.conv_padding,
                 seed=config.seed + layer_idx,  # Different seed for each layer
-                patch_chunk_size=runtime.get("patch_chunk_size", 100),  # Default: 100 patches per chunk
+                patch_chunk_size=runtime.get(
+                    "patch_chunk_size", 100
+                ),  # Default: 100 patches per chunk
             )
 
             # Create convolutional layer
@@ -366,25 +368,25 @@ class SimpleConvolutional(BaseLUTModel):
         # To ensure we have enough spatial dimensions for the kernel, we reshape to
         # a square spatial layout that's large enough
         # e.g., if encoded_size=768, we can reshape to (N, c, h, w) where c*h*w = 768
-        
+
         # Calculate a reasonable spatial layout: try to make it roughly square-ish
         # For now, use a simple approach: create a spatial layout with enough padding
         # Reshape to (batch, channels, spatial_h, spatial_w) where channels*spatial_h*spatial_w = encoded_size
         # Use channels = in_channels (reuse the original channel count as a heuristic)
-        
+
         encoded_size = x_encoded.shape[1]
         # Create spatial dimensions to accommodate kernel size without running out of space
         # Minimum spatial size should be > kernel_size to allow at least 1 patch
         min_spatial = self.conv_kernel_size + 2  # Some padding
-        
+
         # Try to create a square-ish layout
-        spatial_pixels = (min_spatial + encoded_size // self.in_channels) 
-        spatial_h = spatial_w = int(spatial_pixels ** 0.5) + 1
-        
+        spatial_pixels = min_spatial + encoded_size // self.in_channels
+        spatial_h = spatial_w = int(spatial_pixels**0.5) + 1
+
         # Adjust if necessary to fit encoded_size
         while spatial_h * spatial_w * self.in_channels < encoded_size:
             spatial_h += 1
-        
+
         # Reshape: (N, encoded_size) -> (N, in_channels, spatial_h, spatial_w)
         # Pad if needed
         if spatial_h * spatial_w * self.in_channels > encoded_size:

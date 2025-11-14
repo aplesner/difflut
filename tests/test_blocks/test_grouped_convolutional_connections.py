@@ -76,22 +76,22 @@ def test_grouped_connections_coverage(seed):
     # Get mapping indices from first layer of all trees (not just first tree)
     # In the new architecture, trees[i] is a ModuleList of layers for tree i
     # trees[i][0] is the first layer of tree i
-    
+
     # Collect all mapping indices from all trees to see channel coverage
     all_indices_grouped = []
     all_indices_nongrouped = []
-    
+
     for tree_idx in range(len(conv_layer_grouped.trees)):
         mapping_grouped_tree = conv_layer_grouped.trees[tree_idx][0]._mapping_indices
         all_indices_grouped.append(mapping_grouped_tree)
-        
+
         mapping_nongrouped_tree = conv_layer_nongrouped.trees[tree_idx][0]._mapping_indices
         all_indices_nongrouped.append(mapping_nongrouped_tree)
-    
+
     # Concatenate all indices from all trees
     all_indices_grouped = torch.cat(all_indices_grouped, dim=0)
     all_indices_nongrouped = torch.cat(all_indices_nongrouped, dim=0)
-    
+
     # Calculate channel coverage for grouped connections
     # Each index in mapping represents a flattened position in the patch
     # For receptive_field=3 with 64 input channels:

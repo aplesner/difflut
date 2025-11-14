@@ -262,7 +262,7 @@ class RandomLayer(BaseLUTLayer):
 
         Uses custom CUDA kernel when available for optimal performance.
         Falls back to PyTorch gather operations on CPU or if CUDA extension unavailable.
-        
+
         Device determines kernel selection: if x is on CUDA device, CUDA kernel is used.
         Just call model.cuda() to use CUDA kernels automatically.
 

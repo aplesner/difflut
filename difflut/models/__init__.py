@@ -37,6 +37,9 @@ Usage Examples:
 
 from .base_model import BaseLUTModel
 
+# Model implementations
+from .convolutional import SimpleConvolutional
+
 # Factory functions
 from .factory import (
     build_model,
@@ -45,9 +48,6 @@ from .factory import (
     list_pretrained_models,
     load_pretrained,
 )
-
-# Model implementations
-from .convolutional import SimpleConvolutional
 from .feedforward import SimpleFeedForward
 
 # Core components
