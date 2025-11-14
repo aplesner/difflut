@@ -48,12 +48,13 @@ from .registry import (
 
 # Import model zoo
 from .models import (
-    get_model,
-    list_models,
-    BaseModel,
-    MNISTLinearSmall,
-    MNISTDWNSmall,
-    CIFAR10Conv,
+    build_model,
+    load_pretrained,
+    list_pretrained_models,
+    get_pretrained_model_info,
+    ModelConfig,
+    BaseLUTModel,
+    SimpleFeedForward,
 )
 
 __version__ = "1.4.4"
@@ -70,10 +71,11 @@ __all__ = [
     "BaseLUTLayer",
     "BaseEncoder",
     # Model zoo
-    "get_model",
-    "list_models",
-    "BaseModel",
-    "MNISTLinearSmall",
-    "MNISTDWNSmall",
-    "CIFAR10Conv",
+    "build_model",
+    "load_pretrained",
+    "list_pretrained_models",
+    "get_pretrained_model_info",
+    "ModelConfig",
+    "BaseLUTModel",
+    "SimpleFeedForward",
 ]
