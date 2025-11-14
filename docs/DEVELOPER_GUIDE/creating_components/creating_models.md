@@ -18,7 +18,32 @@ class MyFeedForward(BaseLUTModel):
     """Custom feedforward model."""
     
     def __init__(self, config: ModelConfig):
-        super().__init__(config)
+        su**Step 2: Save config and weights (auto-versioned)**
+
+```python
+from pathlib import Path
+
+# Create directory
+pretrained_dir = Path("difflut/models/pretrained")
+
+# Save with auto-increment versioning
+# - First call: creates v1
+# - Second call: creates v2
+# - Third call: creates v3
+config_path, weights_path = config.save_to_pretrained(
+    "mnist_large",
+    pretrained_dir=pretrained_dir
+)
+model.save_weights(str(weights_path))
+
+# Or explicitly specify version
+config_path, weights_path = config.save_to_pretrained(
+    "mnist_large",
+    pretrained_dir=pretrained_dir,
+    version="v1"  # Explicitly set version
+)
+model.save_weights(str(weights_path))
+```ig)
         self._build_layers()
     
     def _build_layers(self):
@@ -430,31 +455,40 @@ model = ModelClass(config)
 
 ### Directory Structure
 
-The system supports both versioned and non-versioned model structures:
+The system uses versioned model structures for all pretrained models:
 
 ```
 pretrained/
 ├── feedforward/
-│   ├── mnist_large.yaml                    # non-versioned
-│   ├── mnist_large.pth
-│   ├── mnist_small.yaml
-│   ├── mnist_small.pth
-│   ├── cifar10_ffn_baseline/               # versioned models
+│   ├── mnist_large/
+│   │   ├── v1/
+│   │   │   ├── mnist_large.yaml
+│   │   │   └── mnist_large.pth
+│   │   ├── v2/
+│   │   │   ├── mnist_large.yaml
+│   │   │   └── mnist_large.pth
+│   │   └── v3/
+│   │       ├── mnist_large.yaml
+│   │       └── mnist_large.pth
+│   ├── cifar10_ffn_baseline/
 │   │   ├── v1/
 │   │   │   ├── cifar10_ffn_baseline.yaml
 │   │   │   └── cifar10_ffn_baseline.pth
-│   │   ├── v2/
-│   │   │   ├── cifar10_ffn_baseline.yaml
-│   │   │   └── cifar10_ffn_baseline.pth
-│   │   └── v3/
+│   │   └── v2/
 │   │       ├── cifar10_ffn_baseline.yaml
 │   │       └── cifar10_ffn_baseline.pth
-│   └── cifar10_large.yaml
 ├── convnet/
-│   ├── cifar10_conv.yaml
-│   └── cifar10_conv.pth
+│   ├── cifar10_conv/
+│   │   ├── v1/
+│   │   │   ├── cifar10_conv.yaml
+│   │   │   └── cifar10_conv.pth
 └── README.md
 ```
+
+**All models use versioning.** This ensures:
+- Clear version history and rollback capability
+- Automatic version management (auto-increment on save)
+- Ability to load specific versions or latest
 
 ### Creating a Pretrained Model
 
@@ -575,7 +609,7 @@ model = build_model("mnist_large", load_weights=False)
 
 ### Model Version Management
 
-The system automatically manages model versions for you:
+The system automatically manages model versions for you with auto-increment:
 
 ```python
 from difflut.models import ModelConfig
@@ -617,7 +651,7 @@ model = build_model("my_model", load_weights=True)  # Loads v3
 1. **First save**: Creates `v1` directory
 2. **Second save**: Creates `v2` directory
 3. **Explicit version**: Saves to specified version directly
-4. **Non-versioned migration**: If old non-versioned model exists, migrates to `v1`
+4. **All models are versioned**: No non-versioned fallback
 
 ### Organizing Pretrained Models
 

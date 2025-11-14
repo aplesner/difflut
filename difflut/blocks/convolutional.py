@@ -1,18 +1,18 @@
-# Convolutional kernel for LUT-based models
+# Convolutional block for LUT-based models
 from typing import Optional, Type
 
 import torch
 import torch.nn as nn
 
+from ..layers.base_layer import LUTLayerMixin
+from ..layers.layer_config import GroupedInputConfig, LayerConfig
 from ..nodes.node_config import NodeConfig
-from ..registry import register_convolutional_layer
-from .base_layer import LUTLayerMixin
-from .layer_config import GroupedInputConfig, LayerConfig
+from ..registry import register_block
 
 
 class ConvolutionConfig:
     """
-    Configuration for ConvolutionalLUTLayer.
+    Configuration for ConvolutionalBlock.
     """
 
     def __init__(
@@ -39,10 +39,10 @@ class ConvolutionConfig:
         self.seed = seed
 
 
-@register_convolutional_layer("convolutional")
+@register_block("convolutional")
 class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     """
-    Convolutional layer using LUT-based nodes with memory-efficient fused kernels.
+    Convolutional block using LUT-based nodes with memory-efficient fused kernels.
 
     Uses RandomLayer with fused forward_with_mapping() to avoid materializing
     large intermediate tensors, reducing memory usage from ~20GB to ~3-4GB.
@@ -181,7 +181,7 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         """Simple model overview without printing all trees."""
         num_chunks = len(self.first_layer_chunks)
         return (
-            f"ConvolutionalLUTLayer(\n"
+            f"ConvolutionalBlock(\n"
             f"  receptive_field={self.receptive_field}, stride={self.stride}, padding={self.padding}\n"
             f"  in_channels={self.in_channels}, out_channels={self.out_channels}\n"
             f"  tree_architecture={self.hidden_layers}\n"

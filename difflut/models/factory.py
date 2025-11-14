@@ -37,7 +37,7 @@ def build_model(
     Build a DiffLUT model from various sources.
 
     This is the main entry point for creating models. It handles:
-    - Pretrained models by name
+    - Pretrained models by name (with auto-versioning to latest)
     - YAML configuration files
     - ModelConfig objects
     - Optional weight loading
@@ -45,7 +45,8 @@ def build_model(
 
     Args:
         source: One of:
-            - Pretrained model name (e.g., "mnist_large")
+            - Pretrained model name (e.g., "mnist_large" or "feedforward/mnist_large/v1")
+              If version is omitted, loads the latest available version.
             - Path to YAML config file (e.g., "configs/my_model.yaml")
             - ModelConfig object
         load_weights: Whether to load pretrained weights (default: True)
@@ -59,8 +60,11 @@ def build_model(
         Initialized model (BaseLUTModel subclass)
 
     Examples:
-        # Load pretrained model with weights
+        # Load pretrained model (latest version) with weights
         >>> model = build_model("mnist_large", load_weights=True)
+
+        # Load specific version
+        >>> model = build_model("feedforward/mnist_large/v1", load_weights=True)
 
         # Load architecture without weights (for training)
         >>> model = build_model("mnist_large", load_weights=False)
@@ -269,18 +273,18 @@ def _load_pretrained_model(
     name: str, pretrained_dir: Path, load_weights: bool
 ) -> tuple[ModelConfig, Optional[Path]]:
     """
-    Load a pretrained model by name.
+    Load a pretrained model by name (with automatic latest version selection).
 
-    Searches for model in pretrained directory structure:
-    - pretrained/<model_type>/<name>.yaml (non-versioned)
-    - pretrained/<model_type>/<name>/<version>/<name>.yaml (versioned)
+    Searches for model in versioned directory structure:
+    - pretrained/<model_type>/<name>/<version>/<name>.yaml
 
-    Supports both formats:
-    - Simple name: "cifar10_ffn_baseline"
-    - Versioned name: "feedforward/cifar10_ffn_baseline/v1"
+    Supports multiple name formats:
+    - Simple name: "mnist_large" (loads latest version across all model types)
+    - With model type: "feedforward/mnist_large" (loads latest version of that model)
+    - With version: "feedforward/mnist_large/v1" (loads specific version)
 
     Args:
-        name: Name of pretrained model (may include model_type and version)
+        name: Name of pretrained model (optionally with model_type and/or version)
         pretrained_dir: Directory containing pretrained models
         load_weights: Whether to look for weight file
 
@@ -290,6 +294,7 @@ def _load_pretrained_model(
 
     Raises:
         FileNotFoundError: If config file not found
+        ValueError: If name format is invalid
     """
     # Parse name to extract model_type, model_name, and version
     # Format: [model_type/]model_name[/version]
@@ -371,76 +376,58 @@ def _find_model_in_dir(
     model_type_dir: Path, model_name: str, version: Optional[str], load_weights: bool
 ) -> tuple[Optional[Path], Optional[Path]]:
     """
-    Find model config and weights in a model type directory.
+    Find versioned model config and weights in a model type directory.
 
-    Searches both versioned and non-versioned locations:
-    - model_type_dir / model_name.yaml (non-versioned)
-    - model_type_dir / model_name / version / model_name.yaml (versioned)
+    Searches versioned locations only:
+    - model_type_dir / model_name / version / model_name.yaml (if version specified)
+    - model_type_dir / model_name / (latest) / model_name.yaml (if version not specified)
 
     Args:
         model_type_dir: Directory for a specific model type
         model_name: Name of the model
-        version: Optional version string (e.g., "v1")
+        version: Optional version string (e.g., "v1"). If None, uses latest version
         load_weights: Whether to look for weight files
 
     Returns:
         Tuple of (config_path, weights_path)
-        Raises FileNotFoundError if neither location has config
 
     Raises:
-        FileNotFoundError: If config not found in either location
+        FileNotFoundError: If model not found in any version
     """
-    config_path = None
-    weights_path = None
-
-    if version:
-        # Versioned search: model_type_dir / model_name / version / model_name.yaml
-        version_dir = model_type_dir / model_name / version
-        if version_dir.is_dir():
-            config_candidate = version_dir / f"{model_name}.yaml"
-            if config_candidate.exists():
-                config_path = config_candidate
-
-                if load_weights:
-                    weight_candidate = version_dir / f"{model_name}.pth"
-                    if weight_candidate.exists():
-                        weights_path = weight_candidate
-    else:
-        # First try non-versioned: model_type_dir / model_name.yaml
-        config_candidate = model_type_dir / f"{model_name}.yaml"
-        if config_candidate.exists():
-            config_path = config_candidate
-
-            if load_weights:
-                weight_candidate = model_type_dir / f"{model_name}.pth"
-                if weight_candidate.exists():
-                    weights_path = weight_candidate
-        else:
-            # If not found in non-versioned, try latest version
-            model_name_dir = model_type_dir / model_name
-            if model_name_dir.is_dir():
-                # Find all version directories
-                versions = sorted(
-                    [d.name for d in model_name_dir.iterdir() if d.is_dir()],
-                    key=lambda v: _version_sort_key(v)
-                )
-                if versions:
-                    # Use latest version
-                    latest_version = versions[-1]
-                    version_dir = model_name_dir / latest_version
-                    config_candidate = version_dir / f"{model_name}.yaml"
-                    if config_candidate.exists():
-                        config_path = config_candidate
-
-                        if load_weights:
-                            weight_candidate = version_dir / f"{model_name}.pth"
-                            if weight_candidate.exists():
-                                weights_path = weight_candidate
-
-    if config_path is None:
+    model_name_dir = model_type_dir / model_name
+    
+    if not model_name_dir.is_dir():
         raise FileNotFoundError(
             f"Model '{model_name}' not found in {model_type_dir}"
         )
+
+    if version:
+        # Search for specific version
+        version_dir = model_name_dir / version
+    else:
+        # Find latest version
+        versions = sorted(
+            [d.name for d in model_name_dir.iterdir() if d.is_dir()],
+            key=lambda v: _version_sort_key(v)
+        )
+        if not versions:
+            raise FileNotFoundError(
+                f"No versions found for model '{model_name}' in {model_type_dir}"
+            )
+        latest_version = versions[-1]
+        version_dir = model_name_dir / latest_version
+
+    config_path = version_dir / f"{model_name}.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Config not found for model '{model_name}' in {version_dir}"
+        )
+
+    weights_path = None
+    if load_weights:
+        weight_candidate = version_dir / f"{model_name}.pth"
+        if weight_candidate.exists():
+            weights_path = weight_candidate
 
     return config_path, weights_path
 
@@ -473,21 +460,18 @@ def _prepare_pretrained_save_paths(
     config: ModelConfig,
 ) -> tuple[Path, Path]:
     """
-    Prepare paths for saving pretrained model and config.
+    Prepare paths for saving pretrained model and config (always versioned).
 
-    If version is specified, saves to versioned directory and auto-increments.
-    If no version specified, saves to non-versioned location.
+    All models are saved in versioned directories:
+    - pretrained/<model_type>/<model_name>/<version>/<model_name>.yaml and .pth
 
-    Structure:
-    - Non-versioned: pretrained/<model_type>/<model_name>.yaml and .pth
-    - Versioned: pretrained/<model_type>/<model_name>/<version>/<model_name>.yaml and .pth
-    - Auto-increment: If version not specified, finds next available version (v1, v2, ...)
+    If no version is specified, automatically finds the next available version (v1, v2, ...).
 
     Args:
         pretrained_dir: Base pretrained models directory
         model_type: Model type (e.g., "feedforward")
         model_name: Model name (e.g., "cifar10_ffn_baseline")
-        version: Optional version string (e.g., "v1"). If None, will find next available
+        version: Optional version string (e.g., "v1"). If None, auto-increments to next version
         config: ModelConfig object to save
 
     Returns:
@@ -496,53 +480,37 @@ def _prepare_pretrained_save_paths(
     model_type_dir = pretrained_dir / model_type
     model_type_dir.mkdir(parents=True, exist_ok=True)
 
-    if version:
-        # Explicit version specified
-        version_dir = model_type_dir / model_name / version
-        version_dir.mkdir(parents=True, exist_ok=True)
-
-        weights_save_path = version_dir / f"{model_name}.pth"
-        config_save_path = version_dir / f"{model_name}.yaml"
-    else:
-        # Auto-increment version
-        model_name_dir = model_type_dir / model_name
-
+    model_name_dir = model_type_dir / model_name
+    
+    if version is None:
+        # Auto-increment: find next available version
         if model_name_dir.exists() and model_name_dir.is_dir():
-            # Directory exists with possible versions
-            # Check if there's a non-versioned file
-            non_versioned_config = model_type_dir / f"{model_name}.yaml"
-            if non_versioned_config.exists():
-                # Migrate to versioned: create v1 from existing
-                v1_dir = model_name_dir / "v1"
-                v1_dir.mkdir(parents=True, exist_ok=True)
-                version = "v1"
-            else:
-                # Find latest version and increment
-                versions = sorted(
-                    [d.name for d in model_name_dir.iterdir() if d.is_dir()],
-                    key=lambda v: _version_sort_key(v)
-                )
-                if versions:
-                    latest_version = versions[-1]
-                    # Increment version number
-                    if latest_version.startswith('v') and latest_version[1:].isdigit():
-                        next_version_num = int(latest_version[1:]) + 1
-                        version = f"v{next_version_num}"
-                    else:
-                        # Fallback to appending version counter
-                        version = f"{latest_version}_v1"
+            # Find all version directories
+            versions = sorted(
+                [d.name for d in model_name_dir.iterdir() if d.is_dir()],
+                key=lambda v: _version_sort_key(v)
+            )
+            if versions:
+                latest_version = versions[-1]
+                # Increment version number
+                if latest_version.startswith('v') and latest_version[1:].isdigit():
+                    next_version_num = int(latest_version[1:]) + 1
+                    version = f"v{next_version_num}"
                 else:
-                    version = "v1"
-                version_dir = model_name_dir / version
-                version_dir.mkdir(parents=True, exist_ok=True)
+                    # Fallback: append version counter
+                    version = f"{latest_version}_v1"
+            else:
+                version = "v1"
         else:
-            # First time: create versioned structure with v1
-            version_dir = model_name_dir / "v1"
-            version_dir.mkdir(parents=True, exist_ok=True)
+            # First time: start with v1
             version = "v1"
+    
+    # Create versioned directory
+    version_dir = model_name_dir / version
+    version_dir.mkdir(parents=True, exist_ok=True)
 
-        weights_save_path = version_dir / f"{model_name}.pth"
-        config_save_path = version_dir / f"{model_name}.yaml"
+    weights_save_path = version_dir / f"{model_name}.pth"
+    config_save_path = version_dir / f"{model_name}.yaml"
 
     # Save config to the prepared path
     config.to_yaml(str(config_save_path))

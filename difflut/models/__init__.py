@@ -47,6 +47,7 @@ from .factory import (
 )
 
 # Model implementations
+from .convolutional import SimpleConvolutional
 from .feedforward import SimpleFeedForward
 
 # Core components
@@ -58,6 +59,7 @@ __all__ = [
     "BaseLUTModel",
     # Models
     "SimpleFeedForward",
+    "SimpleConvolutional",
     # Factory
     "build_model",
     "build_model_for_experiment",

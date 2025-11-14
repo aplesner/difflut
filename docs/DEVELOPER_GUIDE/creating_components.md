@@ -1,16 +1,16 @@
 # Creating Custom Components
 
-Learn how to implement and register custom DiffLUT components. DiffLUT provides an extensible architecture for creating nodes, encoders, and layers.
+Learn how to implement and register custom DiffLUT components.
+
+---
+
+## Overview
+
+DiffLUT provides an extensible architecture for creating custom nodes, encoders, layers, and blocks. All components follow the same three-step pattern: extend a base class, register with a decorator, and implement required methods.
 
 ---
 
 ## Quick Start
-
-All components follow the same three-step pattern:
-
-1. **Extend** the base class (`BaseNode`, `BaseEncoder`, or `BaseLUTLayer`)
-2. **Register** using the `@register_*` decorator
-3. **Implement** required methods
 
 ```python
 from difflut import register_node
@@ -19,15 +19,13 @@ from difflut.nodes import BaseNode
 @register_node('my_node')
 class MyNode(BaseNode):
     def forward_train(self, x):
-        # Training forward
         return x
     
     def forward_eval(self, x):
-        # Eval forward
         return x
 ```
 
-Then use it via the registry:
+Then use via the registry:
 
 ```python
 from difflut.registry import REGISTRY
@@ -38,342 +36,298 @@ node = NodeClass(input_dim=6, output_dim=1)
 
 ---
 
-## Component Guides
+## Component Types
 
-### [Creating Custom Nodes](creating_components/creating_nodes.md)
-Complete guide for implementing LUT nodes with:
-- Type-safe `NodeConfig` for structural parameters
-- Custom initializers via `REGISTRY.get_initializer()`
-- Custom regularizers via `REGISTRY.get_regularizer()`
-- Forward train/eval methods
-- Regularization terms
-- Bitstream export for FPGA deployment
+### Nodes
 
-**Key Topics:**
-- Basic node structure
-- Initializers and regularizers
-- Training vs. eval modes
-- Gradient computation
-- Testing nodes
+LUT-based computation units with initializers and regularizers.
 
-**Examples:**
-- Probabilistic nodes
-- Learnable LUT nodes
-- Polynomial approximation nodes
+Implement `forward_train()`, `forward_eval()`, and optional `get_regularization_loss()`.
 
----
+[Creating Custom Nodes](creating_components/creating_nodes.md)
 
-### [Creating Custom Layers](creating_components/creating_layers.md)
-Complete guide for implementing connectivity layers with:
-- Type-safe `LayerConfig` for training augmentation
-- Random, learnable, and feature-wise routing
-- Bit flipping during training
-- Gradient stabilization (layerwise, nodewise, batch)
-- Node composition and management
+### Layers
 
-**Key Topics:**
-- Layer connectivity patterns
-- Training augmentation (bit flipping)
-- Gradient stabilization techniques
-- Forward pass routing
-- Testing layers
+Connectivity patterns between inputs and nodes, supporting random and learnable routing.
 
-**Examples:**
-- Random routing layers
-- Learnable routing layers
-- Feature-wise grouping layers
+Implement `forward()` and manage node composition.
+
+[Creating Custom Layers](creating_components/creating_layers.md)
+
+### Encoders
+
+Transform continuous inputs to binary representations.
+
+Implement `fit()` for training data adaptation and `forward()` for encoding.
+
+[Creating Custom Encoders](creating_components/creating_encoders.md)
+
+### Blocks
+
+Composite multi-layer modules for specialized functions.
+
+Implement `forward()` coordinating multiple layers, and optional `get_regularization_loss()`.
+
+[Creating Custom Blocks](creating_components/creating_blocks.md)
 
 ---
 
-### [Creating Custom Encoders](creating_components/creating_encoders.md)
-Complete guide for implementing input encoders with:
-- Type-safe encoder initialization
-- Fitting to training data
-- Forward encoding to binary representations
-- Feature-wise vs. global quantization
-- Device safety and edge cases
+## Configuration Pattern
 
-**Key Topics:**
-- Encoder structure
-- Fitting process
-- Binary encoding methods
-- Device transfers
-- Testing encoders
-
-**Examples:**
-- Thermometer code encoders
-- Adaptive resolution encoders
-- Gray code encoders
-
----
-
-## Type-Safe Configuration Overview
-
-### NodeConfig
-
-Use `NodeConfig` for type-safe node parameters:
+All components use type-safe configuration objects:
 
 ```python
 from difflut.nodes.node_config import NodeConfig
 from difflut.registry import REGISTRY
 
-# Retrieve functions from registry (not strings!)
-init_fn = REGISTRY.get_initializer('kaiming_normal')
-l2_reg = REGISTRY.get_regularizer('l2')
-
-# Create config with actual function objects
-node_config = NodeConfig(
-    input_dim=6,
-    output_dim=1,
-    init_fn=init_fn,           # Actual function, not string
-    init_kwargs={'a': 0.0},    # Initializer arguments
-    regularizers={'l2': l2_reg}  # Actual functions, not strings
-)
-```
-
-**Critical Pattern:** Always retrieve from REGISTRY, never pass strings.
-
-### LayerConfig
-
-Use `LayerConfig` for training augmentation parameters:
-
-```python
-from difflut.layers.layer_config import LayerConfig
-
-# Training augmentation config (not structural!)
-layer_config = LayerConfig(
-    flip_probability=0.05,           # Flip bits during training
-    grad_stabilization='layerwise',  # Normalize gradients
-    grad_target_std=1.0,             # Target gradient std
-    grad_subtract_mean=False,        # Don't subtract mean
-    grad_epsilon=1e-8,               # Numerical stability
-)
-```
-
-**Separation:** LayerConfig handles training behavior, not architecture.
-
----
-
-## Common Patterns
-
-### 1. Module-Level Defaults
-
-Always define defaults at module level in CAPITALS:
-
-```python
-DEFAULT_INPUT_DIM: int = 6
-DEFAULT_OUTPUT_DIM: int = 1
-DEFAULT_TEMPERATURE: float = 1.0
-
-class MyNode(BaseNode):
-    def __init__(self, input_dim=DEFAULT_INPUT_DIM, ...):
-        # Use defaults
-```
-
-**Why:** Clear documentation of what's configurable, easy debugging.
-
-### 2. Type Hints
-
-Use full PEP 484 type hints:
-
-```python
-from typing import Optional, Dict, Any, Callable
-
-def __init__(
-    self,
-    input_dim: int,
-    output_dim: int,
-    init_fn: Optional[Callable] = None,
-    init_kwargs: Optional[Dict[str, Any]] = None,
-    **kwargs
-) -> None:
-```
-
-**Why:** IDE autocomplete, mypy checking, self-documenting code.
-
-### 3. Docstrings
-
-Use NumPy-style docstrings:
-
-```python
-def forward_train(self, x: torch.Tensor) -> torch.Tensor:
-    """
-    Training forward pass.
-    
-    Args:
-        x: Input tensor of shape (batch_size, input_dim)
-    
-    Returns:
-        Output tensor of shape (batch_size, output_dim)
-    """
-```
-
-**Why:** Clear documentation, IDE tooltips.
-
-### 4. Registry Retrieval
-
-Always get components from registry:
-
-```python
-# ✓ CORRECT - Get from registry
+# Retrieve from registry - never pass strings
 init_fn = REGISTRY.get_initializer('kaiming_normal')
 reg_fn = REGISTRY.get_regularizer('l2')
 
-# ✗ WRONG - Don't pass strings
-node_config = NodeConfig(init_fn='kaiming_normal')  # WRONG!
+# Pass actual function objects to config
+config = NodeConfig(
+    input_dim=6,
+    output_dim=1,
+    init_fn=init_fn,
+    regularizers={'l2': reg_fn}
+)
 ```
-
-**Why:** Single source of truth, runtime validation, easy to test.
-
-### 5. Device Safety
-
-Move buffers to input device in forward:
-
-```python
-def forward(self, x: torch.Tensor) -> torch.Tensor:
-    device = x.device
-    
-    # Move any buffers to device
-    self.thresholds = self.thresholds.to(device)
-    
-    # Now compute...
-```
-
-**Why:** Works on any device (CPU, GPU, multi-GPU).
 
 ---
 
-## Registration System
+## Registration
 
-All components are registered automatically via decorators and stored in the global `REGISTRY`:
+Components are automatically discovered via decorators:
+
+```python
+from difflut import (
+    register_node,
+    register_layer,
+    register_encoder,
+    register_block,
+    register_initializer,
+    register_regularizer
+)
+
+# Each decorator automatically registers in REGISTRY
+@register_node('my_node')
+class MyNode: pass
+
+@register_layer('my_layer')
+class MyLayer: pass
+
+@register_encoder('my_encoder')
+class MyEncoder: pass
+
+@register_block('my_block')
+class MyBlock: pass
+
+@register_initializer('my_init')
+def my_initializer(tensor):
+    pass
+
+@register_regularizer('my_reg')
+def my_regularizer(node):
+    pass
+```
+
+Then discover:
 
 ```python
 from difflut.registry import REGISTRY
 
-# Check registration
-print(REGISTRY.list_nodes())      # ['probabilistic', 'dwn', 'linear_lut', ...]
-print(REGISTRY.list_layers())     # ['random', 'learnable', ...]
-print(REGISTRY.list_encoders())   # ['thermometer', 'distributive_thermometer', ...]
-print(REGISTRY.list_initializers())  # ['kaiming_normal', 'xavier_normal', ...]
-print(REGISTRY.list_regularizers())  # ['l2', 'l1', ...]
-
-# Retrieve components
-NodeClass = REGISTRY.get_node('probabilistic')
-LayerClass = REGISTRY.get_layer('random')
-EncoderClass = REGISTRY.get_encoder('thermometer')
-init_fn = REGISTRY.get_initializer('kaiming_normal')
-reg_fn = REGISTRY.get_regularizer('l2')
-
-# Build models from registry
-node = NodeClass(input_dim=6, output_dim=1)
-layer = LayerClass(input_size=512, output_size=256, node_type='probabilistic', n=6)
-encoder = EncoderClass(num_bits=8)
+REGISTRY.list_nodes()
+REGISTRY.list_layers()
+REGISTRY.list_encoders()
+REGISTRY.list_blocks()
+REGISTRY.list_initializers()
+REGISTRY.list_regularizers()
 ```
 
 ---
 
-## Testing Your Components
+## Type Hints and Documentation
 
-Each component type has comprehensive test examples:
+Use full PEP 484 type hints and NumPy-style docstrings:
 
-- **Nodes**: `tests/test_nodes/test_*.py`
-- **Layers**: `tests/test_layers/test_*.py`
-- **Encoders**: `tests/test_encoders/test_*.py`
+```python
+from typing import Optional, Dict, Any, Callable
+import torch.nn as nn
 
-See specific guides for complete testing patterns:
-
-- [Node Testing](creating_components/creating_nodes.md#testing-your-node)
-- [Layer Testing](creating_components/creating_layers.md#testing-your-layer)
-- [Encoder Testing](creating_components/creating_encoders.md#testing-your-encoder)
+class MyComponent(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        init_fn: Optional[Callable] = None,
+    ) -> None:
+        """
+        Initialize custom component.
+        
+        Args:
+            input_dim: Input dimension
+            output_dim: Output dimension
+            init_fn: Initialization function from registry
+        """
+        super().__init__()
+```
 
 ---
 
-## CUDA Support (Optional)
+## Testing
 
-For performance-critical components, add CUDA kernels:
+Test forward pass, gradients, and device transfers:
 
-1. Write CUDA kernel: `difflut/<component>/cuda/my_kernel.cu`
-2. Create Python wrapper: `difflut/<component>/cuda/my_kernel.py`
-3. Update `setup.py` to compile
-4. Add CPU fallback: use native PyTorch if CUDA unavailable
+```python
+import torch
+import pytest
+from difflut.registry import REGISTRY
 
-See specific guides for CUDA examples and patterns.
+def test_my_component_forward():
+    component = MyComponent(input_dim=6, output_dim=1)
+    x = torch.randn(4, 6)
+    output = component(x)
+    assert output.shape == (4, 1)
+    assert torch.isfinite(output).all()
+
+def test_my_component_gradients():
+    component = MyComponent(input_dim=6, output_dim=1)
+    x = torch.randn(4, 6, requires_grad=True)
+    output = component(x)
+    loss = output.sum()
+    loss.backward()
+    assert x.grad is not None
+    assert (x.grad.abs() > 0).any()
+
+def test_my_component_device():
+    component = MyComponent(input_dim=6, output_dim=1)
+    x = torch.randn(4, 6)
+    
+    # CPU
+    out_cpu = component(x)
+    assert out_cpu.device.type == 'cpu'
+    
+    # GPU (if available)
+    if torch.cuda.is_available():
+        component_gpu = component.cuda()
+        x_gpu = x.cuda()
+        out_gpu = component_gpu(x_gpu)
+        assert out_gpu.device.type == 'cuda'
+```
 
 ---
 
-## Dimension Reference Table
+## Best Practices
 
-Common dimensions used throughout DiffLUT:
+1. Use `@register_*` decorators for automatic registration
+2. Inherit from appropriate base class (BaseNode, BaseLUTLayer, BaseEncoder)
+3. Use full type hints on all parameters and return values
+4. Use NumPy-style docstrings on all public methods
+5. Retrieve functions from REGISTRY - never pass strings
+6. Support both train and eval modes where applicable
+7. Test forward pass, gradients, and device transfers
+8. Implement regularization loss collection if applicable
+9. Define defaults at module level in CAPITALS
+10. Move buffers to input device in forward for GPU compatibility
 
-| Parameter | Role | Typical Values | Notes |
-|-----------|------|-----------------|-------|
-| `input_dim` (node) | LUT input dimension (bits per node) | 4-8 | 2^n LUT entries |
-| `output_dim` (node) | Output dimension per node | 1 | Usually scalar |
-| `input_size` (layer/encoder) | Total input dimension | 64-2048 | After encoding |
-| `output_size` (layer) | Number of nodes (output dim) | 100-1000 | Depends on task |
-| `n` (layer parameter) | Bits routed to each node | 4-8 | Same as node input_dim |
-| `num_bits` (encoder) | Quantization levels | 3-8 | More bits = more precision |
-| `batch_size` | Samples per batch | 32-256 | Standard SGD batch size |
+---
 
-### Dimension Flow Example
+## Component Guides
 
+Detailed implementation guides for each component type:
+
+Creating Nodes: [Guide](creating_components/creating_nodes.md)
+
+Creating Layers: [Guide](creating_components/creating_layers.md)
+
+Creating Encoders: [Guide](creating_components/creating_encoders.md)
+
+Creating Blocks: [Guide](creating_components/creating_blocks.md)
+
+Creating Models: [Guide](creating_components/creating_models.md)
+
+---
+
+## Registry System
+
+The global `REGISTRY` maintains all components:
+
+```python
+from difflut.registry import REGISTRY
+
+# List registered components
+nodes = REGISTRY.list_nodes()
+layers = REGISTRY.list_layers()
+encoders = REGISTRY.list_encoders()
+blocks = REGISTRY.list_blocks()
+initializers = REGISTRY.list_initializers()
+regularizers = REGISTRY.list_regularizers()
+
+# Retrieve for use
+NodeClass = REGISTRY.get_node('my_node')
+LayerClass = REGISTRY.get_layer('my_layer')
+EncoderClass = REGISTRY.get_encoder('my_encoder')
+BlockClass = REGISTRY.get_block('my_block')
+init_fn = REGISTRY.get_initializer('my_initializer')
+reg_fn = REGISTRY.get_regularizer('my_regularizer')
 ```
-Input: (batch=32, features=784)
-  ↓ Encoder (thermometer, num_bits=4)
-Encoded: (batch=32, features*num_bits=3136)
-  ↓ Layer (input_size=3136, output_size=256, n=6)
-  - Each of 256 nodes receives 6 random bits from 3136
-  ↓ Layer output: (batch=32, 256)
+
+---
+
+## Example Component
+
+Simple node implementation showing the pattern:
+
+```python
+import torch
+import torch.nn as nn
+from difflut.nodes import BaseNode
+from difflut import register_node
+
+@register_node('example_node')
+class ExampleNode(BaseNode):
+    def __init__(self, input_dim: int = 6, output_dim: int = 1) -> None:
+        super().__init__(input_dim, output_dim)
+        self.linear = nn.Linear(2**input_dim, output_dim)
+    
+    def forward_train(self, x: torch.Tensor) -> torch.Tensor:
+        batch_size = x.shape[0]
+        indices = (x * (2**self.input_dim - 1)).long()
+        return self.linear(torch.nn.functional.one_hot(indices, 2**self.input_dim).float())
+    
+    def forward_eval(self, x: torch.Tensor) -> torch.Tensor:
+        return self.forward_train(x)
+    
+    def get_regularization_loss(self) -> torch.Tensor:
+        return torch.tensor(0.0)
 ```
+
+---
+
+## Dimension Reference
+
+Common dimensions in DiffLUT:
+
+| Parameter | Purpose | Typical Values |
+|-----------|---------|-----------------|
+| input_dim | Node LUT input (bits) | 4-8 |
+| output_dim | Node output dimension | 1 |
+| input_size | Layer/encoder input | 64-2048 |
+| output_size | Layer output (nodes) | 100-1000 |
+| n | Bits routed to each node | 4-8 |
+| num_bits | Encoder quantization | 3-8 |
+| batch_size | SGD batch size | 32-256 |
 
 ---
 
 ## Next Steps
 
-1. **Choose component type**: [Nodes](creating_components/creating_nodes.md), [Layers](creating_components/creating_layers.md), or [Encoders](creating_components/creating_encoders.md)
-2. **Review examples** in respective guides
-3. **Read base class** implementation (`difflut/<component>/base_*.py`)
-4. **Implement** following patterns from guide
-5. **Add tests** following test examples
-6. **Integrate** via registry (automatic)
-7. **Use in pipelines** with configuration files
+1. Choose component type: [Nodes](creating_components/creating_nodes.md), [Layers](creating_components/creating_layers.md), [Encoders](creating_components/creating_encoders.md), or [Blocks](creating_components/creating_blocks.md)
+2. Review examples in respective guides
+3. Read base class implementation
+4. Implement following patterns
+5. Add comprehensive tests
+6. Register automatically via decorator
+7. Use in pipelines with configuration
 
----
 
-## Resources
-
-### Documentation
-- [Nodes Guide](creating_components/creating_nodes.md)
-- [Layers Guide](creating_components/creating_layers.md)
-- [Encoders Guide](creating_components/creating_encoders.md)
-- [Registry & Pipeline Guide](../USER_GUIDE/registry_pipeline.md)
-
-### Code
-- **Base Classes**: `difflut/nodes/base_node.py`, `difflut/layers/base_layer.py`, `difflut/encoder/base_encoder.py`
-- **Config Classes**: `difflut/nodes/node_config.py`, `difflut/layers/layer_config.py`
-- **Registry**: `difflut/registry.py`
-- **Examples**: Existing implementations in respective directories
-
-### Tests
-- **Node Tests**: `tests/test_nodes/`
-- **Layer Tests**: `tests/test_layers/`
-- **Encoder Tests**: `tests/test_encoders/`
-
----
-
-## FAQ
-
-### Q: Should I use strings or function objects?
-**A:** Always retrieve functions from REGISTRY: `REGISTRY.get_initializer('name')` returns function object. Pass the function object to config, not the string.
-
-### Q: What if my component needs special initialization?
-**A:** Use NodeConfig with `init_fn` and `init_kwargs`. The registry maintains all initializers, so create a new one if needed and register it with `@register_initializer`.
-
-### Q: Can I register multiple versions of the same component?
-**A:** Yes! Register with different names: `@register_node('my_node_v1')`, `@register_node('my_node_v2')`. Both will be available in REGISTRY.
-
-### Q: How do I make my component GPU-compatible?
-**A:** Move buffers to input device in forward: `buffer.to(x.device)`. Optional CUDA kernels for performance.
-
-### Q: Where should I put my component code?
-**A:** Create your component in appropriate directory (`difflut/nodes/`, `difflut/layers/`, `difflut/encoder/`) and add registration decorator.

@@ -26,8 +26,7 @@ from difflut.registry import REGISTRY
 # Layer Forward Pass Tests
 # ============================================================================
 
-# Filter out convolutional layer as it has specialized tests and incompatible interface
-_testable_layers = [name for name in REGISTRY.list_layers() if name != "convolutional"]
+_testable_layers = REGISTRY.list_layers()
 
 
 @pytest.mark.parametrize("layer_name", _testable_layers)

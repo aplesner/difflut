@@ -14,8 +14,11 @@ from difflut.models import build_model
 # Load a pretrained model (latest version)
 model = build_model("mnist_large", load_weights=True)
 
-# Or load a specific version
+# Or load a specific version explicitly
 model = build_model("feedforward/mnist_large/v1", load_weights=True)
+
+# Or with full path and version
+model = build_model("feedforward/mnist_large/v2", load_weights=True)
 
 # Use for inference
 predictions = model(test_data)
@@ -236,8 +239,9 @@ models = list_pretrained_models()
 # Returns dict like:
 # {
 #     "feedforward": [
-#         "mnist_large",                    # non-versioned
-#         "cifar10_ffn_baseline/v1",        # versioned
+#         "mnist_large/v1",                 # versioned (all models now versioned)
+#         "mnist_large/v2",
+#         "cifar10_ffn_baseline/v1",
 #         "cifar10_ffn_baseline/v2",
 #         "mnist_small/v1",
 #     ]

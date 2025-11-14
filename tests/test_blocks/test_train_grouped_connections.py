@@ -259,7 +259,7 @@ def test_grouped_connections_learning(
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
-    conv_layer_type = REGISTRY.get_convolutional_layer("convolutional")
+    conv_layer_type = REGISTRY.get_block("convolutional")
 
     # Create node config
     node_config = NodeConfig(input_dim=6, output_dim=1)

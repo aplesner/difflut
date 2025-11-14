@@ -44,7 +44,7 @@ def test_grouped_connections_coverage(seed):
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
-    conv_layer_type = REGISTRY.get_convolutional_layer("convolutional")
+    conv_layer_type = REGISTRY.get_block("convolutional")
 
     # Create node config
     node_config = NodeConfig(input_dim=6, output_dim=1)
@@ -121,7 +121,7 @@ def test_grouped_connections_forward_pass(seed):
     layer_cfg = LayerConfig()
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
-    conv_layer_type = REGISTRY.get_convolutional_layer("convolutional")
+    conv_layer_type = REGISTRY.get_block("convolutional")
     node_config = NodeConfig(input_dim=6, output_dim=1)
 
     # Create grouped convolutional layer
@@ -176,7 +176,7 @@ def test_grouped_connections_gradient_flow(seed):
     layer_cfg = LayerConfig()
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
-    conv_layer_type = REGISTRY.get_convolutional_layer("convolutional")
+    conv_layer_type = REGISTRY.get_block("convolutional")
     node_config = NodeConfig(input_dim=6, output_dim=1)
 
     # Create grouped convolutional layer

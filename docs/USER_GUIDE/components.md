@@ -1,266 +1,135 @@
 # Components Guide
 
-High-level overview of DiffLUT components. For detailed information, see the component-specific guides.
+Overview of DiffLUT components. For detailed information, see the component-specific guides.
 
-> **For creating custom components**, see [Creating Components Guide](../DEVELOPER_GUIDE/creating_components.md).
-
----
-
-## Table of Contents
-1. [Component Overview](#component-overview)
-2. [Detailed Documentation](#detailed-documentation)
-3. [Dimension Reference](#dimension-reference)
-4. [Quick Links](#quick-links)
+For creating custom components, see [Creating Components Guide](../DEVELOPER_GUIDE/creating_components.md).
 
 ---
 
 ## Component Overview
 
-DiffLUT models are built from four main components that work together:
+DiffLUT models are built from five main components:
 
 ```
 Continuous Input
-       ↓
-   [Encoder] → Discrete Binary Representation
-       ↓
-   [Layers] → Apply random or learned connections
-       ↓
-   [Nodes]  → LUT-based computation
-       ↓
+       |
+   Encoder - Transform continuous input to discrete binary codes
+       |
+   Layers - Define connectivity between inputs and nodes
+       |
+   Nodes  - LUT-based computation units
+       |
    Output
 ```
 
 ### Component Roles
 
-| Component | Purpose | Details |
-|-----------|---------|---------|
-| **Encoder** | Transform continuous input to discrete binary codes | Map real values to indices for LUT lookup |
-| **Layer** | Define connectivity pattern between inputs and nodes | Specify how nodes receive inputs (random or learnable) |
-| **Node** | Compute output from binary inputs using LUT or learned function | Choose computation type (linear, polynomial, neural, etc.) |
-| **Initializer** | Initialize node parameters (LUT weights) | Control training stability (Xavier, Kaiming, etc.) |
-| **Regularizer** | Add constraints to node parameters | Improve generalization (L1, L2, spectral norm) |
+Encoders transform continuous inputs to binary representations.
 
-### Typical Model Architecture
+Layers define how inputs connect to nodes, supporting both fixed random and learnable routing patterns.
 
-```python
-import torch
-import torch.nn as nn
-from difflut.encoder import ThermometerEncoder
-from difflut.layers import RandomLayer
-from difflut.nodes import LinearLUTNode
-from difflut.nodes.node_config import NodeConfig
+Nodes perform LUT-based computation on binary inputs, available in multiple types optimized for different use cases.
 
-class SimpleLUTModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        
-        # 1. Encoder: Continuous → Binary
-        self.encoder = ThermometerEncoder(num_bits=8, flatten=True)
-        
-        # 2. Layers with Nodes: Binary → Output
-        node_config = NodeConfig(input_dim=4, output_dim=1)
-        
-        self.layer1 = RandomLayer(
-            input_size=6272,  # 784 features * 8 bits
-            output_size=512,
-            node_type=LinearLUTNode,
-            n=4,
-            node_kwargs=node_config
-        )
-        
-        self.layer2 = RandomLayer(
-            input_size=512,
-            output_size=10,
-            node_type=LinearLUTNode,
-            n=4,
-            node_kwargs=node_config
-        )
-    
-    def fit_encoder(self, data):
-        self.encoder.fit(data)
-    
-    def forward(self, x):
-        x = x.flatten(1)
-        x = self.encoder(x)      # [1] Encode
-        x = self.layer1(x)       # [2] Layer with nodes
-        x = self.layer2(x)       # [3] Final layer
-        return x
-```
+Initializers control parameter initialization for training stability.
+
+Regularizers add constraints to improve generalization.
+
+Blocks combine multiple layers into composite structures for specialized functions like convolution.
 
 ---
 
 ## Detailed Documentation
 
-Complete reference guides for each component:
+### Encoders
 
-### 📖 [Encoders Guide](components/encoders.md)
+Transform continuous inputs to binary codes.
 
-Transform continuous inputs to binary codes with adjustable resolution.
+Learn about thermometer encoding, gray codes, binary encoding, and more.
 
-**Includes:**
-- 8 available encoder types (Thermometer, Gray, Binary, Gaussian, etc.)
-- Usage patterns and best practices
-- Fitting strategies for different data sizes
-- Complete integration examples
-
-**Quick Example:**
-```python
-from difflut.encoder import ThermometerEncoder
-
-encoder = ThermometerEncoder(num_bits=8, flatten=True)
-encoder.fit(train_data)      # Learn data ranges
-encoded = encoder(test_data) # Continuous → Binary
-```
-
-[👉 Read full Encoders Guide](components/encoders.md)
+[Read Encoders Guide](components/encoders.md)
 
 ---
 
-### 📖 [Layers Guide](components/layers.md)
+### Layers
 
-Define connectivity between encoded inputs and nodes.
+Define connectivity patterns between inputs and nodes.
 
-**Includes:**
-- `LayerConfig` for type-safe training parameters
-- `RandomLayer` for fixed random connectivity
-- `LearnableLayer` for trainable connectivity
-- Training configurations (bit flipping, gradient stabilization)
-- 4 complete model architecture examples
+Learn about random layers, learnable layers, and training augmentation options.
 
-**Quick Example:**
-```python
-from difflut.layers import RandomLayer
-from difflut.nodes.node_config import NodeConfig
-
-node_config = NodeConfig(input_dim=4, output_dim=1)
-layer = RandomLayer(
-    input_size=6272,
-    output_size=512,
-    node_type=LinearLUTNode,
-    n=4,
-    node_kwargs=node_config
-)
-output = layer(encoded_data)
-```
-
-[👉 Read full Layers Guide](components/layers.md)
+[Read Layers Guide](components/layers.md)
 
 ---
 
-### 📖 [Nodes Guide](components/nodes.md)
+### Nodes
 
 LUT-based computation units with initializers and regularizers.
 
-**Includes:**
-- `NodeConfig` for type-safe node configuration
-- **8 Initializers** (Zeros, Ones, Uniform, Normal, Xavier, Kaiming, Variance Stabilized, Probabilistic)
-- **3 Regularizers** (L1, L2, Spectral)
-- **8 Node Types** (LinearLUT, PolyLUT, NeuralLUT, DWN, DWNStable, Probabilistic, Fourier, Hybrid)
-- GPU acceleration patterns
-- Complete training examples
+Learn about LinearLUT, PolyLUT, NeuralLUT, DWN nodes, and more.
 
-**Quick Example:**
-```python
-from difflut.nodes import LinearLUTNode
-from difflut.nodes.node_config import NodeConfig
-from difflut.registry import REGISTRY
+[Read Nodes Guide](components/nodes.md)
 
-config = NodeConfig(
-    input_dim=4,
-    output_dim=1,
-    init_fn=REGISTRY.get_initializer('kaiming_normal'),
-    regularizers={'l2': REGISTRY.get_regularizer('l2')}
-)
-node = LinearLUTNode(**config.to_dict())
-output = node(binary_input)
-```
+---
 
-[👉 Read full Nodes Guide](components/nodes.md)
+### Blocks
+
+Composite multi-layer modules for specialized functions.
+
+Learn about convolutional blocks and building custom composite structures.
+
+[Read Blocks Guide](components/blocks.md)
 
 ---
 
 ## Dimension Reference
 
-Quick reference for tensor dimensions through the DiffLUT pipeline:
+Typical dimensions through the DiffLUT pipeline:
 
 | Stage | Input Shape | Output Shape | Notes |
 |-------|-------------|--------------|-------|
-| **Raw Input** | `(batch, 784)` | - | MNIST image |
-| **After Encoder** (flatten=True) | `(batch, 784)` | `(batch, 6272)` | 784 × 8 bits |
-| **After Encoder** (flatten=False) | `(batch, 784)` | `(batch, 784, 8)` | Preserves structure |
-| **After Layer 1** (512 nodes) | `(batch, 6272)` | `(batch, 512)` | RandomLayer output |
-| **After Layer 2** (10 nodes) | `(batch, 512)` | `(batch, 10)` | Final classification |
-
-### Dimension Calculation
-
-```python
-# Given:
-batch_size = 32
-input_features = 784        # MNIST
-num_bits = 8               # Encoder bits
-layer1_nodes = 512         # Layer 1 output
-layer2_nodes = 10          # Layer 2 output (classes)
-
-# Encoder output
-encoded_size = input_features * num_bits  # 6272
-encoded_shape = (batch_size, encoded_size)
-
-# Layer outputs
-layer1_output = (batch_size, layer1_nodes)  # (32, 512)
-layer2_output = (batch_size, layer2_nodes)  # (32, 10)
-```
-
-### Architecture Note
-
-- Layers use `nn.ModuleList` with `output_size` independent node instances
-- Each node processes 2D tensors: `(batch, input_dim) → (batch, output_dim)`
-- Layer output: `(batch_size, output_size * output_dim_per_node)`
-- For typical case with `output_dim=1`: `(batch_size, output_size)`
+| Raw Input | (batch, 784) | - | MNIST image |
+| Encoded | (batch, 784) | (batch, 6272) | 784 features * 8 bits |
+| Layer 1 | (batch, 6272) | (batch, 512) | First hidden layer |
+| Layer 2 | (batch, 512) | (batch, 10) | Output layer |
 
 ---
 
-## Quick Links
+## Component Selection
 
-### Component Selection Guide
+### Encoder Selection
 
-#### Encoder Selection
+Thermometer encoding: smooth, interpretable representations.
 
-Choose encoder based on your data:
+Binary encoding: most compact representation.
 
-| Data Type | Recommended | Why |
-|-----------|-------------|-----|
-| General/Image | Thermometer | Smooth, interpretable |
-| Audio/Signal | Gaussian Thermometer | Smooth transitions |
-| Compact representation | Binary | Most compact |
-| Minimizing bit flips | Gray | Smooth Hamming distance |
+Gray codes: minimizes bit flip errors in adjacent values.
 
-#### Node Selection
+[See Encoders Guide for all types](components/encoders.md)
 
-Choose node based on your needs:
+### Node Selection
 
-| Use Case | Node Type | Speed | Memory | GPU |
-|----------|-----------|-------|--------|-----|
-| Baseline/Research | LinearLUT | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ❌ |
-| Smooth functions | PolyLUT | ⭐⭐⭐ | ⭐⭐⭐ | ❌ |
-| Complex mappings | NeuralLUT | ⭐⭐ | ⭐⭐ | ❌ |
-| Large models | DWNStable | ⭐⭐⭐ | ⭐⭐⭐⭐ | ✅ |
-| Uncertainty modeling | Probabilistic | ⭐⭐⭐ | ⭐⭐⭐ | ✅ |
-| Periodic patterns | Fourier | ⭐⭐⭐⭐ | ⭐⭐⭐ | ✅ |
+LinearLUT: baseline, very fast and memory efficient.
 
-#### Layer Selection
+PolyLUT: polynomial approximations, smooth functions.
 
-| Use Case | Recommendation |
-|----------|---|
-| Fixed random connectivity | `RandomLayer` |
-| Learning connectivity | `LearnableLayer` |
-| Need bit flip augmentation | Use `LayerConfig(flip_probability=0.1)` |
-| Deep networks (5+ layers) | Use `LayerConfig(grad_stabilization='layerwise')` |
+NeuralLUT: complex mappings, slower but more expressive.
+
+DWNStable: GPU-accelerated, memory efficient for large models.
+
+[See Nodes Guide for all types](components/nodes.md)
+
+### Layer Selection
+
+RandomLayer: fixed random connectivity, deterministic.
+
+LearnableLayer: trainable routing patterns, more expressive.
+
+Use with LayerConfig for training augmentation options.
 
 ---
 
 ## Common Patterns
 
-### Pattern 1: Standard MNIST Classification
+### Standard Classification
 
 ```python
 from difflut.models import ModelConfig, SimpleFeedForward
@@ -280,7 +149,7 @@ model.fit_encoder(train_data)
 output = model(test_data)
 ```
 
-### Pattern 2: Robust Training with Augmentation
+### Training with Augmentation
 
 ```python
 config = ModelConfig(
@@ -292,59 +161,32 @@ config = ModelConfig(
 )
 ```
 
-### Pattern 3: GPU-Accelerated Model
+### GPU-Accelerated Model
 
 ```python
 config = ModelConfig(
     ...
-    node_type='dwn_stable',  # GPU-friendly node type
-    runtime={'use_cuda': True}
-)
-```
-
-### Pattern 4: Custom Initializer and Regularizer
-
-```python
-from difflut.registry import REGISTRY
-
-config = ModelConfig(
-    ...,
-    node_config={
-        'init_fn': REGISTRY.get_initializer('kaiming_normal'),
-        'regularizers': {
-            'l2': REGISTRY.get_regularizer('l2')
-        }
-    }
+    node_type='dwn_stable',  # GPU-friendly
 )
 ```
 
 ---
 
-## Related Documentation
+## Documentation Links
 
-- **[Registry & Pipeline Guide](registry_pipeline.md)** - Dynamic component discovery and configuration-driven model building
-- **[DEVELOPER_GUIDE](../DEVELOPER_GUIDE/creating_components.md)** - Create custom encoders, nodes, or layers
-- **[QUICK_START](../QUICK_START.md)** - Get started with a simple example
-- **[API_REFERENCE](../../API_REFERENCE.md)** - Complete API documentation
+Encoders: [Guide](components/encoders.md)
 
----
+Layers: [Guide](components/layers.md)
 
-## Next Steps
+Nodes: [Guide](components/nodes.md)
 
-1. **Choose your starting point:**
-   - 🏃 Want to build a model quickly? Start with [Quick Start](../QUICK_START.md)
-   - 🔧 Need encoder details? Read [Encoders Guide](components/encoders.md)
-   - 🧩 Building custom architecture? Read [Layers Guide](components/layers.md)
-   - 🎯 Tuning node behavior? Read [Nodes Guide](components/nodes.md)
-   - 📦 Dynamic model building? See [Registry & Pipelines](registry_pipeline.md)
+Blocks: [Guide](components/blocks.md)
 
-2. **Check the specific guide for your component:**
-   - Each guide includes complete examples and best practices
-   - Learn which components work best for your use case
-   - Understand parameter tuning for performance
+Models: [Guide](components/models.md)
 
-3. **Explore advanced topics:**
-   - GPU acceleration with CUDA-enabled nodes
-   - Custom initializers and regularizers
-   - Building pipelines for hyperparameter search
+Registry & Pipelines: [Guide](registry_pipeline.md)
+
+Creating Components: [Developer Guide](../DEVELOPER_GUIDE/creating_components.md)
+
+
 

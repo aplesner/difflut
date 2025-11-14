@@ -17,7 +17,7 @@ class Registry:
     def __init__(self) -> None:
         self._nodes: Dict[str, Type] = {}
         self._layers: Dict[str, Type] = {}
-        self._convolutional_layers: Dict[str, Type] = {}
+        self._blocks: Dict[str, Type] = {}
         self._encoders: Dict[str, Type] = {}
         self._initializers: Dict[str, Callable] = {}
         self._regularizers: Dict[str, Callable] = {}
@@ -129,58 +129,60 @@ class Registry:
         """List all registered layer names."""
         return list(self._layers.keys())
 
-    # ==================== Convolutional Layer Registration ====================
-    def register_convolutional_layer(self, name: Optional[str] = None) -> Callable:
+    # ==================== Block Registration ====================
+    def register_block(self, name: Optional[str] = None) -> Callable:
         """
-        Decorator to register a convolutional layer class.
+        Decorator to register a block class.
+
+        Blocks are composite modules that consist of multiple layers but are not complete models.
+        Examples: ConvolutionalBlock, ResidualBlock, etc.
 
         Args:
-            name: Name to register the convolutional layer under. If None, uses class name.
+            name: Name to register the block under. If None, uses class name.
 
         Example:
-            @registry.register_convolutional_layer("convolutional")
-            class ConvolutionalLayer(BaseConvolutionalLayer):
+            @registry.register_block("convolutional")
+            class ConvolutionalBlock(BaseBlock):
                 pass
         """
 
         def decorator(cls: Type) -> Type:
-            conv_layer_name = name if name is not None else cls.__name__
-            if conv_layer_name in self._convolutional_layers:
+            block_name = name if name is not None else cls.__name__
+            if block_name in self._blocks:
                 warnings.warn(
-                    f"Convolutional Layer '{conv_layer_name}' is already registered and will be overwritten. "
+                    f"Block '{block_name}' is already registered and will be overwritten. "
                     f"This may lead to unexpected behavior if other code depends on the original implementation. "
-                    f"Consider using a unique name or checking existing registrations with registry.list_convolutional_layers().",
+                    f"Consider using a unique name or checking existing registrations with registry.list_blocks().",
                     UserWarning,
                     stacklevel=2,
                 )
-            self._convolutional_layers[conv_layer_name] = cls
+            self._blocks[block_name] = cls
             return cls
 
         return decorator
 
-    def get_convolutional_layer(self, name: str) -> Type:
+    def get_block(self, name: str) -> Type:
         """
-        Get a registered convolutional layer class by name.
+        Get a registered block class by name.
 
         Args:
-            name: Name of the convolutional layer
+            name: Name of the block
 
         Returns:
-            Convolutional Layer class
+            Block class
 
         Raises:
-            ValueError: If convolutional layer not found
+            ValueError: If block not found
         """
-        if name not in self._convolutional_layers:
+        if name not in self._blocks:
             raise ValueError(
-                f"Convolutional Layer '{name}' not found. "
-                f"Available layers: {list(self._convolutional_layers.keys())}"
+                f"Block '{name}' not found. " f"Available blocks: {list(self._blocks.keys())}"
             )
-        return self._convolutional_layers[name]
+        return self._blocks[name]
 
-    def list_convolutional_layers(self) -> List[str]:
-        """List all registered convolutional layer names."""
-        return list(self._convolutional_layers.keys())
+    def list_blocks(self) -> List[str]:
+        """List all registered block names."""
+        return list(self._blocks.keys())
 
     # ==================== Encoder Registration ====================
 
@@ -393,19 +395,19 @@ class Registry:
         layer_cls = self.get_layer(name)
         return layer_cls(**kwargs)
 
-    def build_convolutional_layer(self, name: str, **kwargs) -> Any:
+    def build_block(self, name: str, **kwargs) -> Any:
         """
-        Build a convolutional layer instance from its registered name.
+        Build a block instance from its registered name.
 
         Args:
-            name: Name of the convolutional layer
-            **kwargs: Arguments to pass to the convolutional layer constructor
+            name: Name of the block
+            **kwargs: Arguments to pass to the block constructor
 
         Returns:
-            Instance of the convolutional layer
+            Instance of the block
         """
-        conv_layer_cls = self.get_convolutional_layer(name)
-        return conv_layer_cls(**kwargs)
+        block_cls = self.get_block(name)
+        return block_cls(**kwargs)
 
     def build_encoder(self, name: str, **kwargs) -> Any:
         """
@@ -516,7 +518,7 @@ class Registry:
         return {
             "nodes": self.list_nodes(),
             "layers": self.list_layers(),
-            "convolutional_layers": self.list_convolutional_layers(),
+            "blocks": self.list_blocks(),
             "encoders": self.list_encoders(),
             "initializers": self.list_initializers(),
             "regularizers": self.list_regularizers(),
@@ -550,7 +552,7 @@ class Registry:
             f"Registry(\n"
             f"  nodes={len(self._nodes)},\n"
             f"  layers={len(self._layers)},\n"
-            f"  convolutional_layers={len(self._convolutional_layers)},\n"
+            f"  blocks={len(self._blocks)},\n"
             f"  encoders={len(self._encoders)},\n"
             f"  initializers={len(self._initializers)},\n"
             f"  regularizers={len(self._regularizers)},\n"
@@ -565,7 +567,7 @@ REGISTRY = Registry()
 # Convenience decorator aliases
 register_node = REGISTRY.register_node
 register_layer = REGISTRY.register_layer
-register_convolutional_layer = REGISTRY.register_convolutional_layer
+register_block = REGISTRY.register_block
 register_encoder = REGISTRY.register_encoder
 register_initializer = REGISTRY.register_initializer
 register_regularizer = REGISTRY.register_regularizer
