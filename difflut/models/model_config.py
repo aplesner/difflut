@@ -140,25 +140,34 @@ class ModelConfig:
             yaml.safe_dump(asdict(self), f, default_flow_style=False, sort_keys=False)
 
     def save_to_pretrained(
-        self, name: str, pretrained_dir: Optional[Union[str, Path]] = None
+        self, name: str, pretrained_dir: Optional[Union[str, Path]] = None, version: Optional[str] = None
     ) -> Path:
         """
         Save configuration to the pretrained models directory.
 
-        Saves config to: pretrained/<model_type>/<name>.yaml
+        Supports both versioned and non-versioned saves:
+        - Non-versioned: pretrained/<model_type>/<name>.yaml
+        - Versioned: pretrained/<model_type>/<name>/<version>/<name>.yaml
 
         Args:
             name: Name to save the model as (e.g., "cifar10_ffn_baseline")
             pretrained_dir: Base directory for pretrained models.
                            If None, uses difflut/models/pretrained
+            version: Optional version string (e.g., "v1"). 
+                    If provided, saves to versioned location.
 
         Returns:
             Path to the saved configuration file
 
         Example:
             >>> config = ModelConfig(...)
+            >>> # Non-versioned
             >>> config_path = config.save_to_pretrained("cifar10_ffn_baseline")
             >>> # Saves to: pretrained/feedforward/cifar10_ffn_baseline.yaml
+            
+            >>> # Versioned
+            >>> config_path = config.save_to_pretrained("cifar10_ffn_baseline", version="v1")
+            >>> # Saves to: pretrained/feedforward/cifar10_ffn_baseline/v1/cifar10_ffn_baseline.yaml
         """
         if pretrained_dir is None:
             # Use default pretrained directory in models package
@@ -170,8 +179,15 @@ class ModelConfig:
         model_type_dir = pretrained_dir / self.model_type
         model_type_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save config
-        config_path = model_type_dir / f"{name}.yaml"
+        if version:
+            # Versioned save: pretrained/<model_type>/<name>/<version>/
+            version_dir = model_type_dir / name / version
+            version_dir.mkdir(parents=True, exist_ok=True)
+            config_path = version_dir / f"{name}.yaml"
+        else:
+            # Non-versioned save: pretrained/<model_type>/
+            config_path = model_type_dir / f"{name}.yaml"
+
         self.to_yaml(str(config_path))
 
         return config_path

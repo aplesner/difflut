@@ -1,6 +1,6 @@
 model_type: feedforward
 layer_type: random
-node_type: probabilistic
+node_type: hybrid
 encoder_config:
   name: distributive_thermometer
   num_bits: 3

@@ -16,24 +16,37 @@ DiffLUT is a modular PyTorch library for differentiable Look-Up Table (LUT) neur
 - **FPGA Export**: Tools for deploying trained networks to FPGAs
 - **Component Registry**: Easy discovery and instantiation of components
 
-## Quick Links
+## 📖 Documentation
 
-### For Users
-- **[Installation Guide](docs/INSTALLATION.md)** - Setup and requirements
-- **[Quick Start](docs/QUICK_START.md)** - Get running in 5 minutes
-- **[Model Zoo](docs/MODEL_ZOO.md)** - Ready-to-use pre-designed models
-- **[User Guide](docs/USER_GUIDE.md)** - Learn the library components and patterns
-  - [Components Guide](docs/USER_GUIDE/components.md) - Encoders, nodes, and layers
-  - [Registry & Pipelines](docs/USER_GUIDE/registry_pipeline.md) - Component discovery and pipeline building
-  - [Export Guide](docs/USER_GUIDE/export_guide.md) - Export for FPGA and C
+**[📋 Documentation Structure Overview](docs/DOCUMENTATION_STRUCTURE.md)** - Understand how documentation is organized
 
+### Getting Started
+1. **[Installation Guide](docs/INSTALLATION.md)** - Setup, dependencies, and CUDA configuration
+2. **[Quick Start](docs/QUICK_START.md)** - Build your first LUT network in 5 minutes
 
-### For Developers
-- **[Developer Guide](docs/DEVELOPER_GUIDE.md)** - Extend and contribute to DiffLUT
-  - [Creating Components](docs/DEVELOPER_GUIDE/creating_components.md) - Implement custom nodes/encoders/layers
-  - [Packaging & Distribution](docs/DEVELOPER_GUIDE/packaging.md) - Build and publish DiffLUT
-  - [Contributing](docs/DEVELOPER_GUIDE/contributing.md) - Development setup and guidelines
-  - [Tests](docs/DEVELOPER_GUIDE/tests.md) - Test setup and guidelines
+### User Documentation
+- **[User Guide](docs/USER_GUIDE.md)** - Overview of all user-facing features
+  - **[Components Guide](docs/USER_GUIDE/components.md)** - Encoders, nodes, layers, and initializers
+    - [Encoders](docs/USER_GUIDE/components/encoders.md) - Available input encoders
+    - [Nodes](docs/USER_GUIDE/components/nodes.md) - Available LUT node types
+    - [Layers](docs/USER_GUIDE/components/layers.md) - Layer connectivity patterns
+    - [Models](docs/USER_GUIDE/components/models.md) - Using and configuring models
+  - **[Registry & Pipelines](docs/USER_GUIDE/registry_pipeline.md)** - Component discovery and configuration-driven building
+  - **[Export Guide](docs/USER_GUIDE/export_guide.md)** - Export models for FPGA and C deployment
+
+### Developer Documentation
+- **[Developer Guide](docs/DEVELOPER_GUIDE.md)** - Architecture overview and contributing
+  - **[Creating Components](docs/DEVELOPER_GUIDE/creating_components.md)** - Overview of component architecture
+    - [Creating Encoders](docs/DEVELOPER_GUIDE/creating_components/creating_encoders.md) - Implement custom encoders
+    - [Creating Nodes](docs/DEVELOPER_GUIDE/creating_components/creating_nodes.md) - Implement custom LUT nodes
+    - [Creating Layers](docs/DEVELOPER_GUIDE/creating_components/creating_layers.md) - Implement custom layers
+    - [Creating Models](docs/DEVELOPER_GUIDE/creating_components/creating_models.md) - Implement custom model architectures
+    - [Creating Blocks](docs/DEVELOPER_GUIDE/creating_components/creating_blocks.md) - Compose components into blocks *(future)*
+  - **[Testing](docs/DEVELOPER_GUIDE/tests.md)** - Test framework and guidelines
+  - **[Packaging & Distribution](docs/DEVELOPER_GUIDE/packaging.md)** - Build, test, and publish
+  - **[Contributing](docs/DEVELOPER_GUIDE/contributing.md)** - Development setup and workflow
+  - **[GitHub Workflow](docs/DEVELOPER_GUIDE/github_guide.md)** - GitHub-specific practices
+  - **[Apptainer Containers](docs/DEVELOPER_GUIDE/apptainer.md)** - Container setup for development
 
 ## Package Structure
 
