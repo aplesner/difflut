@@ -232,7 +232,8 @@ def test_grouped_connections_learning(
         - Expected: <60% accuracy
     """
     from difflut import REGISTRY
-    from difflut.layers import ConvolutionConfig, LayerConfig
+    from difflut.blocks import ConvolutionConfig
+    from difflut.layers import LayerConfig
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
 

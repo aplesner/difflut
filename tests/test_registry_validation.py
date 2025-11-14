@@ -79,10 +79,11 @@ def test_registry_list_all_structure():
     expected_keys = {
         "nodes",
         "layers",
-        "convolutional_layers",
+        "blocks",
         "encoders",
         "initializers",
         "regularizers",
+        "models",
     }
     assert (
         set(all_components.keys()) == expected_keys
@@ -103,13 +104,18 @@ def test_registry_list_layers_consistency():
     assert layers_direct == layers_from_all, "list_layers() inconsistent with list_all()['layers']"
 
 
-def test_registry_list_convolutional_layers_consistency():
-    """Test that list_convolutional_layers() is consistent with list_all()."""
-    conv_layers_direct = REGISTRY.list_convolutional_layers()
-    conv_layers_from_all = REGISTRY.list_all()["convolutional_layers"]
-    assert (
-        conv_layers_direct == conv_layers_from_all
-    ), "list_convolutional_layers() inconsistent with list_all()['convolutional_layers']"
+def test_registry_list_blocks_consistency():
+    """Test that list_blocks() is consistent with list_all()."""
+    blocks_direct = REGISTRY.list_blocks()
+    blocks_from_all = REGISTRY.list_all()["blocks"]
+    assert blocks_direct == blocks_from_all, "list_blocks() inconsistent with list_all()['blocks']"
+
+
+def test_registry_list_models_consistency():
+    """Test that list_models() is consistent with list_all()."""
+    models_direct = REGISTRY.list_models()
+    models_from_all = REGISTRY.list_all()["models"]
+    assert models_direct == models_from_all, "list_models() inconsistent with list_all()['models']"
 
 
 def test_registry_list_encoders_consistency():
@@ -135,13 +141,18 @@ def test_registry_get_layer_works_for_all():
         assert layer_class is not None, f"get_layer('{layer_name}') returned None"
 
 
-def test_registry_get_convolutional_layer_works_for_all():
-    """Test that get_convolutional_layer() works for all listed convolutional layers."""
-    for conv_layer_name in REGISTRY.list_convolutional_layers():
-        conv_layer_class = REGISTRY.get_convolutional_layer(conv_layer_name)
-        assert (
-            conv_layer_class is not None
-        ), f"get_convolutional_layer('{conv_layer_name}') returned None"
+def test_registry_get_block_works_for_all():
+    """Test that get_block() works for all listed blocks."""
+    for block_name in REGISTRY.list_blocks():
+        block_class = REGISTRY.get_block(block_name)
+        assert block_class is not None, f"get_block('{block_name}') returned None"
+
+
+def test_registry_get_model_works_for_all():
+    """Test that get_model() works for all listed models."""
+    for model_name in REGISTRY.list_models():
+        model_class = REGISTRY.get_model(model_name)
+        assert model_class is not None, f"get_model('{model_name}') returned None"
 
 
 def test_registry_get_encoder_works_for_all():
@@ -163,10 +174,16 @@ def test_registry_invalid_layer_raises_error():
         REGISTRY.get_layer("nonexistent_layer_12345")
 
 
-def test_registry_invalid_convolutional_layer_raises_error():
-    """Test that getting invalid convolutional layer raises ValueError."""
+def test_registry_invalid_block_raises_error():
+    """Test that getting invalid block raises ValueError."""
     with pytest.raises(ValueError):
-        REGISTRY.get_convolutional_layer("nonexistent_convolutional_layer_12345")
+        REGISTRY.get_block("nonexistent_block_12345")
+
+
+def test_registry_invalid_model_raises_error():
+    """Test that getting invalid model raises ValueError."""
+    with pytest.raises(ValueError):
+        REGISTRY.get_model("nonexistent_model_12345")
 
 
 def test_registry_invalid_encoder_raises_error():

@@ -26,7 +26,8 @@ warnings.filterwarnings("ignore", category=CUDAWarning)
 def test_grouped_connections_coverage(seed):
     """Test that grouped connections ensure full channel coverage across multiple seeds."""
     from difflut import REGISTRY
-    from difflut.layers import ConvolutionalLayer, ConvolutionConfig, LayerConfig
+    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
+    from difflut.layers import LayerConfig
     from difflut.nodes.node_config import NodeConfig
 
     conv_config = ConvolutionConfig(
@@ -104,7 +105,8 @@ def test_grouped_connections_coverage(seed):
 def test_grouped_connections_forward_pass(seed):
     """Test that grouped convolutional layers can perform forward pass."""
     from difflut import REGISTRY
-    from difflut.layers import ConvolutionalLayer, ConvolutionConfig, LayerConfig
+    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
+    from difflut.layers import LayerConfig
     from difflut.nodes.node_config import NodeConfig
 
     conv_config = ConvolutionConfig(
@@ -159,7 +161,8 @@ def test_grouped_connections_forward_pass(seed):
 def test_grouped_connections_gradient_flow(seed):
     """Test that gradients flow through grouped convolutional layers."""
     from difflut import REGISTRY
-    from difflut.layers import ConvolutionalLayer, ConvolutionConfig, LayerConfig
+    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
+    from difflut.layers import LayerConfig
     from difflut.nodes.node_config import NodeConfig
 
     conv_config = ConvolutionConfig(
