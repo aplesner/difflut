@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
+from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
@@ -434,7 +435,7 @@ class DWNNode(BaseNode):
         Forward pass during training.
         Inputs are in [0, 1], binarized using Heaviside at 0.5.
         Outputs are in [0, 1].
-        Uses CUDA kernels when available, otherwise CPU fallback.
+        Uses CUDA kernels when available based on tensor device, otherwise CPU fallback.
 
         Args:
             x: Tensor of shape (batch_size, input_dim)
@@ -445,8 +446,9 @@ class DWNNode(BaseNode):
         # Clamp LUT values to [0, 1] if enabled
         self._clamp_luts_if_needed()
 
-        # Use CUDA if available and requested
-        if self.use_cuda and x.is_cuda and _CUDA_EXT_AVAILABLE:
+        # Use CUDA if available and tensor is on CUDA device
+        # Device determines kernel selection, not config parameters
+        if should_use_cuda_from_tensor(x) and _CUDA_EXT_AVAILABLE:
             output = efd_forward(x, self.luts, self.alpha.item(), self.beta.item())
         else:
             # CPU fallback
@@ -518,8 +520,9 @@ class DWNNode(BaseNode):
                 f"Mapping indices input_dim ({input_dim}) doesn't match node's input_dim ({self.num_inputs})"
             )
 
-        # Use fused CUDA kernel if available
-        if self.use_cuda and x.is_cuda and _FUSED_CUDA_EXT_AVAILABLE:
+        # Use fused CUDA kernel if available based on tensor device
+        # Device determines kernel selection, not config parameters
+        if should_use_cuda_from_tensor(x) and _FUSED_CUDA_EXT_AVAILABLE:
             # Prepare LUTs in the shape expected by fused kernel: (layer_size, output_dim, lut_size)
             # Current LUTs shape: (output_dim, lut_size)
             # Need to expand/repeat for each node in the layer

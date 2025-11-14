@@ -281,18 +281,20 @@ class SimpleConvolutional(BaseLUTModel):
                     print(f"Warning: Could not load regularizer '{reg_name}': {e}")
 
         # Add node-specific parameters from runtime
+        # NOTE: use_cuda parameter is removed - CUDA kernels are auto-selected based on device
+        # Just do model.cuda() to use GPU kernels, model.cpu() to use CPU kernels
         node_type = config.node_type
 
         if node_type in ["dwn", "hybrid", "dwn_stable"]:
-            extra_params["use_cuda"] = runtime.get("use_cuda", True)
+            pass  # No use_cuda - device determines kernel selection
 
         elif node_type == "probabilistic":
             extra_params["temperature"] = runtime.get("temperature", 1.0)
             extra_params["eval_mode"] = runtime.get("eval_mode", "expectation")
-            extra_params["use_cuda"] = runtime.get("use_cuda", True)
+            # No use_cuda - device determines kernel selection
 
         elif node_type == "fourier":
-            extra_params["use_cuda"] = runtime.get("use_cuda", True)
+            # No use_cuda - device determines kernel selection
             extra_params["use_all_frequencies"] = runtime.get("use_all_frequencies", True)
             extra_params["max_amplitude"] = runtime.get("max_amplitude", 0.5)
 
