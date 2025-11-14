@@ -185,7 +185,6 @@ class SimpleConvolutional(BaseLUTModel):
                 receptive_field=self.conv_kernel_size,
                 stride=self.conv_stride,
                 padding=self.conv_padding,
-                chunk_size=runtime.get("chunk_size", 32),
                 seed=config.seed + layer_idx,  # Different seed for each layer
             )
 

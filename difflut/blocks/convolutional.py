@@ -13,6 +13,8 @@ from ..registry import register_block
 class ConvolutionConfig:
     """
     Configuration for ConvolutionalBlock.
+    
+    Simplified configuration - no chunking needed.
     """
 
     def __init__(
@@ -23,7 +25,6 @@ class ConvolutionConfig:
         receptive_field: int | tuple[int, int] = 5,
         stride: int | tuple[int, int] = 1,
         padding: int | tuple[int, int] = 0,
-        chunk_size: int = 32,
         seed: int = 42,
     ):
         assert in_channels is not None, "in_channels must be specified"
@@ -35,20 +36,22 @@ class ConvolutionConfig:
         self.receptive_field = receptive_field
         self.stride = stride
         self.padding = padding
-        self.chunk_size = chunk_size
         self.seed = seed
 
 
 @register_block("convolutional")
 class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     """
-    Convolutional block using LUT-based nodes with memory-efficient fused kernels.
-
-    Uses RandomLayer with fused forward_with_mapping() to avoid materializing
-    large intermediate tensors, reducing memory usage from ~20GB to ~3-4GB.
-
-    Processes trees in chunks to balance speed (fewer kernel calls) and memory
-    (not materializing all trees' activations at once).
+    Simplified convolutional block using LUT-based nodes.
+    
+    Strategy:
+    1. Build a tree of layers once (reusable across all spatial positions)
+    2. Use nn.Unfold to extract patches from input image
+    3. Process all patches through the same tree in parallel
+    4. Reshape output back to spatial format
+    
+    This is much simpler than the previous chunked implementation and reuses
+    the same tree weights for all spatial positions (like standard convolution).
     """
 
     def __init__(
@@ -90,23 +93,19 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         self.layer_type = layer_type
         self.n_inputs_per_node = n_inputs_per_node
         self.seed = convolution_config.seed
-        self.chunk_size = min(
-            convolution_config.chunk_size, self.out_channels
-        )  # Don't exceed out_channels
 
-        # Build tree architecture
+        # Build tree architecture: each layer reduces by factor of n_inputs_per_node
+        # Example: tree_depth=2, n_inputs_per_node=6
+        #   Layer 0: input_size -> 36 nodes (6^2)
+        #   Layer 1: 36 -> 6 nodes (6^1)
+        #   Layer 2: 6 -> 1 node (6^0) per output channel
         hidden_layers = [
             self.n_inputs_per_node ** (self.tree_depth - i) for i in range(self.tree_depth + 1)
         ]
         self.hidden_layers = hidden_layers
 
-        # Create grouped input mapping if enabled
+        # Create grouped input mapping if enabled (for channel-aware connections)
         if grouped_connections:
-            n_groups = self.in_channels
-            assert (
-                self.input_size % n_groups == 0
-            ), "Input size must be divisible by number of groups. If you see this then something has gone very wrong..."
-
             grouped_config = GroupedInputConfig(
                 n_groups=self.in_channels,
                 input_size=self.input_size,
@@ -119,52 +118,42 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         else:
             grouped_config = None
 
-        # OPTIMIZATION: Create first layers in chunks for memory/speed balance
-        # Processing chunk_size trees at once balances:
-        # - Speed: chunk_size kernel calls instead of out_channels (e.g., 4 vs 128)
-        # - Memory: Only materialize chunk_size trees' activations at once
-        self.first_layer_chunks = nn.ModuleList()
-        num_chunks = (self.out_channels + self.chunk_size - 1) // self.chunk_size
+        # Build separate trees, one for each output channel
+        # Each tree is reused for all spatial positions (weight sharing like conv)
+        self.trees = nn.ModuleList()
 
-        for chunk_idx in range(num_chunks):
-            chunk_start = chunk_idx * self.chunk_size
-            chunk_end = min(chunk_start + self.chunk_size, self.out_channels)
-            actual_chunk_size = chunk_end - chunk_start
-
-            layer = layer_type(
+        for tree_idx in range(self.out_channels):
+            # Build one tree: input_size -> ... -> 1
+            tree_layers = nn.ModuleList()
+            
+            # First layer: input_size -> hidden_layers[0]
+            first_layer = layer_type(
                 input_size=self.input_size,
-                output_size=hidden_layers[0] * actual_chunk_size,
+                output_size=hidden_layers[0],
                 node_type=node_type,
                 node_kwargs=node_kwargs,
                 mapping_indices=(
-                    grouped_config.get_mapping_indices(chunk_start, chunk_end)
+                    grouped_config.get_mapping_indices(tree_idx, tree_idx + 1)
                     if grouped_config
                     else None
                 ),
             )
-
-            self.first_layer_chunks.append(layer)
-
-        # Create remaining layers per-tree (after first layer)
-        # These remain independent as each tree has different activations after first layer
-        self.trees = nn.ModuleList()
-
-        for tree_idx in range(self.out_channels):
-            # Build layers for this tree (starting from second layer)
-            tree_layers = nn.ModuleList()
-            current_input_size = hidden_layers[0]  # Output of first layer
-
-            for layer_idx, output_size in enumerate(hidden_layers[1:]):  # Skip first two elements
+            tree_layers.append(first_layer)
+            
+            # Remaining layers: progressively reduce to 1 output
+            current_input_size = hidden_layers[0]
+            for layer_idx in range(1, len(hidden_layers)):
+                output_size = hidden_layers[layer_idx]
+                
                 layer = layer_type(
                     input_size=current_input_size,
                     output_size=output_size,
                     node_type=node_type,
                     node_kwargs=node_kwargs,
                 )
-
                 tree_layers.append(layer)
                 current_input_size = output_size
-
+            
             self.trees.append(tree_layers)
 
         # For convolution, we use the unfold operation to extract patches
@@ -178,81 +167,73 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         return x
 
     def __repr__(self) -> str:
-        """Simple model overview without printing all trees."""
-        num_chunks = len(self.first_layer_chunks)
+        """Simple model overview."""
         return (
-            f"ConvolutionalBlock(\n"
+            f"ConvolutionalLayer(\n"
             f"  receptive_field={self.receptive_field}, stride={self.stride}, padding={self.padding}\n"
             f"  in_channels={self.in_channels}, out_channels={self.out_channels}\n"
             f"  tree_architecture={self.hidden_layers}\n"
-            f"  node_type={self.node_type}, layer_type={self.layer_type}\n"
+            f"  node_type={self.node_type.__name__ if hasattr(self.node_type, '__name__') else self.node_type}\n"
+            f"  layer_type={self.layer_type.__name__ if hasattr(self.layer_type, '__name__') else self.layer_type}\n"
             f"  n_inputs_per_node={self.n_inputs_per_node}, tree_depth={self.tree_depth}\n"
-            f"  total_trees={len(self.trees)}, chunk_size={self.chunk_size}, num_chunks={num_chunks}\n"
+            f"  num_trees={len(self.trees)}\n"
             f")"
         )
 
     def forward(self, x):
-
+        """
+        Forward pass through convolutional LUT block.
+        
+        Args:
+            x: Input tensor of shape (batch, in_channels, height, width)
+            
+        Returns:
+            Output tensor of shape (batch, out_channels, out_height, out_width)
+        """
         batch_size = x.shape[0]
+        input_h, input_w = x.shape[2], x.shape[3]
+
+        # Calculate output spatial dimensions
+        out_h = (input_h + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
+        out_w = (input_w + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
 
         # Extract patches: (batch, patch_size, num_patches)
+        # patch_size = in_channels * receptive_field[0] * receptive_field[1]
         patches = self.unfold(x)
         num_patches = patches.shape[2]
 
-        # Reshape to (batch*num_patches, patch_size)
+        # Reshape to (batch*num_patches, patch_size) for processing
         patches = patches.transpose(1, 2).contiguous()
         patches = patches.view(-1, self.input_size)
+
         # Apply bit-flip augmentation during training
         if self.training and self.flip_probability > 0.0:
             patches = self._apply_bit_flip(patches)
 
-        # Process patches through trees using chunked first layer + per-tree remaining layers
-        batch_patches = patches.shape[0]
+        # Process all patches through each tree independently
+        # Each tree processes all patches and produces one output per patch
+        outputs = []
+        for tree_layers in self.trees:
+            x_tree = patches
+            for layer in tree_layers:
+                x_tree = layer(x_tree)
+            # x_tree is now (batch*num_patches, 1)
+            outputs.append(x_tree)
+        
+        # Stack outputs: list of (batch*num_patches, 1) -> (batch*num_patches, out_channels)
+        x_out = torch.cat(outputs, dim=1)
+        
+        # Reshape to (batch, num_patches, out_channels)
+        x_out = x_out.view(batch_size, num_patches, self.out_channels)
+        
+        # Transpose to (batch, out_channels, num_patches)
+        x_out = x_out.transpose(1, 2)
 
-        # OPTIMIZATION: Preallocate output tensor
-        output = torch.empty(batch_patches, self.out_channels, device=patches.device)
-
-        # Process trees in chunks for memory/speed balance
-        tree_idx = 0
-        for chunk_idx, chunk_layer in enumerate(self.first_layer_chunks):
-            # Process this chunk's first layer
-            x_chunk = chunk_layer(patches)  # (batch*num_patches, hidden_layers[0] * chunk_size)
-
-            # Determine actual chunk size (last chunk may be smaller)
-            chunk_start = chunk_idx * self.chunk_size
-            chunk_end = min(chunk_start + self.chunk_size, self.out_channels)
-            actual_chunk_size = chunk_end - chunk_start
-
-            # Reshape to split per-tree: (batch*num_patches, chunk_size, hidden_layers[1])
-            x_chunk = x_chunk.view(batch_patches, actual_chunk_size, self.hidden_layers[0])
-
-            # Process remaining layers for trees in this chunk
-            for local_tree_idx in range(actual_chunk_size):
-                # Get this tree's first layer output: (batch*num_patches, hidden_layers[1])
-                x_tree = x_chunk[:, local_tree_idx, :]
-
-                # Process through remaining layers of this tree
-                for layer in self.trees[tree_idx]:  # type: ignore
-                    x_tree = layer(x_tree)
-
-                # Write directly to preallocated output
-                output[:, tree_idx] = x_tree.squeeze(-1)
-
-                tree_idx += 1
-
-        output = output.view(batch_size, num_patches, self.out_channels)
-        output = output.transpose(1, 2)  # (batch, out_channels, num_patches)
-
-        # Calculate output spatial dimensions
-        out_h = (x.shape[2] + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
-        out_w = (x.shape[3] + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
-
-        output = output.view(batch_size, self.out_channels, out_h, out_w)
+        # Reshape back to spatial format (batch, out_channels, out_h, out_w)
+        output = x_out.view(batch_size, self.out_channels, out_h, out_w)
 
         # Register gradient stabilization hook if enabled
         if self.grad_stabilization != "none" and self.training and output.requires_grad:
-            # Flatten spatial dimensions for gradient stabilization
-            # (batch, channels, h, w) -> (batch, channels*h*w)
             def grad_hook(grad):
                 original_shape = grad.shape
                 # Flatten to 2D: (batch, channels*h*w)

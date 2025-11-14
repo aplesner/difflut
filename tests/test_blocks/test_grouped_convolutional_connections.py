@@ -37,7 +37,6 @@ def test_grouped_connections_coverage(seed):
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=128,  # Larger than out_channels to disable chunking
         seed=seed,
     )
 
@@ -74,9 +73,11 @@ def test_grouped_connections_coverage(seed):
         ensure_full_coverage=True,
     )
 
-    # Get mapping indices from first layer chunks
-    mapping_grouped = conv_layer_grouped.first_layer_chunks[0]._mapping_indices
-    mapping_nongrouped = conv_layer_nongrouped.first_layer_chunks[0]._mapping_indices
+    # Get mapping indices from first layer of first tree
+    # In the new architecture, trees[i] is a ModuleList of layers for tree i
+    # trees[0][0] is the first layer of the first tree
+    mapping_grouped = conv_layer_grouped.trees[0][0]._mapping_indices
+    mapping_nongrouped = conv_layer_nongrouped.trees[0][0]._mapping_indices
 
     # Calculate channel coverage for grouped connections
     # Each index in mapping represents a flattened position in (C, H, W)
@@ -116,7 +117,6 @@ def test_grouped_connections_forward_pass(seed):
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=128,
         seed=seed,
     )
 
@@ -172,7 +172,6 @@ def test_grouped_connections_gradient_flow(seed):
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=64,
         seed=seed,
     )
 

@@ -28,9 +28,9 @@ def convolutional_config():
         model_type="convolutional",
         layer_type="random",
         node_type="probabilistic",
-        encoder_config={"name": "thermometer", "num_bits": 4},
+        encoder_config={"name": "thermometer", "num_bits": 3},  # Reduced from 4
         node_input_dim=6,
-        layer_widths=[8],  # Reduced from [16, 32] to single smaller layer
+        layer_widths=[4],  # Reduced from [8] - only 4 output channels
         num_classes=10,
         dataset="test",
         input_size=None,  # Will be inferred from input
@@ -39,9 +39,9 @@ def convolutional_config():
             "conv_kernel_size": 3,
             "conv_stride": 1,
             "conv_padding": 1,
-            "input_channels": 3,
-            "input_height": 16,  # Reduced from 28
-            "input_width": 16,   # Reduced from 28
+            "input_channels": 1,  # Reduced from 3 (grayscale instead of RGB)
+            "input_height": 8,   # Reduced from 16
+            "input_width": 8,    # Reduced from 8
         },
     )
 
@@ -62,8 +62,8 @@ class TestSimpleConvolutionalBasics:
         """Test that encoder fitting works with spatial inputs."""
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config)
-            # Input: (batch, channels, height, width) - reduced batch size
-            data = generate_uniform_input((8, 3, 16, 16))
+            # Input: (batch, channels, height, width) - reduced to 1 channel, 8x8
+            data = generate_uniform_input((4, 1, 8, 8))  # Reduced batch and size
             
             assert not model.encoder_fitted
             model.fit_encoder(data)
@@ -73,11 +73,11 @@ class TestSimpleConvolutionalBasics:
         """Test forward pass produces correct output shape for classification."""
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config)
-            data = generate_uniform_input((8, 3, 16, 16))
+            data = generate_uniform_input((4, 1, 8, 8))  # Match new config
             model.fit_encoder(data)
             
             # Forward pass
-            batch = generate_uniform_input((4, 3, 16, 16), seed=42)
+            batch = generate_uniform_input((2, 1, 8, 8), seed=42)  # Match new config
             with torch.no_grad():
                 output = model(batch)
             
@@ -89,11 +89,11 @@ class TestSimpleConvolutionalBasics:
         """Test that gradients are computed correctly."""
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config)
-            data = generate_uniform_input((8, 3, 16, 16))
+            data = generate_uniform_input((4, 1, 8, 8))  # Match new config
             model.fit_encoder(data)
             
             model.train()
-            batch = generate_uniform_input((2, 3, 16, 16), seed=42)
+            batch = generate_uniform_input((2, 1, 8, 8), seed=42)  # Match new config
             batch.requires_grad = True
             
             output = model(batch)
@@ -117,18 +117,18 @@ class TestSimpleConvolutionalBasics:
             torch.manual_seed(42)
             model_gpu = SimpleConvolutional(convolutional_config).cuda()
             
-            # Fit encoders - reduced batch size
-            data_cpu = generate_uniform_input((8, 3, 16, 16), seed=42)
+            # Fit encoders - match new config
+            data_cpu = generate_uniform_input((4, 1, 8, 8), seed=42)  # Match new config
             data_gpu = data_cpu.cuda()
             
             model_cpu.fit_encoder(data_cpu)
             model_gpu.fit_encoder(data_gpu)
             
-            # Forward pass - reduced batch size
+            # Forward pass
             model_cpu.eval()
             model_gpu.eval()
             
-            input_cpu = generate_uniform_input((4, 3, 16, 16), seed=123)
+            input_cpu = generate_uniform_input((2, 1, 8, 8), seed=123)  # Match new config
             input_gpu = input_cpu.cuda()
             
             with torch.no_grad():

@@ -40,7 +40,6 @@ def instantiate_block(block_class, node_type, layer_type, seed=42):
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=64,
         seed=seed,
     )
 
@@ -218,7 +217,6 @@ def test_block_different_sizes(block_name, device):
             receptive_field=3,
             stride=1,
             padding=0,
-            chunk_size=64,
             seed=42,
         )
 
@@ -258,7 +256,6 @@ def test_block_grouped_connections(block_name, device):
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=64,
         seed=42,
     )
 

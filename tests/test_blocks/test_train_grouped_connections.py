@@ -245,8 +245,7 @@ def test_grouped_connections_learning(
     in_channels = IN_CHANNELS
     out_channels = OUT_CHANNELS
 
-    # Create conv config with large chunk_size to disable chunking
-    # (grouped connections may not work well with chunked first layer)
+    # Create conv config
     conv_config = ConvolutionConfig(
         tree_depth=1,
         in_channels=in_channels,
@@ -254,7 +253,6 @@ def test_grouped_connections_learning(
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=128,  # Larger than out_channels to disable chunking
         seed=42,
     )
 

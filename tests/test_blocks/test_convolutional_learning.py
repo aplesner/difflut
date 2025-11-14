@@ -191,7 +191,6 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
         receptive_field=3,
         stride=1,
         padding=0,
-        chunk_size=8,
         seed=42,
     )
 

@@ -488,7 +488,7 @@ def instantiate_layer(
     # Special handling for ConvolutionalLayer
     if layer_class.__name__ == "ConvolutionalLayer":
         from difflut.layers import RandomLayer
-        from difflut.layers.convolutional import ConvolutionConfig
+        from difflut.blocks.convolutional import ConvolutionConfig
 
         # Create ConvolutionConfig to match input_size/output_size
         # For simplicity, assume 1D convolution with receptive field that matches input_size
@@ -499,7 +499,6 @@ def instantiate_layer(
             receptive_field=16,  # Fixed receptive field
             stride=1,
             padding=0,
-            chunk_size=32,
             seed=42,
         )
 
