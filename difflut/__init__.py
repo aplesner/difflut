@@ -42,6 +42,7 @@ from .registry import (
     register_encoder,
     register_initializer,
     register_layer,
+    register_model,
     register_node,
     register_regularizer,
 )
@@ -67,6 +68,7 @@ __all__ = [
     "register_encoder",
     "register_initializer",
     "register_regularizer",
+    "register_model",
     "BaseNode",
     "BaseLUTLayer",
     "BaseEncoder",

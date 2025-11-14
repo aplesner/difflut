@@ -121,6 +121,35 @@ class BaseLUTModel(nn.Module):
         state_dict = torch.load(path, map_location=map_location)
         self.load_state_dict(state_dict)
     
+    def save_as_pretrained(self, pretrained_name: str, pretrained_dir: Optional[str] = None):
+        """
+        Save model config and weights to pretrained folder.
+        
+        Args:
+            pretrained_name: Name like "feedforward/cifar10_baseline"
+                           Will save to pretrained/<model_type>/<name>.yaml and .pth
+            pretrained_dir: Base pretrained directory (default: models/pretrained)
+        
+        Returns:
+            Tuple of (config_path, weights_path)
+        """
+        from pathlib import Path
+        
+        if pretrained_dir is None:
+            pretrained_dir = Path(__file__).parent / "pretrained"
+        else:
+            pretrained_dir = Path(pretrained_dir)
+        
+        # Save config (this creates the directory)
+        config_path = self.config.save_as_pretrained(pretrained_name, pretrained_dir)
+        
+        # Save weights to same directory
+        model_type, name = config_path.parent.name, config_path.stem
+        weights_path = config_path.parent / f"{name}.pth"
+        self.save_weights(str(weights_path))
+        
+        return config_path, weights_path
+    
     def count_parameters(self) -> Dict[str, int]:
         """
         Count model parameters.

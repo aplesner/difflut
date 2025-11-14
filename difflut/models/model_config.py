@@ -7,7 +7,7 @@ safely overridden).
 """
 
 from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 import yaml
 from pathlib import Path
 
@@ -132,6 +132,41 @@ class ModelConfig:
         
         with open(path, "w") as f:
             yaml.safe_dump(asdict(self), f, default_flow_style=False, sort_keys=False)
+    
+    def save_to_pretrained(self, name: str, pretrained_dir: Optional[Union[str, Path]] = None) -> Path:
+        """
+        Save configuration to the pretrained models directory.
+        
+        Saves config to: pretrained/<model_type>/<name>.yaml
+        
+        Args:
+            name: Name to save the model as (e.g., "cifar10_ffn_baseline")
+            pretrained_dir: Base directory for pretrained models.
+                           If None, uses difflut/models/pretrained
+        
+        Returns:
+            Path to the saved configuration file
+            
+        Example:
+            >>> config = ModelConfig(...)
+            >>> config_path = config.save_to_pretrained("cifar10_ffn_baseline")
+            >>> # Saves to: pretrained/feedforward/cifar10_ffn_baseline.yaml
+        """
+        if pretrained_dir is None:
+            # Use default pretrained directory in models package
+            pretrained_dir = Path(__file__).parent / "pretrained"
+        else:
+            pretrained_dir = Path(pretrained_dir)
+        
+        # Create model-type-specific subdirectory
+        model_type_dir = pretrained_dir / self.model_type
+        model_type_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save config
+        config_path = model_type_dir / f"{name}.yaml"
+        self.to_yaml(str(config_path))
+        
+        return config_path
     
     def to_dict(self) -> Dict[str, Any]:
         """

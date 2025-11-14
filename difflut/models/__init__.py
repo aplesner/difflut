@@ -45,6 +45,7 @@ from .feedforward import SimpleFeedForward
 # Factory functions
 from .factory import (
     build_model,
+    build_model_for_experiment,
     load_pretrained,
     list_pretrained_models,
     get_pretrained_model_info,
@@ -60,6 +61,7 @@ __all__ = [
     
     # Factory
     "build_model",
+    "build_model_for_experiment",
     "load_pretrained",
     "list_pretrained_models",
     "get_pretrained_model_info",

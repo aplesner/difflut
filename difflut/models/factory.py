@@ -152,6 +152,118 @@ def build_model(
     return model
 
 
+def build_model_for_experiment(
+    model_config: ModelConfig,
+    *,
+    load_from_pretrained: bool = False,
+    save_as_pretrained: bool = False,
+    pretrained_name: Optional[str] = None,
+    runtime_overrides: Optional[Dict[str, Any]] = None,
+    pretrained_dir: Optional[Union[str, Path]] = None,
+) -> tuple[BaseLUTModel, Optional[Path]]:
+    """
+    Build a model for experiment with pretrained handling.
+    
+    This is the main entry point for building models in experiments.
+    It handles the pretrained model workflow:
+    - If load_from_pretrained: Load config and weights from pretrained, apply runtime_overrides
+    - If save_as_pretrained: Return path where weights should be saved
+    
+    Args:
+        model_config: ModelConfig object from experiment config
+        load_from_pretrained: Whether to load from pretrained models
+        save_as_pretrained: Whether to save this model to pretrained after training
+        pretrained_name: Name of pretrained model (e.g., "feedforward/cifar10_ffn_baseline")
+        runtime_overrides: Runtime parameters to override (from experiment config)
+        pretrained_dir: Custom directory for pretrained models
+    
+    Returns:
+        Tuple of (model, weights_save_path)
+        - model: Initialized model instance
+        - weights_save_path: Path where weights should be saved (None if save_as_pretrained=False)
+    
+    Raises:
+        ValueError: If pretrained model not found or config invalid
+    """
+    if pretrained_dir is None:
+        pretrained_dir = PRETRAINED_DIR
+    else:
+        pretrained_dir = Path(pretrained_dir)
+    
+    weights_save_path = None
+    
+    # ==================== Case 1: Load from Pretrained ====================
+    if load_from_pretrained and pretrained_name:
+        config, weights_path = _load_pretrained_model(
+            pretrained_name, pretrained_dir, load_weights=True
+        )
+        
+        # Override runtime parameters from experiment config
+        if runtime_overrides:
+            config.runtime.update(runtime_overrides)
+        
+        print(f"Loaded pretrained model: {pretrained_name}")
+        if weights_path and os.path.exists(weights_path):
+            print(f"  Config: {pretrained_name}.yaml")
+            print(f"  Weights: {weights_path}")
+    
+    # ==================== Case 2: Use Experiment Config ====================
+    else:
+        config = model_config
+        
+        # Apply runtime overrides if provided
+        if runtime_overrides:
+            config.runtime.update(runtime_overrides)
+    
+    # ==================== Build Model ====================
+    
+    # Get model class from registry
+    try:
+        model_class = REGISTRY.get_model(config.model_type)
+    except ValueError:
+        raise ValueError(
+            f"Model type '{config.model_type}' not found in registry. "
+            f"Available types: {REGISTRY.list_models()}"
+        )
+    
+    # Create model instance
+    model = model_class(config)
+    
+    # ==================== Load Weights if Pretrained ====================
+    
+    if load_from_pretrained and pretrained_name:
+        _, weights_path = _load_pretrained_model(
+            pretrained_name, pretrained_dir, load_weights=True
+        )
+        if weights_path and os.path.exists(weights_path):
+            print(f"Loading pretrained weights from: {weights_path}")
+            model.load_weights(weights_path)
+    
+    # ==================== Setup Save Path if Needed ====================
+    
+    if save_as_pretrained and pretrained_name:
+        # Prepare save path (will be used by trainer after training)
+        pretrained_parts = pretrained_name.split('/')
+        if len(pretrained_parts) == 2:
+            model_type, model_name = pretrained_parts
+            pretrained_subdir = pretrained_dir / model_type
+            pretrained_subdir.mkdir(parents=True, exist_ok=True)
+            weights_save_path = pretrained_subdir / f"{model_name}.pth"
+            
+            # Also save config
+            config_save_path = config.save_to_pretrained(model_name, pretrained_dir)
+            print(f"Will save model to pretrained:")
+            print(f"  Config: {config_save_path}")
+            print(f"  Weights: {weights_save_path}")
+        else:
+            raise ValueError(
+                f"pretrained_name must be in format 'model_type/model_name', "
+                f"got: {pretrained_name}"
+            )
+    
+    return model, weights_save_path
+
+
 def _load_pretrained_model(
     name: str,
     pretrained_dir: Path,

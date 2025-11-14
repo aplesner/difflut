@@ -348,5 +348,4 @@ class SimpleFeedForward(BaseLUTModel):
 
 
 # Register the model
-REGISTRY.register_model("SimpleFeedForward")(SimpleFeedForward)
 REGISTRY.register_model("feedforward")(SimpleFeedForward)
