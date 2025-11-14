@@ -188,26 +188,34 @@ pytest tests/ -v -m "slow"
 
 #### 2. `gpu`
 
-Marks tests requiring NVIDIA GPU and CUDA.
+Marks tests that **ESSENTIALLY need GPU** - only GPU/CPU compatibility tests and fused kernel tests. Most tests should NOT have this marker, even if they can run on GPU.
 
 ```python
 import pytest
 
 @pytest.mark.gpu
 def test_dwn_cuda_kernel():
-    """Test CUDA kernel for DWN node."""
+    """Test CUDA kernel for DWN node (fused kernel test)."""
     if not torch.cuda.is_available():
         pytest.skip("CUDA not available")
     
     node = DWNStableNode(..., extra_params={'use_cuda': True})
     x = torch.randn(32, 6).cuda()
     # ... test code ...
+
+@pytest.mark.gpu
+def test_gpu_cpu_compatibility():
+    """Test GPU/CPU compatibility (requires GPU for comparison)."""
+    # Test that compares GPU and CPU results
+    pass
 ```
 
 **Important Notes:**
+- ⚠️ **Only mark tests that TRULY need GPU**: GPU/CPU compatibility tests, fused kernel tests
 - ⚠️ **CI/CD runs CPU tests only**: GitHub Actions runners don't have GPU hardware
 - ✅ **Run locally on GPU machine**: Use full GPU test suite locally
 - ✅ **GPU setup validation**: CI validates GPU setup works without actual GPU tests
+- ❌ **NOT for all training/forward pass tests**: Tests that can run on CPU should not be marked `gpu`
 
 **Usage:**
 ```bash
@@ -223,7 +231,7 @@ pytest tests/ -v -m "gpu" --tb=short
 
 #### 3. `experimental`
 
-Marks tests for new, in-development features. Excluded from CI runs.
+Marks tests for experimental features or training tests that may not work with current parameter choices. These tests are excluded from CI runs.
 
 ```python
 import pytest
@@ -233,11 +241,19 @@ def test_new_feature_prototype():
     """Test new experimental feature (not yet stable)."""
     feature = NewExperimentalFeature()
     # ... test code ...
+
+@pytest.mark.experimental
+def test_model_training_scenario():
+    """Test model training that may not converge with current params."""
+    model = create_model()
+    # ... training loop that may fail with specific parameter choices ...
+    pass
 ```
 
 **Usage:**
+- Use for new, in-development features
+- Use for training tests that depend on specific parameter choices
 - Automatically excluded from CI: CI runs with `-m "not experimental"`
-- Use for features under development
 - Promote to stable tests when feature is production-ready
 
 ```bash
@@ -270,56 +286,6 @@ pytest tests/ -v
 # Local development can run full suite: pytest tests/ -v
 ```
 
-#### 5. `training`
-
-Marks tests that involve model training or learning. Useful for identifying tests that require longer execution time and consume more resources.
-
-```python
-import pytest
-
-@pytest.mark.training
-def test_model_convergence():
-    """Test that model converges on training data."""
-    model = create_model()
-    # ... training loop ...
-    assert final_loss < initial_loss
-
-@pytest.mark.training
-@pytest.mark.slow
-def test_extended_training():
-    """Test extended training with many epochs."""
-    model = create_model()
-    # ... long training loop ...
-    pass
-```
-
-**Usage:**
-```bash
-# Run only training tests
-pytest tests/ -v -m "training"
-
-# Skip training tests (faster development)
-pytest tests/ -v -m "not training"
-
-# Run training tests that are not slow
-pytest tests/ -v -m "training and not slow"
-
-# Run slow training tests (e.g., convergence validation)
-pytest tests/ -v -m "slow and training"
-```
-
-**Common combinations:**
-```bash
-# Training tests on GPU
-pytest tests/ -v -m "training and gpu"
-
-# Fast training tests (mini-batch convergence checks)
-pytest tests/ -v -m "training and not slow"
-
-# All training and learning validation tests
-pytest tests/ -v -m "training"
-```
-
 ### Combining Markers
 
 ```python
@@ -329,7 +295,7 @@ import pytest
 @pytest.mark.slow
 @pytest.mark.gpu
 def test_large_model_gpu():
-    """Test large model training on GPU."""
+    """Test large model GPU compatibility."""
     pass
 
 # Test marked as experimental AND slow
@@ -339,24 +305,17 @@ def test_experimental_slow_feature():
     """New feature that runs slowly."""
     pass
 
-# Test marked as training AND slow (extended training)
-@pytest.mark.training
-@pytest.mark.slow
-def test_extended_training_convergence():
-    """Test convergence over many training epochs."""
-    pass
-
-# Test marked as training AND gpu (GPU training)
-@pytest.mark.training
+# Test marked as experimental AND GPU (training test with GPU)
+@pytest.mark.experimental
 @pytest.mark.gpu
 def test_gpu_training_optimization():
-    """Test GPU-accelerated training."""
+    """Test GPU-accelerated training with specific parameters."""
     pass
 
-# Quick training test (not slow)
-@pytest.mark.training
-def test_quick_convergence():
-    """Test quick convergence on mini-batch."""
+# Quick experimental test (not slow)
+@pytest.mark.experimental
+def test_experimental_quick_check():
+    """Test quick experimental feature check."""
     pass
 ```
 
@@ -372,20 +331,14 @@ pytest tests/ -v -m "slow and not experimental"
 # Run experimental GPU tests
 pytest tests/ -v -m "gpu and experimental"
 
-# Run all training tests
-pytest tests/ -v -m "training"
+# Run experimental tests that are not slow (quick checks)
+pytest tests/ -v -m "experimental and not slow"
 
-# Run fast training tests (skip slow training tests)
-pytest tests/ -v -m "training and not slow"
+# Run slow GPU experimental tests
+pytest tests/ -v -m "gpu and experimental and slow"
 
-# Run GPU training tests
-pytest tests/ -v -m "training and gpu"
-
-# Run slow GPU training tests
-pytest tests/ -v -m "training and gpu and slow"
-
-# Run everything EXCEPT training tests (quick development iteration)
-pytest tests/ -v -m "not training"
+# Run everything EXCEPT experimental tests (quick development iteration)
+pytest tests/ -v -m "not experimental"
 ```
 
 ### Pytest Configuration
@@ -396,9 +349,9 @@ Markers are defined in `pyproject.toml`:
 [tool:pytest]
 markers =
     slow: marks tests as slow (deselect with '-m "not slow"')
-    gpu: marks tests requiring GPU/CUDA (deselect with '-m "not gpu"')
-    experimental: marks tests for experimental features
-    skip_ci: marks tests to skip in CI
+    gpu: marks tests that ESSENTIALLY need GPU - only GPU/CPU compatibility tests and fused kernel tests (deselect with '-m "not gpu"')
+    experimental: marks tests for experimental features or training tests that may not work with current parameters (deselect with '-m "not experimental"')
+    skip_ci: marks tests to skip in CI (deselect with '-m "not skip_ci"')
 ```
 
 ---

@@ -153,7 +153,7 @@ DiffLUT has multiple workflows in `.github/workflows/`:
 1. **CPU Tests** - Runs on multiple Python versions (3.10, 3.11, 3.12) and PyTorch versions (2.4-2.9)
 2. **GPU Tests** - Builds CUDA extensions and validates GPU setup on multiple CUDA versions (12.4, 12.6, 12.8)
 3. **Coverage** - Generates coverage reports and uploads to Codecov
-4. **Test Markers** - Uses pytest markers (`slow`, `gpu`, `skip_ci`, `experimental`, `training`) to organize tests
+4. **Test Markers** - Uses pytest markers (`slow`, `gpu`, `skip_ci`, `experimental`) to organize tests
 
 **Test Matrix:**
 - **CPU**: 6 combinations (3 Python × 2 PyTorch versions)

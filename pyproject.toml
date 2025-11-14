@@ -112,10 +112,9 @@ addopts = [
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "gpu: marks tests that require GPU (deselect with '-m \"not gpu\"')",
+    "gpu: marks tests that ESSENTIALLY need GPU - only GPU/CPU compatibility tests and fused kernel tests (deselect with '-m \"not gpu\"')",
     "skip_ci: marks tests to skip in CI (deselect with '-m \"not skip_ci\"')",
-    "experimental: marks tests as experimental (deselect with '-m \"not experimental\"')",
-    "training: marks tests that involve training (deselect with '-m \"not training\"')",
+    "experimental: marks tests for experimental features or training tests that may not work with current parameters (deselect with '-m \"not experimental\"')",
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",

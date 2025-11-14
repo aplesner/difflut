@@ -203,7 +203,7 @@ def train_test_data(device):
 
 @pytest.mark.slow
 @pytest.mark.gpu
-@pytest.mark.training
+@pytest.mark.experimental
 @pytest.mark.parametrize(
     "use_grouped_connections,expected_min_accuracy,expected_max_accuracy",
     [

@@ -1,6 +1,6 @@
 model_type: feedforward
 layer_type: random
-node_type: probabilistic
+node_type: dwn_stable
 encoder_config:
   name: distributive_thermometer
   num_bits: 3
@@ -21,7 +21,6 @@ runtime:
   grad_target_std: 1.0
   grad_subtract_mean: false
   grad_epsilon: 1.0e-08
-  use_cuda: true
   temperature: 1.0
   eval_mode: expectation
   init_fn: normal
