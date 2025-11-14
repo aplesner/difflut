@@ -7,17 +7,22 @@ import torch.nn as nn
 
 from ..registry import register_node
 from ..utils.cuda_utils import should_use_cuda_from_tensor
-from ..utils.warnings import CUDAWarning, warn_default_value
+from ..utils.warnings import CUDAWarning, DefaultValueWarning, warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
 
-# Default temperature for probabilistic sigmoid scaling
+# ==================== Default Values ====================
+# Module-level constants for all default parameters
+# Used for initialization and warning messages
+
 DEFAULT_PROBABILISTIC_TEMPERATURE: float = 1.0
-# Default evaluation mode for probabilistic nodes
-# Options: 'expectation', 'deterministic', 'threshold'
+"""Default temperature for probabilistic sigmoid scaling."""
+
 DEFAULT_PROBABILISTIC_EVAL_MODE: str = "expectation"
-# Default flag for using CUDA kernels in probabilistic nodes
+"""Default evaluation mode for probabilistic nodes. Options: 'expectation', 'deterministic', 'threshold'."""
+
 DEFAULT_PROBABILISTIC_USE_CUDA: bool = True
+"""Default flag for using CUDA kernels in probabilistic nodes."""
 
 # Try to import the compiled CUDA extension
 try:
@@ -170,15 +175,20 @@ class ProbabilisticNode(BaseNode):
         use_cuda: bool = DEFAULT_PROBABILISTIC_USE_CUDA,
     ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 6)
-            output_dim: Number of outputs (e.g., 1)
-            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
-            init_kwargs: Keyword arguments for init_fn
-            regularizers: Dict of custom regularization functions
-            temperature: Temperature for sigmoid scaling
-            eval_mode: Evaluation mode
-            use_cuda: Whether to use CUDA kernels (if available)
+        Initialize a ProbabilisticNode with LUT-based computation.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs to the node (e.g., 6)
+        - output_dim: Optional[int], Number of outputs from the node (e.g., 1)
+        - init_fn: Optional[Callable], Initialization function for weights
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn
+        - regularizers: Optional[Dict], Custom regularization functions
+        - temperature: float, Temperature for sigmoid scaling (default: 1.0)
+        - eval_mode: str, Evaluation mode - 'expectation', 'deterministic', or 'threshold'
+        - use_cuda: bool, Whether to use CUDA kernels if available (default: True)
+
+        Raises:
+            AssertionError: If eval_mode is not one of the valid options
         """
         super().__init__(
             input_dim=input_dim,
@@ -187,9 +197,19 @@ class ProbabilisticNode(BaseNode):
             init_fn=init_fn,
             init_kwargs=init_kwargs,
         )
+
+        # Warn if temperature was not explicitly provided
+        if temperature == DEFAULT_PROBABILISTIC_TEMPERATURE:
+            warn_default_value("temperature (probabilistic_node)", temperature, stacklevel=2)
+
         self.register_buffer("temperature", torch.tensor(float(temperature)))
+
+        # Validate and set eval_mode
         assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
+        if eval_mode == DEFAULT_PROBABILISTIC_EVAL_MODE:
+            warn_default_value("eval_mode (probabilistic_node)", eval_mode, stacklevel=2)
         self.eval_mode = eval_mode
+
         # NOTE: use_cuda is no longer stored - CUDA kernels are selected based on device
         # Device determines kernel selection via should_use_cuda_from_tensor()
 

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import torch
 import torch.nn as nn
@@ -6,11 +6,12 @@ import torch.nn as nn
 from ...registry import register_regularizer
 from ...utils.warnings import warn_default_value
 
-# Default parameters for regularizers
+# ==================== Default Values ====================
+# Module-level constants for all default parameters (Python 3.6+ compatible)
 
-# Default norm parameter for functional regularization (1 for L1, 2 for L2)
+# Norm parameter for functional regularization
 DEFAULT_REGULARIZER_P_NORM: int = 2
-# Default number of random binary samples for regularization
+# Number of random samples for regularization
 DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
 
 
@@ -63,14 +64,16 @@ def _l_regularizer_input_based(node: nn.Module, inputs: torch.Tensor, p: int) ->
 
     # Compute outputs for all neighbors (WITH gradients)
     z_neighbors_flat = z_neighbors.reshape(-1, k)
-    g_z_neighbors_flat = node(z_neighbors_flat)  # Shape: (batch_size * k, output_dim)
+    # Shape: (batch_size * k, output_dim)
+    g_z_neighbors_flat = node(z_neighbors_flat)
     g_z_neighbors = g_z_neighbors_flat.reshape(
         batch_size, k, -1
     )  # Shape: (batch_size, k, output_dim)
 
     # Compute differences |g(z) - g(z^(i))|^p for each neighbor i
     g_z_expanded = g_z.unsqueeze(1)  # Shape: (batch_size, 1, output_dim)
-    differences = torch.abs(g_z_expanded - g_z_neighbors)  # Shape: (batch_size, k, output_dim)
+    # Shape: (batch_size, k, output_dim)
+    differences = torch.abs(g_z_expanded - g_z_neighbors)
 
     # Apply p-norm
     if p == 1:
@@ -137,14 +140,16 @@ def _l_regularizer_random(node: nn.Module, p: int, num_samples: int) -> torch.Te
     # Reshape to (num_samples * k, k) for batch evaluation
     z_neighbors_flat = z_neighbors.reshape(-1, k)
     with torch.no_grad():
-        g_z_neighbors_flat = node(z_neighbors_flat)  # Shape: (num_samples * k, output_dim)
+        # Shape: (num_samples * k, output_dim)
+        g_z_neighbors_flat = node(z_neighbors_flat)
     g_z_neighbors = g_z_neighbors_flat.reshape(
         num_samples, k, -1
     )  # Shape: (num_samples, k, output_dim)
 
     # Compute differences |g(z) - g(z^(i))|^p for each neighbor i
     g_z_expanded = g_z.unsqueeze(1)  # Shape: (num_samples, 1, output_dim)
-    differences = torch.abs(g_z_expanded - g_z_neighbors)  # Shape: (num_samples, k, output_dim)
+    # Shape: (num_samples, k, output_dim)
+    differences = torch.abs(g_z_expanded - g_z_neighbors)
 
     # Apply p-norm
     if p == 1:
@@ -174,45 +179,14 @@ def l_regularizer(
     """
     Functional L-regularization for DiffLUT nodes.
 
-    Measures how sensitive a node's output is to single-bit flips in its inputs.
-    This is the continuous relaxation of Boolean sensitivity that encourages
-    smooth and robust node behavior.
-
-    The regularization is defined as:
-        R_L(g; z) = (1/k) * sum_i |g(z) - g(z^(i))|^p
-
-    where z^(i) is z with the i-th bit flipped, and k is the number of inputs.
-
-    Two modes are supported:
-
-    1. **Input-based mode** (recommended, differentiable):
-       When `inputs` is provided, computes sensitivity on actual batch inputs.
-       This is fully differentiable and adapts to the data distribution.
-
-    2. **Random sampling mode** (legacy, non-differentiable):
-       When `inputs` is None, samples random binary inputs.
-       Uses torch.no_grad() for efficiency but doesn't propagate gradients.
-
-    Args:
-        node: The DiffLUT node to regularize
-        p: The norm parameter (1 for L1, 2 for L2, or any positive value)
-        num_samples: Number of random binary input samples (only used if inputs is None)
-        inputs: Optional batch inputs, shape (batch_size, k). If provided, uses
-                input-based regularization (recommended). If None, uses random sampling.
+    Parameters:
+    - node: nn.Module, The DiffLUT node to regularize
+    - p: int, Norm parameter (1 for L1, 2 for L2, default: 2)
+    - num_samples: int, Random samples (only if inputs is None, default: 100)
+    - inputs: Optional[torch.Tensor], Batch inputs for input-based mode
 
     Returns:
-        Average functional sensitivity across inputs
-
-    Examples:
-        >>> # Input-based mode (recommended, differentiable)
-        >>> encoded = encoder(x)  # Shape: (batch_size, k)
-        >>> reg = l_regularizer(node, p=2, inputs=encoded)
-        >>> loss = main_loss + 0.01 * reg
-        >>> loss.backward()  # Gradients flow through regularization!
-
-        >>> # Random sampling mode (legacy, non-differentiable)
-        >>> reg = l_regularizer(node, p=2, num_samples=100)
-        >>> loss = main_loss + 0.01 * reg
+    - torch.Tensor, Average functional sensitivity
     """
     if p == DEFAULT_REGULARIZER_P_NORM:
         warn_default_value("p (l_regularizer)", p, stacklevel=3)
@@ -236,24 +210,15 @@ def l1_regularizer(
     inputs: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
-    L1 functional regularization (convenience wrapper for l_regularizer with p=1).
+    L1 functional regularization (wrapper for l_regularizer with p=1).
 
-    Args:
-        node: The DiffLUT node to regularize
-        num_samples: Number of random binary input samples (only used if inputs is None)
-        inputs: Optional batch inputs, shape (batch_size, k). If provided, uses
-                input-based regularization (recommended). If None, uses random sampling.
+    Parameters:
+    - node: nn.Module, The DiffLUT node to regularize
+    - num_samples: int, Random samples (only if inputs is None, default: 100)
+    - inputs: Optional[torch.Tensor], Batch inputs for input-based mode
 
     Returns:
-        Average L1 functional sensitivity
-
-    Examples:
-        >>> # Input-based mode (recommended)
-        >>> encoded = encoder(x)
-        >>> reg = l1_regularizer(node, inputs=encoded)
-
-        >>> # Random sampling mode (legacy)
-        >>> reg = l1_regularizer(node, num_samples=100)
+    - torch.Tensor, Average L1 functional sensitivity
     """
     return l_regularizer(node, p=1, num_samples=num_samples, inputs=inputs)
 
@@ -266,24 +231,15 @@ def l2_regularizer(
     inputs: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
     """
-    L2 functional regularization (convenience wrapper for l_regularizer with p=2).
+    L2 functional regularization (wrapper for l_regularizer with p=2).
 
-    Args:
-        node: The DiffLUT node to regularize
-        num_samples: Number of random binary input samples (only used if inputs is None)
-        inputs: Optional batch inputs, shape (batch_size, k). If provided, uses
-                input-based regularization (recommended). If None, uses random sampling.
+    Parameters:
+    - node: nn.Module, The DiffLUT node to regularize
+    - num_samples: int, Random samples (only if inputs is None, default: 100)
+    - inputs: Optional[torch.Tensor], Batch inputs for input-based mode
 
     Returns:
-        Average L2 functional sensitivity
-
-    Examples:
-        >>> # Input-based mode (recommended)
-        >>> encoded = encoder(x)
-        >>> reg = l2_regularizer(node, inputs=encoded)
-
-        >>> # Random sampling mode (legacy)
-        >>> reg = l2_regularizer(node, num_samples=100)
+    - torch.Tensor, Average L2 functional sensitivity
     """
     return l_regularizer(node, p=2, num_samples=num_samples, inputs=inputs)
 
@@ -346,20 +302,11 @@ def spectral_regularizer(node: nn.Module) -> torch.Tensor:
     """
     Spectral regularization for truth-table parameterized DiffLUT nodes.
 
-    Penalizes the Fourier spectrum (Walsh-Hadamard transform) of the LUT function,
-    encouraging low-frequency Boolean functions that are smooth and have low
-    complexity. This is particularly effective for DWN nodes.
-
-    The regularization is defined as:
-        R_spec(g) = ||C · c||_2^2
-
-    where c is the truth table vector and C is the Walsh-Hadamard coefficient matrix.
-
-    Args:
-        node: The DiffLUT node to regularize (must have truth-table parameters)
+    Parameters:
+    - node: nn.Module, The DiffLUT node to regularize
 
     Returns:
-        Spectral norm of the LUT function(s)
+    - torch.Tensor, Spectral norm of the LUT function(s)
     """
     device = next(node.parameters()).device
     reg = None  # Start with None instead of 0.0 tensor

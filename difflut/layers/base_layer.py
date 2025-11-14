@@ -57,13 +57,13 @@ class LUTLayerMixin(nn.Module):
         Can accept either a LayerConfig object OR individual parameters (backward compatible).
         If layer_config is provided, individual parameters are ignored.
 
-        Args:
-            layer_config: LayerConfig object with all training parameters
-            flip_probability: Probability of flipping bits during training [0, 1]
-            grad_stabilization: Mode for gradient stabilization ('none', 'layerwise', 'batchwise')
-            grad_target_std: Target standard deviation for gradient rescaling
-            grad_subtract_mean: Whether to subtract mean before rescaling
-            grad_epsilon: Small constant for numerical stability
+        Parameters:
+        - layer_config: Optional[LayerConfig], LayerConfig object with all training parameters, (default: None)
+        - flip_probability: Optional[float], Probability of flipping bits during training [0, 1], (default: None)
+        - grad_stabilization: Optional[str], Mode for gradient stabilization ('none', 'layerwise', 'batchwise'), (default: None)
+        - grad_target_std: Optional[float], Target standard deviation for gradient rescaling, (default: None)
+        - grad_subtract_mean: Optional[bool], Whether to subtract mean before rescaling, (default: None)
+        - grad_epsilon: Optional[float], Small constant for numerical stability, (default: None)
         """
         # If LayerConfig is provided, use it
         if layer_config is not None:
@@ -162,11 +162,8 @@ class LUTLayerMixin(nn.Module):
         Memory optimization: Uses preallocated buffer for mask generation and
         sparse indexing for low flip probabilities to minimize memory allocations.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_size) with values in [0, 1]
-
-        Returns:
-            Augmented tensor with same shape (flipped bits detached from gradient graph)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_size) with values in [0, 1]
         """
         if self.flip_probability <= 0.0 or not self.training:
             return x
@@ -232,11 +229,8 @@ class LUTLayerMixin(nn.Module):
 
         Gradient behavior: Same as standard bit-flip (gradient-detached noise).
 
-        Args:
-            x: Input tensor of shape (batch_size, input_size)
-
-        Returns:
-            Augmented tensor with same shape (flipped bits detached from gradient graph)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
         num_elements = x.numel()
         num_flips = int(num_elements * self.flip_probability)
@@ -274,12 +268,8 @@ class LUTLayerMixin(nn.Module):
         For layer gradients ∇c^l, compute variance v_l and optionally mean μ_l,
         then rescale: ∇c_i^l ← (∇c_i^l - μ_l) / √(v_l + ε) · √v_target
 
-        Args:
-            grad: Gradient tensor of shape (batch_size, output_size)
-                 For layer output before it's reshaped
-
-        Returns:
-            Rescaled gradient with same shape
+        Parameters:
+        - grad: torch.Tensor, Gradient tensor of shape (batch_size, output_size)
         """
         if self.grad_stabilization == "none" or not self.training:
             return grad
@@ -397,7 +387,8 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
         self.nodes = nn.ModuleList([node_type(**node_kwargs.to_dict()) for _ in range(output_size)])
 
         # Extract n (number of inputs per node) and output_dim from first node
-        self.n: int = self.nodes[0].num_inputs  # pyright: ignore[reportAttributeAccessIssue]
+        # pyright: ignore[reportAttributeAccessIssue]
+        self.n: int = self.nodes[0].num_inputs
         self.output_dim_per_node: int = self.nodes[
             0
         ].num_outputs  # pyright: ignore[reportAttributeAccessIssue]
@@ -447,8 +438,8 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
         """
         Validate that input has expected dimensions.
 
-        Args:
-            x: Input tensor
+        Parameters:
+        - x: torch.Tensor, Input tensor
 
         Raises:
             ValueError: If input dimensions are invalid
@@ -516,15 +507,8 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
 
         During training, applies bit-flip augmentation if flip_probability > 0.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_size)
-               - From Encoder: (batch_size, encoded_dim)
-               - From previous Layer: (batch_size, previous_output_size * previous_output_dim)
-
-        Returns:
-            Output tensor of shape (batch_size, output_size * output_dim_per_node)
-            - For next Layer: (batch_size, output_size * output_dim_per_node)
-            - For GroupSum: (batch_size, output_size) if output_dim_per_node=1
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
         # Validate input dimensions
         self._validate_input_dims(x)

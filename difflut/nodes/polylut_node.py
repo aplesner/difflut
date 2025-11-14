@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
+from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 
 # Default maximum polynomial degree for PolyLUT nodes
@@ -30,13 +31,15 @@ class PolyLUTNode(BaseNode):
         regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
     ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 6)
-            output_dim: Number of outputs (e.g., 1)
-            degree: Maximum degree of polynomial terms
-            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
-            init_kwargs: Keyword arguments for init_fn
-            regularizers: Dict of custom regularization functions
+        Polynomial LUT Node that computes multivariate polynomials up to degree D.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs (e.g., 6), (default: None)
+        - output_dim: Optional[int], Number of outputs (e.g., 1), (default: None)
+        - degree: int, Maximum degree of polynomial terms, (default: 3)
+        - init_fn: Optional[Callable], Initialization function for parameters, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
         """
         # Generate monomial combinations BEFORE calling super().__init__
         # This is needed because residual initialization requires monomial_combinations

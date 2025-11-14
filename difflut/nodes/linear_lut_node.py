@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
+from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 
 
@@ -26,12 +27,14 @@ class LinearLUTNode(BaseNode):
         regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
     ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 6)
-            output_dim: Number of outputs (e.g., 1)
-            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
-            init_kwargs: Keyword arguments for init_fn
-            regularizers: Dict of custom regularization functions
+        Linear LUT Node with differentiable training and hard decisions for eval.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs (e.g., 6), (default: None)
+        - output_dim: Optional[int], Number of outputs (e.g., 1), (default: None)
+        - init_fn: Optional[Callable], Initialization function for parameters, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
         """
         # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:
@@ -89,11 +92,8 @@ class LinearLUTNode(BaseNode):
         """
         Training: Use sigmoid for differentiability.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_dim)
-
-        Returns:
-            Output tensor of shape (batch_size, output_dim)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_dim)
         """
         batch_size, input_dim = x.shape
 
@@ -110,11 +110,8 @@ class LinearLUTNode(BaseNode):
         """
         Evaluation: Binarize output via Heaviside.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_dim)
-
-        Returns:
-            Output tensor of shape (batch_size, output_dim)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_dim)
         """
         batch_size, input_dim = x.shape
 

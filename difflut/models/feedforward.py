@@ -6,7 +6,7 @@ model infrastructure. Simpler than LayeredFeedForward with focus on
 standardized configuration and pretrained model support.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -15,8 +15,37 @@ from ..layers.layer_config import LayerConfig
 from ..nodes.node_config import NodeConfig
 from ..registry import REGISTRY
 from ..utils import GroupSum
+from ..utils.warnings import warn_default_value
 from .base_model import BaseLUTModel
 from .model_config import ModelConfig
+
+# ==================== Default Values ====================
+# Module-level constants for all default parameters
+# Used for initialization and warning messages
+
+DEFAULT_ENCODER_CONFIG: Dict[str, Any] = {}
+"""Default encoder configuration (empty dict, model must provide or error)."""
+
+DEFAULT_INPUT_SIZE: Optional[int] = None
+"""Default input size (None means infer from data during fit_encoder)."""
+
+DEFAULT_NUM_CLASSES: Optional[int] = None
+"""Default number of output classes (None means must be provided in config)."""
+
+DEFAULT_LAYER_TYPE: str = "random"
+"""Default layer type for building layers."""
+
+DEFAULT_NODE_TYPE: str = "probabilistic"
+"""Default node type within layers."""
+
+DEFAULT_NODE_INPUT_DIM: int = 6
+"""Default number of inputs to each node."""
+
+DEFAULT_LAYER_WIDTHS: list = [1024, 1000]
+"""Default layer widths for feedforward architecture."""
+
+DEFAULT_OUTPUT_TAU: float = 1.0
+"""Default temperature parameter for output layer."""
 
 
 class SimpleFeedForward(BaseLUTModel):
@@ -41,13 +70,25 @@ class SimpleFeedForward(BaseLUTModel):
         """
         Initialize the SimpleFeedForward model.
 
-        Args:
-            config: ModelConfig instance with all model parameters
+        Parameters:
+        - config: ModelConfig instance with all model parameters stored in params dict
+
+        Expects config.params to contain:
+        - encoder_config: Dict with encoder name and parameters
+        - input_size: Optional input size (inferred from data if not provided)
+        - num_classes: Number of output classes
+        - layer_type: Type of layer implementation (default: 'random')
+        - node_type: Type of node implementation (default: 'probabilistic')
+        - node_input_dim: Number of inputs per node (default: 6)
+        - layer_widths: List of output dimensions for each layer
         """
         super().__init__(config)
 
-        # Setup encoder
-        encoder_config = config.encoder_config
+        # Setup encoder - get from params dict
+        encoder_config = config.params.get("encoder_config", DEFAULT_ENCODER_CONFIG)
+        if encoder_config == DEFAULT_ENCODER_CONFIG:
+            warn_default_value("encoder_config", encoder_config, stacklevel=2)
+
         encoder_name = encoder_config.get("name", "thermometer")
         encoder_params = {k: v for k, v in encoder_config.items() if k != "name"}
 
@@ -55,16 +96,23 @@ class SimpleFeedForward(BaseLUTModel):
         self.encoder = encoder_class(**encoder_params)
         self.encoder_fitted = False
 
-        # Input/output sizes
-        self.input_size = config.input_size
-        self.num_classes = config.num_classes
+        # Input/output sizes - get from params dict
+        self.input_size = config.params.get("input_size", DEFAULT_INPUT_SIZE)
+        if self.input_size == DEFAULT_INPUT_SIZE:
+            warn_default_value("input_size", self.input_size, stacklevel=2)
+
+        self.num_classes = config.params.get("num_classes", DEFAULT_NUM_CLASSES)
+        if self.num_classes == DEFAULT_NUM_CLASSES:
+            warn_default_value("num_classes", self.num_classes, stacklevel=2)
 
         # Layers will be built after encoder is fitted
         self.layers = nn.ModuleList()
         self.encoded_input_size = None
 
         # Output layer (GroupSum)
-        output_tau = config.runtime.get("output_tau", 1.0)
+        output_tau = config.runtime.get("output_tau", DEFAULT_OUTPUT_TAU)
+        if output_tau == DEFAULT_OUTPUT_TAU and "output_tau" not in config.runtime:
+            warn_default_value("output_tau", output_tau, stacklevel=2)
         self.output_layer = GroupSum(k=self.num_classes, tau=output_tau, use_randperm=False)
 
     def fit_encoder(self, data: torch.Tensor):
@@ -88,7 +136,7 @@ class SimpleFeedForward(BaseLUTModel):
         # Update input_size if not set
         if self.input_size is None:
             self.input_size = data_flat.shape[1]
-            self.config.input_size = self.input_size
+            self.config.params["input_size"] = self.input_size
 
         # Fit encoder
         print(f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}...")
@@ -126,9 +174,25 @@ class SimpleFeedForward(BaseLUTModel):
         if config.seed is not None:
             torch.manual_seed(config.seed)
 
-        # Get layer and node classes from registry
-        layer_class = REGISTRY.get_layer(config.layer_type)
-        node_class = REGISTRY.get_node(config.node_type)
+        # Get layer and node classes from registry - get from params dict with warnings
+        layer_type = config.params.get("layer_type", DEFAULT_LAYER_TYPE)
+        if layer_type == DEFAULT_LAYER_TYPE and "layer_type" not in config.params:
+            warn_default_value("layer_type", layer_type, stacklevel=2)
+
+        node_type = config.params.get("node_type", DEFAULT_NODE_TYPE)
+        if node_type == DEFAULT_NODE_TYPE and "node_type" not in config.params:
+            warn_default_value("node_type", node_type, stacklevel=2)
+
+        node_input_dim = config.params.get("node_input_dim", DEFAULT_NODE_INPUT_DIM)
+        if node_input_dim == DEFAULT_NODE_INPUT_DIM and "node_input_dim" not in config.params:
+            warn_default_value("node_input_dim", node_input_dim, stacklevel=2)
+
+        layer_widths = config.params.get("layer_widths", DEFAULT_LAYER_WIDTHS)
+        if layer_widths == DEFAULT_LAYER_WIDTHS and "layer_widths" not in config.params:
+            warn_default_value("layer_widths", layer_widths, stacklevel=2)
+
+        layer_class = REGISTRY.get_layer(layer_type)
+        node_class = REGISTRY.get_node(node_type)
 
         # Create LayerConfig for layer-level parameters
         layer_cfg = LayerConfig(
@@ -140,17 +204,17 @@ class SimpleFeedForward(BaseLUTModel):
         )
 
         # Build each layer
-        for i, layer_width in enumerate(config.layer_widths):
+        for i, layer_width in enumerate(layer_widths):
             # Calculate fan_in and fan_out for initialization
-            fan_in = config.node_input_dim
+            fan_in = node_input_dim
 
             # fan_out: how many inputs does each node in the next layer connect to?
-            if i + 1 < len(config.layer_widths):
-                next_layer_width = config.layer_widths[i + 1]
-                fan_out = (next_layer_width * config.node_input_dim) / layer_width
+            if i + 1 < len(layer_widths):
+                next_layer_width = layer_widths[i + 1]
+                fan_out = (next_layer_width * node_input_dim) / layer_width
             else:
                 # Last layer connects to output
-                fan_out = (self.num_classes * config.node_input_dim) / layer_width
+                fan_out = (self.num_classes * node_input_dim) / layer_width
 
             # Build node configuration
             node_kwargs = self._build_node_config(fan_in=fan_in, fan_out=fan_out)
@@ -168,7 +232,7 @@ class SimpleFeedForward(BaseLUTModel):
             self.layers.append(layer)
             current_size = layer_width
 
-        print(f"Built {len(self.layers)} layers: {config.layer_widths}")
+        print(f"Built {len(self.layers)} layers: {layer_widths}")
 
     def _build_node_config(self, fan_in: int, fan_out: float) -> NodeConfig:
         """
@@ -235,7 +299,7 @@ class SimpleFeedForward(BaseLUTModel):
         # Add node-specific parameters from runtime
         # NOTE: use_cuda parameter is removed - CUDA kernels are auto-selected based on device
         # Just do model.cuda() to use GPU kernels, model.cpu() to use CPU kernels
-        node_type = config.node_type
+        node_type = config.params.get("node_type", "probabilistic")
 
         if node_type in ["dwn", "hybrid", "dwn_stable"]:
             pass  # No use_cuda - device determines kernel selection
@@ -266,7 +330,7 @@ class SimpleFeedForward(BaseLUTModel):
 
         # Create and return NodeConfig
         return NodeConfig(
-            input_dim=config.node_input_dim,
+            input_dim=config.params.get("node_input_dim", 6),
             output_dim=1,  # Always 1 for standard feedforward
             init_fn=init_fn,
             init_kwargs=init_kwargs if init_kwargs else None,

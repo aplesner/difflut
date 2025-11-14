@@ -1,33 +1,28 @@
 model_type: feedforward
+seed: 42
 layer_type: random
-node_type: dwn
+node_type: fourier
 encoder_config:
   name: distributive_thermometer
   num_bits: 3
   flatten: true
 node_input_dim: 6
+num_classes: 10
+input_size: 784
 layer_widths:
 - 2000
 - 2000
 - 2000
 - 1000
-num_classes: 10
-dataset: null
-input_size: 784
-seed: 42
 runtime:
   flip_probability: 0.0
   grad_stabilization: none
   grad_target_std: 1.0
   grad_subtract_mean: false
   grad_epsilon: 1.0e-08
-  temperature: 1.0
-  eval_mode: expectation
   init_fn: normal
   init_kwargs:
     std: 0.05
   regularization_weights:
     l2_weight: 0.0
     l1_weight: 0.0
-pretrained: false
-pretrained_name: null

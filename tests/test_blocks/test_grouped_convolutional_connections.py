@@ -8,14 +8,15 @@ Tests across multiple seeds to ensure robustness.
 
 import warnings
 
-# Ignore general runtime warnings in tests
-warnings.filterwarnings("ignore", category=RuntimeWarning)
-
 import pytest
 import torch
 from testing_utils import generate_uniform_input
 
 from difflut.utils.warnings import CUDAWarning, DefaultValueWarning
+
+# Ignore general runtime warnings in tests
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 
 # Suppress DefaultValueWarnings and CUDAWarnings
 warnings.filterwarnings("ignore", category=DefaultValueWarning)

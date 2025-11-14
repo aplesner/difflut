@@ -55,17 +55,14 @@ class FourierFunction(torch.autograd.Function):
         """
         Forward pass using CUDA kernel with 2D tensors.
 
-        Args:
-            input: (batch_size, num_inputs) float tensor
-            frequencies: (num_frequencies, num_inputs) float tensor
-            amplitudes: (num_frequencies, output_dim) float tensor
-            phases: (num_frequencies, output_dim) float tensor
-            bias: (output_dim,) float tensor
-            max_amplitude: float - maximum amplitude parameter
-            use_eval: bool - whether to use Heaviside function (eval mode)
-
-        Returns:
-            output: (batch_size, output_dim) float tensor
+        Parameters:
+        - input: torch.Tensor, (batch_size, num_inputs) float tensor
+        - frequencies: torch.Tensor, (num_frequencies, num_inputs) float tensor
+        - amplitudes: torch.Tensor, (num_frequencies, output_dim) float tensor
+        - phases: torch.Tensor, (num_frequencies, output_dim) float tensor
+        - bias: torch.Tensor, (output_dim,) float tensor
+        - max_amplitude: float, maximum amplitude parameter
+        - use_eval: bool, whether to use Heaviside function (eval mode)
         """
         if not _FOURIER_CUDA_EXT_AVAILABLE:
             raise RuntimeError(
@@ -102,11 +99,8 @@ class FourierFunction(torch.autograd.Function):
         """
         Backward pass using CUDA kernel with 2D tensors.
 
-        Args:
-            grad_output: (batch_size, output_dim) gradient tensor
-
-        Returns:
-            Gradients for (input, frequencies, amplitudes, phases, bias, max_amplitude, use_eval)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, output_dim) gradient tensor
         """
         if not _FOURIER_CUDA_EXT_AVAILABLE:
             raise RuntimeError(
@@ -194,7 +188,8 @@ def fourier_forward(
         phase_shifted_angles = angles.unsqueeze(-1) + phases.unsqueeze(0)
 
         # Compute cosines
-        cosines = torch.cos(phase_shifted_angles)  # (batch_size, num_freq, output_dim)
+        # (batch_size, num_freq, output_dim)
+        cosines = torch.cos(phase_shifted_angles)
 
         # Weighted sum over frequencies
         # cosines: (batch_size, num_freq, output_dim)
@@ -320,7 +315,8 @@ class FourierNode(BaseNode):
                 0, 2, (self.num_frequencies, self.num_inputs), dtype=torch.float32
             )
 
-        self.register_buffer("frequencies", frequencies)  # Shape: (num_freq, num_inputs)
+        # Shape: (num_freq, num_inputs)
+        self.register_buffer("frequencies", frequencies)
 
         # Initialize complex weights as separate real and imaginary parts
         # Shape: (num_frequencies, output_dim)
@@ -378,7 +374,8 @@ class FourierNode(BaseNode):
         phase_shifted_angles = angles.unsqueeze(-1) + self.phases.unsqueeze(0)
 
         # Compute cosines
-        cosines = torch.cos(phase_shifted_angles)  # (batch_size, num_freq, output_dim)
+        # (batch_size, num_freq, output_dim)
+        cosines = torch.cos(phase_shifted_angles)
 
         # Weighted sum over frequencies
         # cosines: (batch_size, num_freq, output_dim)

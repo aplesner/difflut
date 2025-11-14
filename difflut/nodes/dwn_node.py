@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -30,7 +30,8 @@ DEFAULT_DWN_CLAMP_LUTS: bool = True
 
 # Try to import the compiled CUDA extension
 try:
-    import efd_cuda as _efd_cuda_module  # pyright: ignore[reportMissingImports]
+    # pyright: ignore[reportMissingImports]
+    import efd_cuda as _efd_cuda_module
 
     _CUDA_EXT_AVAILABLE = True
 except ImportError:
@@ -47,7 +48,8 @@ except ImportError:
 
 # Try to import the fused CUDA extension (for memory-efficient forward_with_mapping)
 try:
-    import efd_fused_cuda as _efd_fused_cuda_module  # pyright: ignore[reportMissingImports]
+    # pyright: ignore[reportMissingImports]
+    import efd_fused_cuda as _efd_fused_cuda_module
 
     _FUSED_CUDA_EXT_AVAILABLE = True
 except ImportError:
@@ -73,14 +75,11 @@ class EFDFunction(torch.autograd.Function):
         """
         Forward pass using CUDA kernel.
 
-        Args:
-            input: (batch_size, input_dim) float tensor in [0, 1]
-            luts: (output_dim, 2^input_dim) float tensor in [0, 1]
-            alpha: scalar float for gradient scaling
-            beta: scalar float for Hamming distance decay
-
-        Returns:
-            output: (batch_size, output_dim) float tensor in [0, 1]
+        Parameters:
+        - input: torch.Tensor, (batch_size, input_dim) float tensor in [0, 1]
+        - luts: torch.Tensor, (output_dim, 2^input_dim) float tensor in [0, 1]
+        - alpha: float, scalar float for gradient scaling
+        - beta: float, scalar float for Hamming distance decay
         """
         if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
@@ -106,16 +105,14 @@ class EFDFunction(torch.autograd.Function):
         """
         Backward pass using CUDA kernel with alpha/beta scaling.
 
-        Args:
-            grad_output: (batch_size, output_dim) gradient tensor
-
-        Returns:
-            Gradients for (input, luts, alpha, beta)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, output_dim) gradient tensor
         """
         if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
 
-        input, luts = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
+        # pyright: ignore[reportAttributeAccessIssue]
+        input, luts = ctx.saved_tensors
         alpha = ctx.alpha  # pyright: ignore[reportAttributeAccessIssue]
         beta = ctx.beta  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -285,12 +282,8 @@ class EFDFusedFunction(torch.autograd.Function):
         """
         Fused backward pass using CUDA kernel with alpha/beta scaling.
 
-        Args:
-            grad_output: (batch_size, layer_size, output_dim) gradient tensor
-
-        Returns:
-            Gradients for (input, mapping_indices, luts, alpha, beta)
-            mapping_indices gradient is None (indices are not differentiable)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, layer_size, output_dim) gradient tensor
         """
         if not _FUSED_CUDA_EXT_AVAILABLE or _efd_fused_cuda_module is None:
             raise RuntimeError(
@@ -323,14 +316,11 @@ def efd_forward(
     """
     EFD forward pass with automatic differentiation support.
 
-    Args:
-        input: (batch_size, input_dim) tensor in [0, 1]
-        luts: (output_dim, 2^input_dim) tensor in [0, 1]
-        alpha: scalar float for gradient scaling
-        beta: scalar float for Hamming distance decay
-
-    Returns:
-        output: (batch_size, output_dim) tensor in [0, 1]
+    Parameters:
+    - input: torch.Tensor, (batch_size, input_dim) tensor in [0, 1]
+    - luts: torch.Tensor, (output_dim, 2^input_dim) tensor in [0, 1]
+    - alpha: float, scalar float for gradient scaling
+    - beta: float, scalar float for Hamming distance decay
     """
     if _CUDA_EXT_AVAILABLE and input.is_cuda:
         return EFDFunction.apply(input, luts, alpha, beta)
@@ -357,24 +347,26 @@ class DWNNode(BaseNode):
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
         use_cuda: bool = True,
-        regularizers: Optional[dict] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
         alpha: Optional[float] = None,
         beta: Optional[float] = None,
         clamp_luts: bool = True,
         init_fn: Optional[Callable] = None,
-        init_kwargs: Optional[dict] = None,
-    ):
+        init_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 6)
-            output_dim: Number of outputs (e.g., 1)
-            use_cuda: Whether to use CUDA kernels (if available)
-            regularizers: Dict of custom regularization functions
-            alpha: Gradient scaling factor (default: 0.5 * 0.75^(n-1))
-            beta: Hamming distance decay factor (default: 0.25/0.75)
-            clamp_luts: Whether to clamp LUT values to [0, 1] during training
-            init_fn: Optional initialization function for LUT weights. Should take (param: torch.Tensor, **kwargs)
-            init_kwargs: Keyword arguments for init_fn
+        Differentiable Weightless Neural Network node with Extended Finite Difference.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs (e.g., 6), (default: None)
+        - output_dim: Optional[int], Number of outputs (e.g., 1), (default: None)
+        - use_cuda: bool, Whether to use CUDA kernels (if available), (default: True)
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
+        - alpha: Optional[float], Gradient scaling factor (default: 0.5 * 0.75^(n-1)), (default: None)
+        - beta: Optional[float], Hamming distance decay factor (default: 0.25/0.75), (default: None)
+        - clamp_luts: bool, Whether to clamp LUT values to [0, 1] during training, (default: True)
+        - init_fn: Optional[Callable], Initialization function for LUT weights, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
         """
         # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:
@@ -394,7 +386,13 @@ class DWNNode(BaseNode):
             init_fn=init_fn,
             init_kwargs=init_kwargs,
         )
+
+        if use_cuda == DEFAULT_DWN_USE_CUDA:
+            warn_default_value("use_cuda", use_cuda, stacklevel=2)
         self.use_cuda = use_cuda and is_cuda_available()
+
+        if clamp_luts == DEFAULT_DWN_CLAMP_LUTS:
+            warn_default_value("clamp_luts", clamp_luts, stacklevel=2)
         self.clamp_luts = clamp_luts
 
         # Warn if CUDA requested but not available
@@ -437,11 +435,8 @@ class DWNNode(BaseNode):
         Outputs are in [0, 1].
         Uses CUDA kernels when available based on tensor device, otherwise CPU fallback.
 
-        Args:
-            x: Tensor of shape (batch_size, input_dim)
-
-        Returns:
-            Tensor of shape (batch_size, output_dim)
+        Parameters:
+        - x: torch.Tensor, Tensor of shape (batch_size, input_dim)
         """
         # Clamp LUT values to [0, 1] if enabled
         self._clamp_luts_if_needed()
@@ -461,11 +456,8 @@ class DWNNode(BaseNode):
         Evaluation: Inputs already binarized in {0, 1}.
         Output binarized to {0, 1} using threshold at 0.5.
 
-        Args:
-            x: Tensor of shape (batch_size, input_dim)
-
-        Returns:
-            Tensor of shape (batch_size, output_dim)
+        Parameters:
+        - x: torch.Tensor, Tensor of shape (batch_size, input_dim)
         """
         # Inputs are already binarized in {0, 1}, use directly
         x_binary = x.float()
@@ -493,19 +485,9 @@ class DWNNode(BaseNode):
         It performs on-the-fly indexing inside the CUDA kernel instead of pre-materializing
         the (batch_size, layer_size, input_dim) intermediate tensor.
 
-        Args:
-            x: Input tensor (batch_size, input_size)
-               Raw 2D input from encoder or previous layer
-            mapping_indices: Indices (layer_size, input_dim) int64 tensor
-                           Values in range [0, input_size), defines which inputs to select
-
-        Returns:
-            Output tensor (batch_size, layer_size, output_dim)
-
-        Memory Impact:
-            - Without fusion: Creates (batch, layer_size, input_dim) tensor = ~60 MB per layer
-            - With fusion: Only uses tiny mapping buffer = ~2 KB
-            - Savings: 99.997% memory reduction for mapping overhead
+        Parameters:
+        - x: torch.Tensor, Input tensor (batch_size, input_size)
+        - mapping_indices: torch.Tensor, Indices (layer_size, input_dim) int64 tensor
         """
         if self.training:
             self._clamp_luts_if_needed()

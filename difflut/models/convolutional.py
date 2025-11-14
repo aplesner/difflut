@@ -7,7 +7,7 @@ Designed for processing image data with spatial structure preservation.
 Similar to SimpleFeedForward but uses ConvolutionalBlock instead of dense layers.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 import torch
 import torch.nn as nn
@@ -17,8 +17,49 @@ from ..layers.layer_config import LayerConfig
 from ..nodes.node_config import NodeConfig
 from ..registry import REGISTRY
 from ..utils import GroupSum
+from ..utils.warnings import warn_default_value
 from .base_model import BaseLUTModel
 from .model_config import ModelConfig
+
+# ==================== Default Values ====================
+# Module-level constants for all default parameters
+# Used for initialization and warning messages
+
+DEFAULT_ENCODER_CONFIG: Dict[str, Any] = {}
+"""Default encoder configuration (empty dict, model must provide or error)."""
+
+DEFAULT_INPUT_SIZE: Optional[int] = None
+"""Default input size (None means infer from data during fit_encoder)."""
+
+DEFAULT_NUM_CLASSES: Optional[int] = None
+"""Default number of output classes (None means must be provided in config)."""
+
+DEFAULT_LAYER_TYPE: str = "random"
+"""Default layer type for building layers."""
+
+DEFAULT_NODE_TYPE: str = "probabilistic"
+"""Default node type within layers."""
+
+DEFAULT_NODE_INPUT_DIM: int = 6
+"""Default number of inputs to each node."""
+
+DEFAULT_CONV_LAYER_WIDTHS: list = [32, 64, 128]
+"""Default convolutional layer widths for convolutional architecture."""
+
+DEFAULT_CONV_KERNEL_SIZE: int = 5
+"""Default kernel size for convolutional layers."""
+
+DEFAULT_CONV_STRIDE: int = 1
+"""Default stride for convolutional layers."""
+
+DEFAULT_CONV_PADDING: int = 0
+"""Default padding for convolutional layers."""
+
+DEFAULT_TREE_DEPTH: int = 2
+"""Default tree depth for LUT blocks."""
+
+DEFAULT_OUTPUT_TAU: float = 1.0
+"""Default temperature parameter for output layer."""
 
 
 class SimpleConvolutional(BaseLUTModel):
@@ -50,20 +91,29 @@ class SimpleConvolutional(BaseLUTModel):
         """
         Initialize the SimpleConvolutional model.
 
-        Args:
-            config: ModelConfig instance with all model parameters
-                   Should include:
-                   - input_size: (C, H, W) or just number of channels
-                   - conv_layer_widths: List of output channels for each conv layer
-                   - conv_kernel_size: Kernel size for convolutions
-                   - conv_stride: Stride for convolutions
-                   - conv_padding: Padding for convolutions
-                   - num_classes: Number of output classes
+        Parameters:
+        - config: ModelConfig instance with all model parameters stored in params dict
+
+        Expects config.params to contain:
+        - encoder_config: Dict with encoder name and parameters
+        - input_size: Optional input size (inferred from data if not provided)
+        - num_classes: Number of output classes
+        - layer_type: Type of layer implementation (default: 'random')
+        - node_type: Type of node implementation (default: 'probabilistic')
+        - node_input_dim: Number of inputs per node (default: 6)
+        - conv_layer_widths: List of output channels for each convolutional layer
+        - conv_kernel_size: Kernel size for convolutions (default: 5)
+        - conv_stride: Stride for convolutions (default: 1)
+        - conv_padding: Padding for convolutions (default: 0)
+        - tree_depth: Depth of LUT tree (default: 2)
         """
         super().__init__(config)
 
-        # Setup encoder
-        encoder_config = config.encoder_config
+        # Setup encoder - get from params dict
+        encoder_config = config.params.get("encoder_config", DEFAULT_ENCODER_CONFIG)
+        if encoder_config == DEFAULT_ENCODER_CONFIG:
+            warn_default_value("encoder_config", encoder_config, stacklevel=2)
+
         encoder_name = encoder_config.get("name", "thermometer")
         encoder_params = {k: v for k, v in encoder_config.items() if k != "name"}
 
@@ -71,27 +121,48 @@ class SimpleConvolutional(BaseLUTModel):
         self.encoder = encoder_class(**encoder_params)
         self.encoder_fitted = False
 
-        # Input/output specifications
-        self.input_size = config.input_size  # (C, H, W) or just C
-        self.num_classes = config.num_classes
+        # Input/output specifications - get from params dict
+        self.input_size = config.params.get("input_size", DEFAULT_INPUT_SIZE)
+        if self.input_size == DEFAULT_INPUT_SIZE:
+            warn_default_value("input_size", self.input_size, stacklevel=2)
+
+        self.num_classes = config.params.get("num_classes", DEFAULT_NUM_CLASSES)
+        if self.num_classes == DEFAULT_NUM_CLASSES:
+            warn_default_value("num_classes", self.num_classes, stacklevel=2)
 
         # Extract input channels
+        # Handle both flattened size (int, backward compat) and shape tuple (C, H, W)
         if isinstance(self.input_size, (tuple, list)):
             self.in_channels = self.input_size[0]
         else:
-            self.in_channels = self.input_size
+            # For backward compatibility, assume 1 channel if given flat size
+            # Actual channels will be inferred from data during fit_encoder
+            self.in_channels = 1
 
         # Convolutional layers will be built after encoder is fitted
         self.conv_layers = nn.ModuleList()
         self.encoded_input_size = None
 
-        # Convolutional parameters from config
-        self.conv_kernel_size = config.runtime.get("conv_kernel_size", 5)
-        self.conv_stride = config.runtime.get("conv_stride", 1)
-        self.conv_padding = config.runtime.get("conv_padding", 0)
+        # Convolutional parameters from params dict
+        self.conv_kernel_size = config.params.get("conv_kernel_size", DEFAULT_CONV_KERNEL_SIZE)
+        if (
+            self.conv_kernel_size == DEFAULT_CONV_KERNEL_SIZE
+            and "conv_kernel_size" not in config.params
+        ):
+            warn_default_value("conv_kernel_size", self.conv_kernel_size, stacklevel=2)
+
+        self.conv_stride = config.params.get("conv_stride", DEFAULT_CONV_STRIDE)
+        if self.conv_stride == DEFAULT_CONV_STRIDE and "conv_stride" not in config.params:
+            warn_default_value("conv_stride", self.conv_stride, stacklevel=2)
+
+        self.conv_padding = config.params.get("conv_padding", DEFAULT_CONV_PADDING)
+        if self.conv_padding == DEFAULT_CONV_PADDING and "conv_padding" not in config.params:
+            warn_default_value("conv_padding", self.conv_padding, stacklevel=2)
 
         # Output layer (GroupSum)
-        output_tau = config.runtime.get("output_tau", 1.0)
+        output_tau = config.runtime.get("output_tau", DEFAULT_OUTPUT_TAU)
+        if output_tau == DEFAULT_OUTPUT_TAU and "output_tau" not in config.runtime:
+            warn_default_value("output_tau", output_tau, stacklevel=2)
         self.output_layer = GroupSum(k=self.num_classes, tau=output_tau, use_randperm=False)
 
     def fit_encoder(self, data: torch.Tensor):
@@ -113,12 +184,14 @@ class SimpleConvolutional(BaseLUTModel):
         # Update input channels if needed
         if data.dim() >= 3:
             actual_channels = data.shape[1]
-            if self.in_channels != actual_channels:
+            # Only warn if config had explicit channel mismatch (not from flattened size)
+            if isinstance(self.input_size, (tuple, list)) and self.in_channels != actual_channels:
                 print(
                     f"Warning: Input channels mismatch. "
                     f"Config: {self.in_channels}, Data: {actual_channels}"
                 )
-                self.in_channels = actual_channels
+            # Update to actual channels from data (this is the real input dimensionality)
+            self.in_channels = actual_channels
 
         # Fit encoder
         print(f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}...")
@@ -156,9 +229,21 @@ class SimpleConvolutional(BaseLUTModel):
         if config.seed is not None:
             torch.manual_seed(config.seed)
 
-        # Get layer and node classes from registry
-        layer_class = REGISTRY.get_layer(config.layer_type)
-        node_class = REGISTRY.get_node(config.node_type)
+        # Get layer and node classes from registry - get from params dict with warnings
+        layer_type = config.params.get("layer_type", DEFAULT_LAYER_TYPE)
+        if layer_type == DEFAULT_LAYER_TYPE and "layer_type" not in config.params:
+            warn_default_value("layer_type", layer_type, stacklevel=2)
+
+        node_type = config.params.get("node_type", DEFAULT_NODE_TYPE)
+        if node_type == DEFAULT_NODE_TYPE and "node_type" not in config.params:
+            warn_default_value("node_type", node_type, stacklevel=2)
+
+        node_input_dim = config.params.get("node_input_dim", DEFAULT_NODE_INPUT_DIM)
+        if node_input_dim == DEFAULT_NODE_INPUT_DIM and "node_input_dim" not in config.params:
+            warn_default_value("node_input_dim", node_input_dim, stacklevel=2)
+
+        layer_class = REGISTRY.get_layer(layer_type)
+        node_class = REGISTRY.get_node(node_type)
 
         # Create LayerConfig for layer-level parameters
         layer_cfg = LayerConfig(
@@ -170,22 +255,29 @@ class SimpleConvolutional(BaseLUTModel):
         )
 
         # Get layer widths (output channels for each conv layer)
-        conv_layer_widths = config.runtime.get("conv_layer_widths", [32, 64, 64])
+        conv_layer_widths = config.params.get("conv_layer_widths", DEFAULT_CONV_LAYER_WIDTHS)
+        if (
+            conv_layer_widths == DEFAULT_CONV_LAYER_WIDTHS
+            and "conv_layer_widths" not in config.params
+        ):
+            warn_default_value("conv_layer_widths", conv_layer_widths, stacklevel=2)
 
         # Get tree depth for convolutional blocks
-        tree_depth = config.runtime.get("tree_depth", 2)
+        tree_depth = config.params.get("tree_depth", DEFAULT_TREE_DEPTH)
+        if tree_depth == DEFAULT_TREE_DEPTH and "tree_depth" not in config.params:
+            warn_default_value("tree_depth", tree_depth, stacklevel=2)
 
         # Build each convolutional layer
         in_channels = self.in_channels
         for layer_idx, out_channels in enumerate(conv_layer_widths):
             # Build node configuration
-            fan_in = config.node_input_dim
+            fan_in = node_input_dim
 
             # For conv layers, fan_out is harder to calculate precisely
             # Use a reasonable heuristic
             receptive_field = self.conv_kernel_size
             receptive_area = receptive_field * receptive_field
-            fan_out = (out_channels * config.node_input_dim) / (in_channels * receptive_area)
+            fan_out = (out_channels * node_input_dim) / (in_channels * receptive_area)
 
             node_kwargs = self._build_node_config(fan_in=fan_in, fan_out=fan_out)
 
@@ -209,7 +301,7 @@ class SimpleConvolutional(BaseLUTModel):
                 node_type=node_class,
                 node_kwargs=node_kwargs,
                 layer_type=layer_class,
-                n_inputs_per_node=config.node_input_dim,
+                n_inputs_per_node=node_input_dim,
                 layer_config=layer_cfg,
                 grouped_connections=runtime.get("grouped_connections", False),
                 ensure_full_coverage=runtime.get("ensure_full_coverage", False),
@@ -285,7 +377,7 @@ class SimpleConvolutional(BaseLUTModel):
         # Add node-specific parameters from runtime
         # NOTE: use_cuda parameter is removed - CUDA kernels are auto-selected based on device
         # Just do model.cuda() to use GPU kernels, model.cpu() to use CPU kernels
-        node_type = config.node_type
+        node_type = config.params.get("node_type", "probabilistic")
 
         if node_type in ["dwn", "hybrid", "dwn_stable"]:
             pass  # No use_cuda - device determines kernel selection
@@ -316,7 +408,7 @@ class SimpleConvolutional(BaseLUTModel):
 
         # Create and return NodeConfig
         return NodeConfig(
-            input_dim=config.node_input_dim,
+            input_dim=config.params.get("node_input_dim", 6),
             output_dim=1,  # Always 1 for standard nodes
             init_fn=init_fn,
             init_kwargs=init_kwargs if init_kwargs else None,
@@ -405,9 +497,7 @@ class SimpleConvolutional(BaseLUTModel):
         for layer in self.conv_layers:
             x = layer(x)
 
-        # Global average pooling to reduce spatial dimensions
-        # (N, C, H, W) -> (N, C)
-        x = torch.nn.functional.adaptive_avg_pool2d(x, (1, 1))
+        # Flatten output from convolutional layers to (N, features)
         x = x.view(batch_size, -1)
 
         # Final classification layer (GroupSum)

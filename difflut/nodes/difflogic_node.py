@@ -57,14 +57,18 @@ class DiffLogicNode(BaseNode):
         eval_mode: str = DEFAULT_DIFFLOGIC_EVAL_MODE,
     ) -> None:
         """
-        Args:
-            input_dim: Number of input dimensions (must be >= 2)
-            output_dim: Number of output dimensions
-            init_fn: Optional initialization function for parameters
-            init_kwargs: Keyword arguments for init_fn
-            regularizers: Dict of custom regularization functions
-            eval_mode: Evaluation mode ('expectation' or 'deterministic')
+        Differentiable Logic Gate Node.
+
+        Parameters:
+        - input_dim: Optional[int], Number of input dimensions (must be >= 2), (default: None)
+        - output_dim: Optional[int], Number of output dimensions, (default: None)
+        - init_fn: Optional[Callable], Initialization function for parameters, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
+        - eval_mode: str, Evaluation mode ('expectation' or 'deterministic'), (default: 'expectation')
         """
+        from ..utils.warnings import warn_default_value
+
         if init_kwargs is None:
             init_kwargs = {}
         else:
@@ -89,6 +93,9 @@ class DiffLogicNode(BaseNode):
                 f"DiffLogicNode requires input_dim >= 2, but got {self.input_dim}. "
                 f"The node selects 2 inputs for each output."
             )
+
+        if eval_mode == DEFAULT_DIFFLOGIC_EVAL_MODE:
+            warn_default_value("eval_mode", eval_mode, stacklevel=2)
 
         assert eval_mode in {"expectation", "deterministic"}, f"Invalid eval_mode: {eval_mode}"
         self.eval_mode = eval_mode
@@ -125,13 +132,10 @@ class DiffLogicNode(BaseNode):
         """
         Compute the output of a Boolean function for continuous inputs.
 
-        Args:
-            a: Tensor of shape (batch_size,) with values in [0, 1]
-            b: Tensor of shape (batch_size,) with values in [0, 1]
-            func_idx: Integer in [0, 15] specifying which Boolean function
-
-        Returns:
-            Tensor of shape (batch_size,) with values in [0, 1]
+        Parameters:
+        - a: torch.Tensor, Tensor of shape (batch_size,) with values in [0, 1]
+        - b: torch.Tensor, Tensor of shape (batch_size,) with values in [0, 1]
+        - func_idx: int, Integer in [0, 15] specifying which Boolean function
         """
         truth_table = self.truth_tables[func_idx]
 
@@ -150,14 +154,10 @@ class DiffLogicNode(BaseNode):
         """
         Forward pass during training: probabilistic expectation.
 
-        For each output, computes:
-            y_i = Σ_{f=0}^{15} softmax(weights_i)_f * f(a_i, b_i)
+        For each output, computes: y_i = Σ_{f=0}^{15} softmax(weights_i)_f * f(a_i, b_i)
 
-        Args:
-            x: Input tensor of shape (batch_size, input_dim) with values in [0, 1]
-
-        Returns:
-            Output tensor of shape (batch_size, output_dim) with values in [0, 1]
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_dim) with values in [0, 1]
         """
         batch_size = x.shape[0]
 
@@ -189,11 +189,8 @@ class DiffLogicNode(BaseNode):
         Mode 'expectation': Same as training (probabilistic)
         Mode 'deterministic': Select the Boolean function with highest logit
 
-        Args:
-            x: Input tensor of shape (batch_size, input_dim)
-
-        Returns:
-            Output tensor of shape (batch_size, output_dim)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_dim)
         """
         if self.eval_mode == "expectation":
             return self.forward_train(x)

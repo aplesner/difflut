@@ -138,7 +138,8 @@ def main():
             # Check if this layer introduces divergence
             if diff > 0.01:
                 print(f"      ⚠️  DIVERGENCE DETECTED IN LAYER {layer_idx}!")
-                print(f"         CPU output:\n{x_cpu[:, :2]}")  # First 2 channels
+                # First 2 channels
+                print(f"         CPU output:\n{x_cpu[:, :2]}")
                 print(f"         GPU output:\n{x_gpu.cpu()[:, :2]}")
 
         # Full forward pass

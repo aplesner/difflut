@@ -44,7 +44,8 @@ class ModelConfig:
     # ==================== Core Parameters ====================
     # Only these two are always required
 
-    model_type: str  # Class name to instantiate (e.g., "feedforward", "convolutional")
+    # Class name to instantiate (e.g., "feedforward", "convolutional")
+    model_type: str
     seed: int = 42
 
     # ==================== Model-Specific Structural Parameters ====================

@@ -11,15 +11,16 @@ This test demonstrates the value by creating a task that is:
 
 import warnings
 
-# Ignore general runtime warnings in tests
-warnings.filterwarnings("ignore", category=RuntimeWarning)
-
 import pytest
 import torch
 import torch.nn as nn
 from testing_utils import is_cuda_available
 
 from difflut.utils.warnings import CUDAWarning, DefaultValueWarning
+
+# Ignore general runtime warnings in tests
+warnings.filterwarnings("ignore", category=RuntimeWarning)
+
 
 # Suppress DefaultValueWarnings and CUDAWarnings
 warnings.filterwarnings("ignore", category=DefaultValueWarning)
@@ -207,8 +208,10 @@ def train_test_data(device):
 @pytest.mark.parametrize(
     "use_grouped_connections,expected_min_accuracy,expected_max_accuracy",
     [
-        (True, 0.30, 1.0),  # WITH grouped connections: should learn better than random (>30%)
-        (False, 0.0, 0.75),  # WITHOUT grouped connections: should achieve lower accuracy (max 75%)
+        # WITH grouped connections: should learn better than random (>30%)
+        (True, 0.30, 1.0),
+        # WITHOUT grouped connections: should achieve lower accuracy (max 75%)
+        (False, 0.0, 0.75),
     ],
 )
 def test_grouped_connections_learning(

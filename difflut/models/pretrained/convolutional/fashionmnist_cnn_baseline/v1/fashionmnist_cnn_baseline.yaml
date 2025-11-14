@@ -1,15 +1,23 @@
 model_type: convolutional
+seed: 42
 layer_type: random
 node_type: probabilistic
 encoder_config:
   name: thermometer
   num_bits: 4
 node_input_dim: 6
-layer_widths: []
 num_classes: 10
-dataset: null
 input_size: 784
-seed: 42
+conv_layer_widths:
+- 32
+- 64
+- 128
+conv_kernel_size: 5
+conv_stride: 1
+conv_padding: 0
+tree_depth: 2
+grouped_connections: false
+ensure_full_coverage: false
 runtime:
   flip_probability: 0.0
   grad_stabilization: none
@@ -18,19 +26,9 @@ runtime:
   grad_epsilon: 1.0e-08
   temperature: 1.0
   eval_mode: expectation
-  init_fn: kaiming_uniform
+  init_fn: normal
   init_kwargs:
-    a: 0.0
-    mode: fan_in
-    nonlinearity: leaky_relu
+    std: 0.05
   regularization_weights:
     l2_weight: 0.0
     l1_weight: 0.0
-  conv_kernel_size: 5
-  conv_stride: 1
-  conv_padding: 0
-  tree_depth: 2
-  grouped_connections: false
-  ensure_full_coverage: false
-pretrained: false
-pretrained_name: null

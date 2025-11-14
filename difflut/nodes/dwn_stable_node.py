@@ -1,5 +1,5 @@
 import warnings
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
@@ -50,13 +50,10 @@ class GradientStabilizedFunction(torch.autograd.Function):
         """
         Forward pass using CUDA kernel.
 
-        Args:
-            input: (batch_size, input_dim) float tensor in [0, 1]
-            luts: (output_dim, 2^input_dim) float tensor in [0, 1]
-            gradient_scale: scalar float for gradient scaling
-
-        Returns:
-            output: (batch_size, output_dim) float tensor
+        Parameters:
+        - input: torch.Tensor, (batch_size, input_dim) float tensor in [0, 1]
+        - luts: torch.Tensor, (output_dim, 2^input_dim) float tensor in [0, 1]
+        - gradient_scale: float, scalar float for gradient scaling
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError(
@@ -83,11 +80,8 @@ class GradientStabilizedFunction(torch.autograd.Function):
         """
         Backward pass using CUDA kernel with gradient scaling.
 
-        Args:
-            grad_output: (batch_size, output_dim) gradient tensor
-
-        Returns:
-            Gradients for (input, luts, gradient_scale)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, output_dim) gradient tensor
         """
         if not _CUDA_EXT_AVAILABLE:
             raise RuntimeError(
@@ -213,13 +207,10 @@ def dwn_stable_forward(
     """
     Gradient Stabilized forward pass with automatic differentiation support.
 
-    Args:
-        input: (batch_size, input_dim) tensor in [0, 1]
-        luts: (output_dim, 2^input_dim) tensor in [0, 1]
-        gradient_scale: scalar float for gradient scaling
-
-    Returns:
-        output: (batch_size, output_dim) tensor
+    Parameters:
+    - input: torch.Tensor, (batch_size, input_dim) tensor in [0, 1]
+    - luts: torch.Tensor, (output_dim, 2^input_dim) tensor in [0, 1]
+    - gradient_scale: float, scalar float for gradient scaling
     """
     if _CUDA_EXT_AVAILABLE and input.is_cuda:
         return GradientStabilizedFunction.apply(input, luts, gradient_scale)
@@ -245,21 +236,22 @@ class DWNStableNode(BaseNode):
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
         use_cuda: bool = True,
-        regularizers: Optional[dict] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
         gradient_scale: float = 1.25,
         init_fn: Optional[Callable] = None,
-        init_kwargs: Optional[dict] = None,
-    ):
+        init_kwargs: Optional[Dict[str, Any]] = None,
+    ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 6)
-            output_dim: Number of outputs (e.g., 1)
-            use_cuda: Whether to use CUDA kernels (if available)
-            regularizers: Dict of custom regularization functions
-            gradient_scale: Initial gradient scaling factor (learnable)
-            init_fn: Optional initialization function for LUT weights.
-                    Signature: init_fn(parameter: torch.Tensor, **init_kwargs) -> None
-            init_kwargs: Optional dict of kwargs to pass to the initializer function
+        Gradient Stabilized Node - Same as DWN but with gradient scaling.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs (e.g., 6), (default: None)
+        - output_dim: Optional[int], Number of outputs (e.g., 1), (default: None)
+        - use_cuda: bool, Whether to use CUDA kernels (if available), (default: True)
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
+        - gradient_scale: float, Initial gradient scaling factor (learnable), (default: 1.25)
+        - init_fn: Optional[Callable], Initialization function for LUT weights, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
         """
         super().__init__(
             input_dim=input_dim,

@@ -6,6 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from ..registry import register_node
+from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 
 # Default width of hidden layers in NeuralLUT MLP
@@ -72,22 +73,23 @@ class NeuralLUTNode(BaseNode):
         grad_factor: float = DEFAULT_NEURALLUT_GRAD_FACTOR,
     ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 6)
-            output_dim: Number of outputs (e.g., 1)
-            hidden_width: Width of hidden layers
-            depth: Number of layers in the MLP
-            skip_interval: Interval for skip connections (0 = no skips)
-            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
-            init_kwargs: Keyword arguments for init_fn
-            activation: Activation function ('relu' or 'sigmoid')
-            regularizers: Dict of custom regularization functions
-            tau: Initial output scaling factor (division) for backward pass (default: 1.0)
-            tau_start: Starting value for tau exponential decay (default: 1.0)
-            tau_min: Minimum value tau can decay to (default: 0.0001)
-            tau_decay_iters: Number of iterations for tau to decay by factor of 10 (default: 1000.0)
-            ste: Whether to use Straight-Through Estimator (default: False)
-            grad_factor: Gradient scaling factor for backward pass (default: 1.0)
+        NeuraLUT Node that encapsulates a small MLP inside a LUT.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs (e.g., 6), (default: None)
+        - output_dim: Optional[int], Number of outputs (e.g., 1), (default: None)
+        - hidden_width: int, Width of hidden layers, (default: 8)
+        - depth: int, Number of layers in the MLP, (default: 2)
+        - skip_interval: int, Interval for skip connections (0 = no skips), (default: 2)
+        - init_fn: Optional[Callable], Initialization function for parameters, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
+        - activation: str, Activation function ('relu' or 'sigmoid'), (default: 'relu')
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
+        - tau_start: float, Starting value for tau exponential decay, (default: 1.0)
+        - tau_min: float, Minimum value tau can decay to, (default: 0.0001)
+        - tau_decay_iters: float, Number of iterations for tau decay, (default: 1000.0)
+        - ste: bool, Whether to use Straight-Through Estimator, (default: False)
+        - grad_factor: float, Gradient scaling factor for backward pass, (default: 1.0)
         """
         super().__init__(
             input_dim=input_dim,

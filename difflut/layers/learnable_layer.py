@@ -31,7 +31,8 @@ DEFAULT_LEARNABLE_LAYER_USE_CUDA_SOFT: bool = False
 
 # Try to import the compiled CUDA extension for learnable mapping
 try:
-    import learnable_mapping_cuda as _learnable_mapping_cuda_module  # pyright: ignore[reportMissingImports]
+    # pyright: ignore[reportMissingImports]
+    import learnable_mapping_cuda as _learnable_mapping_cuda_module
 
     _LEARNABLE_MAPPING_CUDA_AVAILABLE = True
 except ImportError:
@@ -48,7 +49,8 @@ except ImportError:
 
 # Try to import the compiled CUDA extension for probabilistic nodes
 try:
-    import probabilistic_cuda as _probabilistic_cuda_module  # pyright: ignore[reportMissingImports]
+    # pyright: ignore[reportMissingImports]
+    import probabilistic_cuda as _probabilistic_cuda_module
 
     _PROBABILISTIC_CUDA_AVAILABLE = True
 except ImportError:
@@ -71,13 +73,10 @@ class LearnableMappingFunction(torch.autograd.Function):
         """
         Forward pass using CUDA kernel for hard selection.
 
-        Args:
-            input: (batch_size, input_size) float tensor
-            indices: (output_size,) int32 tensor - argmax results
-            input_size: int (needed for backward)
-
-        Returns:
-            output: (batch_size, output_size) float tensor
+        Parameters:
+        - input: torch.Tensor, (batch_size, input_size) float tensor
+        - indices: torch.Tensor, (output_size,) int32 tensor - argmax results
+        - input_size: int, needed for backward
         """
         if not _LEARNABLE_MAPPING_CUDA_AVAILABLE or _learnable_mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Use fallback implementation.")
@@ -91,7 +90,8 @@ class LearnableMappingFunction(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(indices)
-        ctx.input_size = input_size  # pyright: ignore[reportAttributeAccessIssue]
+        # pyright: ignore[reportAttributeAccessIssue]
+        ctx.input_size = input_size
 
         return output
 
@@ -102,17 +102,16 @@ class LearnableMappingFunction(torch.autograd.Function):
         """
         Backward pass using CUDA kernel.
 
-        Args:
-            grad_output: (batch_size, output_size) gradient tensor
-
-        Returns:
-            Gradients for (input, indices, input_size)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, output_size) gradient tensor
         """
         if not _LEARNABLE_MAPPING_CUDA_AVAILABLE or _learnable_mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available.")
 
-        (indices,) = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
-        input_size = ctx.input_size  # pyright: ignore[reportAttributeAccessIssue]
+        # pyright: ignore[reportAttributeAccessIssue]
+        (indices,) = ctx.saved_tensors
+        # pyright: ignore[reportAttributeAccessIssue]
+        input_size = ctx.input_size
 
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
@@ -130,13 +129,10 @@ def learnable_mapping_forward_cuda(
     """
     Learnable mapping forward pass (hard selection) with CUDA.
 
-    Args:
-        input: (batch_size, input_size) tensor
-        indices: (output_size,) tensor
-        input_size: int
-
-    Returns:
-        output: (batch_size, output_size) tensor
+    Parameters:
+    - input: torch.Tensor, (batch_size, input_size) tensor
+    - indices: torch.Tensor, (output_size,) tensor
+    - input_size: int, size of input
     """
     if _LEARNABLE_MAPPING_CUDA_AVAILABLE and input.is_cuda:
         return LearnableMappingFunction.apply(input, indices, input_size)
@@ -150,13 +146,10 @@ def learnable_mapping_soft_forward_cuda(
     """
     Learnable mapping forward pass (soft selection) with CUDA.
 
-    Args:
-        input: (batch_size, input_size) tensor
-        weights: (output_size, input_size) tensor
-        tau: float
-
-    Returns:
-        output: (batch_size, output_size) tensor
+    Parameters:
+    - input: torch.Tensor, (batch_size, input_size) tensor
+    - weights: torch.Tensor, (output_size, input_size) tensor
+    - tau: float, temperature parameter
     """
     if (
         _LEARNABLE_MAPPING_CUDA_AVAILABLE
@@ -201,7 +194,8 @@ class LearnableMappingModule(nn.Module):
 
         # Cache for hard selection (indices instead of mask for CUDA kernel)
         self.register_buffer("_cached_hard_indices", None)
-        self.register_buffer("_cached_hard_mask", None)  # Keep for PyTorch fallback
+        # Keep for PyTorch fallback
+        self.register_buffer("_cached_hard_mask", None)
         self._cache_valid = False
 
     def train(self, mode: bool = True):
@@ -311,24 +305,24 @@ class LearnableLayer(BaseLUTLayer):
         use_cuda_soft: Optional[bool] = None,
     ):
         """
-        Args:
-            input_size: Size of input vector (from encoder or previous layer)
-                       Should match: (batch_size, input_size)
-            output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
-            node_type: LUT node class
-            node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
-                        Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
-            tau: Initial temperature for softmax in learnable mapping
-            tau_start: Starting value for tau (used for exponential decay)
-            tau_min: Minimum value tau can decay to
-            tau_decay_iters: Number of iterations for tau to decay by factor of 10
-            layer_config: LayerConfig object with training parameters (flip_probability, grad_stabilization, etc.)
-            flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
-            grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
-            grad_target_std: Target standard deviation for gradient rescaling
-            grad_subtract_mean: Whether to subtract mean before rescaling
-            grad_epsilon: Small constant for numerical stability
-            use_cuda_soft: Use CUDA kernel for soft selection (training mode)
+        Learnable Layer with learnable input mapping.
+
+        Parameters:
+        - input_size: int, Size of input vector (from encoder or previous layer)
+        - output_size: int, Number of LUT nodes
+        - node_type: Type, LUT node class
+        - node_kwargs: NodeConfig, Node configuration (input_dim, output_dim, etc.)
+        - tau: Optional[float], Initial temperature for softmax in learnable mapping, (default: None)
+        - tau_start: Optional[float], Starting value for tau (exponential decay), (default: None)
+        - tau_min: Optional[float], Minimum value tau can decay to, (default: None)
+        - tau_decay_iters: Optional[float], Number of iterations for tau decay, (default: None)
+        - layer_config: Optional[LayerConfig], Training parameters (flip_probability, grad_stabilization, etc.), (default: None)
+        - flip_probability: Optional[float], Probability of flipping each bit during training, (default: None)
+        - grad_stabilization: Optional[str], Gradient stabilization mode ('none', 'layerwise', 'batchwise'), (default: None)
+        - grad_target_std: Optional[float], Target standard deviation for gradient rescaling, (default: None)
+        - grad_subtract_mean: Optional[bool], Whether to subtract mean before rescaling, (default: None)
+        - grad_epsilon: Optional[float], Small constant for numerical stability, (default: None)
+        - use_cuda_soft: Optional[bool], Use CUDA kernel for soft selection (training mode), (default: None)
         """
         # Set defaults from constants
         if tau is None:
@@ -421,11 +415,8 @@ class LearnableLayer(BaseLUTLayer):
         """
         Forward pass through learnable mapping and node.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_size)
-
-        Returns:
-            Output tensor of shape (batch_size, output_size * output_dim)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
         # Validate input dimensions
         self._validate_input_dims(x)
@@ -434,7 +425,8 @@ class LearnableLayer(BaseLUTLayer):
         mapped_inputs = self.get_mapping(x)
 
         batch_size = mapped_inputs.shape[0]
-        output_dim: int = self.nodes[0].output_dim  # type: ignore[reportAttributeAccessIssue]
+        # type: ignore[reportAttributeAccessIssue]
+        output_dim: int = self.nodes[0].output_dim
 
         # Preallocate output tensor
         output = torch.empty(

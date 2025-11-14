@@ -1,5 +1,5 @@
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -7,33 +7,22 @@ import torch.nn as nn
 from ...registry import register_initializer
 from ...utils.warnings import warn_default_value
 
-# Default parameters for initializers
+# ==================== Default Values ====================
+# Module-level constants for all default parameters (Python 3.6+ compatible)
 
-# Default mean for normal initialization
-DEFAULT_NORMAL_INIT_MEAN: float = 0.0
-# Default standard deviation for normal initialization
-DEFAULT_NORMAL_INIT_STD: float = 1.0
-# Default lower bound for uniform initialization
-DEFAULT_UNIFORM_INIT_A: float = -1.0
-# Default upper bound for uniform initialization
-DEFAULT_UNIFORM_INIT_B: float = 1.0
-# Default gain factor for Xavier/Glorot initialization
-DEFAULT_XAVIER_GAIN: float = 1.0
-# Default gain factor for Kaiming/He initialization
-DEFAULT_KAIMING_GAIN: float = 1.0
-# Default negative slope for Kaiming/He (leaky_relu parameter)
-DEFAULT_KAIMING_A: float = 0.0
-# Default mode for Kaiming/He initialization ('fan_in' or 'fan_out')
-DEFAULT_KAIMING_MODE: str = "fan_in"
-# Default nonlinearity for Kaiming/He ('relu', 'leaky_relu', 'tanh', 'sigmoid')
-DEFAULT_KAIMING_NONLINEARITY: str = "leaky_relu"
-# Default target variance for variance-stabilized initialization
+DEFAULT_NORMAL_INIT_MEAN: float = 0.0  # Mean for normal distribution
+DEFAULT_NORMAL_INIT_STD: float = 1.0  # Std dev for normal distribution
+DEFAULT_UNIFORM_INIT_A: float = -1.0  # Lower bound for uniform distribution
+DEFAULT_UNIFORM_INIT_B: float = 1.0  # Upper bound for uniform distribution
+DEFAULT_XAVIER_GAIN: float = 1.0  # Gain factor for Xavier/Glorot initialization
+DEFAULT_KAIMING_A: float = 0.0  # Negative slope for Kaiming (leaky_relu)
+DEFAULT_KAIMING_MODE: str = "fan_in"  # Mode for Kaiming: 'fan_in' or 'fan_out'
+DEFAULT_KAIMING_NONLINEARITY: str = "leaky_relu"  # Nonlinearity for Kaiming gain
+# Target variance for variance-stabilized init
 DEFAULT_VARIANCE_STABILIZED_V_TARGET: float = 1.0
-# Default number of samples for regularization computations
-DEFAULT_REGULARIZER_NUM_SAMPLES: int = 100
-# Default noise factor for residual initialization (0 = perfect residual, higher = more noise)
+# Noise std dev for residual initialization
 DEFAULT_RESIDUAL_NOISE_FACTOR: float = 0.0
-# Default logit clarity for LUT-based residual initialization (higher = clearer separation)
+# Logit clarity for residual initialization
 DEFAULT_RESIDUAL_LOGIT_CLARITY: float = 5.0
 
 
@@ -68,16 +57,16 @@ def normal_init(
     param: torch.Tensor,
     mean: float = DEFAULT_NORMAL_INIT_MEAN,
     std: float = DEFAULT_NORMAL_INIT_STD,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Initialize a parameter from a normal distribution.
 
-    Args:
-        param: The parameter tensor to initialize
-        mean: Mean of the normal distribution
-        std: Standard deviation of the normal distribution
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, The parameter tensor to initialize
+    - mean: float, Mean of the normal distribution (default: 0.0)
+    - std: float, Standard deviation of the normal distribution (default: 1.0)
+    - **kwargs: Any, Unused, for API consistency
     """
     if mean == DEFAULT_NORMAL_INIT_MEAN:
         warn_default_value("mean (normal_init)", mean, stacklevel=3)
@@ -93,16 +82,16 @@ def uniform_init(
     param: torch.Tensor,
     a: float = DEFAULT_UNIFORM_INIT_A,
     b: float = DEFAULT_UNIFORM_INIT_B,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Initialize a parameter from a uniform distribution.
 
-    Args:
-        param: The parameter tensor to initialize
-        a: Lower bound of the uniform distribution
-        b: Upper bound of the uniform distribution
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, The parameter tensor to initialize
+    - a: float, Lower bound of the uniform distribution (default: -1.0)
+    - b: float, Upper bound of the uniform distribution (default: 1.0)
+    - **kwargs: Any, Unused, for API consistency
     """
     if a == DEFAULT_UNIFORM_INIT_A:
         warn_default_value("a (uniform_init)", a, stacklevel=3)
@@ -116,14 +105,18 @@ def uniform_init(
 @register_initializer("xavier_uniform")
 @register_initializer("glorot_uniform")
 @register_initializer("xavier")
-def xavier_uniform_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, **kwargs) -> None:
+def xavier_uniform_init(
+    param: torch.Tensor,
+    gain: float = DEFAULT_XAVIER_GAIN,
+    **kwargs: Any,
+) -> None:
     """
     Initialize a parameter using Xavier/Glorot uniform initialization.
 
-    Args:
-        param: The parameter tensor to initialize
-        gain: Scaling factor for the initialization
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, The parameter tensor to initialize
+    - gain: float, Scaling factor for the initialization (default: 1.0)
+    - **kwargs: Any, Unused, for API consistency
     """
     if gain == DEFAULT_XAVIER_GAIN:
         warn_default_value("gain (xavier_uniform_init)", gain, stacklevel=3)
@@ -145,14 +138,18 @@ def xavier_uniform_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, 
 @register_initializer("xavier_normal")
 @register_initializer("glorot_normal")
 @register_initializer("glorot")
-def xavier_normal_init(param: torch.Tensor, gain: float = DEFAULT_XAVIER_GAIN, **kwargs) -> None:
+def xavier_normal_init(
+    param: torch.Tensor,
+    gain: float = DEFAULT_XAVIER_GAIN,
+    **kwargs: Any,
+) -> None:
     """
     Initialize a parameter using Xavier/Glorot normal initialization.
 
-    Args:
-        param: The parameter tensor to initialize
-        gain: Scaling factor for the initialization
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, The parameter tensor to initialize
+    - gain: float, Scaling factor for the initialization (default: 1.0)
+    - **kwargs: Any, Unused, for API consistency
     """
     if gain == DEFAULT_XAVIER_GAIN:
         warn_default_value("gain (xavier_normal_init)", gain, stacklevel=3)
@@ -177,17 +174,17 @@ def kaiming_uniform_init(
     a: float = DEFAULT_KAIMING_A,
     mode: str = DEFAULT_KAIMING_MODE,
     nonlinearity: str = DEFAULT_KAIMING_NONLINEARITY,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Initialize a parameter using Kaiming/He uniform initialization.
 
-    Args:
-        param: The parameter tensor to initialize
-        a: Negative slope of the rectifier used after this layer (only for 'leaky_relu')
-        mode: Either 'fan_in' or 'fan_out'
-        nonlinearity: Type of nonlinearity ('relu', 'leaky_relu', 'tanh', 'sigmoid')
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, The parameter tensor to initialize
+    - a: float, Negative slope for 'leaky_relu' (default: 0.0)
+    - mode: str, Either 'fan_in' or 'fan_out' (default: 'fan_in')
+    - nonlinearity: str, Type of nonlinearity (default: 'leaky_relu')
+    - **kwargs: Any, Unused, for API consistency
     """
     if a == DEFAULT_KAIMING_A:
         warn_default_value("a (kaiming_uniform_init)", a, stacklevel=3)
@@ -222,17 +219,17 @@ def kaiming_normal_init(
     a: float = DEFAULT_KAIMING_A,
     mode: str = DEFAULT_KAIMING_MODE,
     nonlinearity: str = DEFAULT_KAIMING_NONLINEARITY,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Initialize a parameter using Kaiming/He normal initialization.
 
-    Args:
-        param: The parameter tensor to initialize
-        a: Negative slope of the rectifier used after this layer (only for 'leaky_relu')
-        mode: Either 'fan_in' or 'fan_out'
-        nonlinearity: Type of nonlinearity ('relu', 'leaky_relu', 'tanh', 'sigmoid')
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, The parameter tensor to initialize
+    - a: float, Negative slope for 'leaky_relu' (default: 0.0)
+    - mode: str, Either 'fan_in' or 'fan_out' (default: 'fan_in')
+    - nonlinearity: str, Type of nonlinearity (default: 'leaky_relu')
+    - **kwargs: Any, Unused, for API consistency
     """
     if a == DEFAULT_KAIMING_A:
         warn_default_value("a (kaiming_normal_init)", a, stacklevel=3)
@@ -264,51 +261,28 @@ def variance_stabilized_init(
     v_target: float = DEFAULT_VARIANCE_STABILIZED_V_TARGET,
     fan_in: Optional[int] = None,
     fan_out: Optional[int] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Variance-stabilized initialization for probabilistic LUT parameters.
 
-    This initialization ensures forward variance consistency across layers by
-    scaling the raw logits such that node outputs remain in a healthy range
-    of the sigmoid, preventing saturation at 0 or 1.
-
-    Based on Theorem (Forward Variance Consistency):
-    For a probabilistic node with k inputs and m outputs, initializing each logit as:
-        c_i ~ N(0, σ_c²), where σ_c² = (v_target * 4) / (k + m)
-
-    ensures that the expected output variance remains approximately v_target
-    across layers at initialization.
-
-    IMPORTANT: fan_in and fan_out refer to the LOGICAL node dimensions:
-    - fan_in: Number of Boolean inputs to the node (k, the input_dim)
-    - fan_out: Number of outputs from the node (m, the output_dim)
-
-    NOT the truth table dimensions! For a probabilistic node with param shape
-    (2^k, m), we have fan_in=k and fan_out=m (not 2^k and m).
-
-    Args:
-        param: The parameter tensor to initialize (e.g., raw_weights of shape (2^k, m))
-        v_target: Target output variance (default: 1.0)
-        fan_in: Number of Boolean inputs (k). If None, will infer from log2(table_size)
-        fan_out: Number of outputs (m). If None, will infer as output_dim from shape
-        **kwargs: Unused, for API consistency
+    Parameters:
+    - param: torch.Tensor, Parameter tensor to initialize
+    - v_target: float, Target output variance (default: 1.0)
+    - fan_in: Optional[int], Number of Boolean inputs (auto-inferred if None)
+    - fan_out: Optional[int], Number of outputs (auto-inferred if None)
+    - **kwargs: Any, Unused, for API consistency
     """
     if v_target == DEFAULT_VARIANCE_STABILIZED_V_TARGET:
         warn_default_value("v_target (variance_stabilized_init)", v_target, stacklevel=3)
     if fan_in is None:
-        warn_default_value("fan_in (variance_stabilized_init)", "inferred from shape", stacklevel=3)
+        warn_default_value("fan_in (variance_stabilized_init)", "inferred", stacklevel=3)
     if fan_out is None:
-        warn_default_value(
-            "fan_out (variance_stabilized_init)", "inferred from shape", stacklevel=3
-        )
+        warn_default_value("fan_out (variance_stabilized_init)", "inferred", stacklevel=3)
 
     # Infer fan_in and fan_out from parameter shape if not provided
     if fan_in is None or fan_out is None:
         if param.dim() >= 2:
-            # For LUT nodes: shape is typically (2^input_dim, output_dim) or (num_table_entries, output_dim)
-            # fan_in should be input_dim (log2 of table size)
-            # fan_out should be output_dim (last dimension)
             table_size = param.shape[0]
             output_dim = param.shape[-1]
 
@@ -794,100 +768,28 @@ def residual_init(
     output_dim: Optional[int] = None,
     noise_factor: float = DEFAULT_RESIDUAL_NOISE_FACTOR,
     logit_clarity: float = DEFAULT_RESIDUAL_LOGIT_CLARITY,
-    # Polynomial-specific
-    monomial_combinations: Optional[list] = None,
-    # MLP-specific
+    monomial_combinations: Optional[List[tuple]] = None,
     layer_idx: Optional[int] = None,
     num_layers: Optional[int] = None,
-    # Fourier-specific
     num_frequencies: Optional[int] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> None:
     """
     Residual initialization strategy for differentiable LUT nodes.
 
-    Initializes nodes to pass through the first input exactly (when noise_factor=0)
-    or approximately (when noise_factor>0). This provides a meaningful starting point
-    where output = first_input, allowing the network to learn from identity.
-
-    The specific initialization strategy depends on the node type:
-
-    **Linear Nodes** (`node_type='linear_lut'`):
-        Initializes weight vector to pass through first input:
-            c_0 = 2*logit_clarity, c_i = N(0, noise_factor²) for i>0
-
-    **Polynomial Nodes** (`node_type='polylut'`):
-        Initializes coefficients to pass through first input:
-            c_{(1,0,...,0)} = 2*logit_clarity, others = N(0, noise_factor²)
-
-    **MLP Nodes** (`node_type='neurallut'`):
-        Skip connection-aware initialization:
-            W^(1)_{0,0} = logit_clarity, others = N(0, noise_factor²)
-            All biases = 0
-
-    **Fourier Nodes** (`node_type='fourier'`):
-        Low-frequency initialization aligned with first input:
-            A_0 = logit_clarity, φ_0 = 0, bias = 0.5
-            Other amplitudes = N(0, noise_factor²), phases = Uniform(-π, π)
-
-    **LUT-based Nodes** (`node_type` in ['dwn', 'dwn_stable', 'probabilistic', 'hybrid']):
-        Truth table initialization for first input pass-through:
-            raw_lut[idx] = ±logit_clarity (depending on first bit) + N(0, noise_factor²)
-
-        For noise_factor=0 and logit_clarity=5:
-            - forward_eval: Perfect pass-through (output = first_input)
-            - forward_train: Near-perfect (sigmoid(±5) ≈ 0.993/0.007)
-
-    **DiffLogic Nodes** (`node_type='difflogic'`):
-        Boolean function distribution initialization for identity:
-            logits[identity_idx] = logit_clarity
-            logits[other] = N(0, noise_factor²)
-
-        Sets high logit for identity function (output = first_input),
-        creating softmax distribution strongly favoring pass-through behavior.
-
-    **WARP Nodes** (`node_type='warp'`):
-        Walsh coefficient initialization for identity:
-            c_1 = logit_clarity  (first input linear term)
-            c_0 = 0  (constant term)
-            c_other = N(0, noise_factor²)
-
-        Sets Walsh coefficient for first input to create pass-through behavior
-        in signed basis: f(x) ≈ logit_clarity · B̃(x_1).
-
-    Args:
-        param: The parameter tensor to initialize
-        node_type: Type of node ('linear_lut', 'polylut', 'neurallut', 'fourier',
-                   'dwn', 'dwn_stable', 'probabilistic', 'hybrid', 'difflogic', 'warp', etc.)
-        param_name: Name of the parameter being initialized
-        input_dim: Number of inputs - required for LUT-based nodes
-        output_dim: Number of outputs
-        noise_factor: Std dev for Gaussian noise (0 = perfect residual, default: 0.0)
-        logit_clarity: Scale for pass-through weights/logits (default: 5.0)
-        monomial_combinations: List of monomial exponent tuples (for polynomial nodes)
-        layer_idx: Layer index for MLP nodes (0-based)
-        num_layers: Total number of layers for MLP nodes
-        num_frequencies: Number of frequency components for Fourier nodes
-        **kwargs: Additional node-specific parameters
-
-    Raises:
-        ValueError: If required parameters are missing for the specified node type
-
-    Examples:
-        >>> # Perfect residual initialization (no noise)
-        >>> residual_init(weights, node_type='linear_lut', noise_factor=0.0)
-
-        >>> # Residual with small noise
-        >>> residual_init(weights, node_type='dwn', input_dim=6, noise_factor=0.01)
-
-        >>> # Custom logit clarity for stronger signal
-        >>> residual_init(luts, node_type='hybrid', input_dim=6, logit_clarity=10.0)
-
-        >>> # DiffLogic identity initialization
-        >>> residual_init(logits, node_type='difflogic', input_dim=2, logit_clarity=5.0)
-
-        >>> # WARP Walsh coefficient initialization
-        >>> residual_init(coeffs, node_type='warp', input_dim=2, logit_clarity=5.0)
+    Parameters:
+    - param: torch.Tensor, Parameter tensor to initialize
+    - node_type: Optional[str], Type of node ('linear_lut', 'polylut', etc.)
+    - param_name: Optional[str], Name of the parameter being initialized
+    - input_dim: Optional[int], Number of inputs (for LUT-based nodes)
+    - output_dim: Optional[int], Number of outputs
+    - noise_factor: float, Std dev for Gaussian noise (default: 0.0)
+    - logit_clarity: float, Scale for pass-through weights (default: 5.0)
+    - monomial_combinations: Optional[List[tuple]], Monomial exponents (for polynomial nodes)
+    - layer_idx: Optional[int], Layer index (for MLP nodes)
+    - num_layers: Optional[int], Total layers (for MLP nodes)
+    - num_frequencies: Optional[int], Number of frequencies (for Fourier nodes)
+    - **kwargs: Any, Additional node-specific parameters
     """
     # Warn about default values
     if noise_factor == DEFAULT_RESIDUAL_NOISE_FACTOR:

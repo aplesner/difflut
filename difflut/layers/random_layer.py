@@ -16,7 +16,8 @@ DEFAULT_RANDOM_LAYER_SEED: int = 42
 
 # Try to import the compiled CUDA extension for mapping
 try:
-    import mapping_cuda as _mapping_cuda_module  # pyright: ignore[reportMissingImports]
+    # pyright: ignore[reportMissingImports]
+    import mapping_cuda as _mapping_cuda_module
 
     _MAPPING_CUDA_AVAILABLE = True
 except ImportError:
@@ -48,13 +49,10 @@ class MappingFunction(torch.autograd.Function):
         """
         Forward pass using CUDA kernel.
 
-        Args:
-            input: (batch_size, input_size) float tensor
-            indices: (output_size, n) int16/int32 tensor
-            input_size: int (needed for backward)
-
-        Returns:
-            output: (batch_size, output_size, n) float tensor
+        Parameters:
+        - input: torch.Tensor, (batch_size, input_size) float tensor
+        - indices: torch.Tensor, (output_size, n) int16/int32 tensor
+        - input_size: int, needed for backward
         """
         if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available. Use fallback implementation.")
@@ -68,7 +66,8 @@ class MappingFunction(torch.autograd.Function):
 
         # Save for backward
         ctx.save_for_backward(indices)
-        ctx.input_size = input_size  # pyright: ignore[reportAttributeAccessIssue]
+        # pyright: ignore[reportAttributeAccessIssue]
+        ctx.input_size = input_size
 
         return output
 
@@ -79,17 +78,16 @@ class MappingFunction(torch.autograd.Function):
         """
         Backward pass using CUDA kernel.
 
-        Args:
-            grad_output: (batch_size, output_size, n) gradient tensor
-
-        Returns:
-            Gradients for (input, indices, input_size)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, output_size, n) gradient tensor
         """
         if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
             raise RuntimeError("CUDA extension not available.")
 
-        (indices,) = ctx.saved_tensors  # pyright: ignore[reportAttributeAccessIssue]
-        input_size = ctx.input_size  # pyright: ignore[reportAttributeAccessIssue]
+        # pyright: ignore[reportAttributeAccessIssue]
+        (indices,) = ctx.saved_tensors
+        # pyright: ignore[reportAttributeAccessIssue]
+        input_size = ctx.input_size
 
         # Ensure contiguity
         grad_output = grad_output.contiguous().float()
@@ -149,24 +147,22 @@ class RandomLayer(BaseLUTLayer):
         mapping_indices: Optional[torch.Tensor] = None,
     ) -> None:
         """
-        Args:
-            input_size: Size of input vector (from encoder or previous layer)
-                       Should match: (batch_size, input_size)
-            output_size: Number of LUT nodes (output will be batch_size, output_size * output_dim)
-            node_type: LUT node class to use
-            node_kwargs: Node configuration (NodeConfig instance with input_dim, output_dim, etc.)
-                        Dimension spec: nodes expect (batch_size, output_size, node_input_dim)
-            seed: Random seed for reproducible mapping
-            layer_config: LayerConfig object with training parameters (flip_probability, grad_stabilization, etc.)
-            flip_probability: Probability of flipping each bit during training (0.0 to 1.0)
-            grad_stabilization: Gradient stabilization mode ('none', 'layerwise', 'batchwise')
-            grad_target_std: Target standard deviation for gradient rescaling
-            grad_subtract_mean: Whether to subtract mean before rescaling
-            grad_epsilon: Small constant for numerical stability
-            ensure_full_input_coverage: If True, ensures each input is used at least once per node
-                                        before any input is reused. If False, inputs are sampled independently.
-            mapping_indices: Optional pre-defined mapping indices tensor of shape (output_size, n).
-                             If provided, this mapping will be used instead of generating a new (random) one.
+        Random Layer with random fixed input mapping.
+
+        Parameters:
+        - input_size: int, Size of input vector (from encoder or previous layer)
+        - output_size: int, Number of LUT nodes
+        - node_type: Type, LUT node class to use
+        - node_kwargs: NodeConfig, Node configuration (input_dim, output_dim, etc.)
+        - seed: Optional[int], Random seed for reproducible mapping, (default: None)
+        - layer_config: Optional[LayerConfig], Training parameters (flip_probability, grad_stabilization, etc.), (default: None)
+        - flip_probability: Optional[float], Probability of flipping each bit during training, (default: None)
+        - grad_stabilization: Optional[str], Gradient stabilization mode ('none', 'layerwise', 'batchwise'), (default: None)
+        - grad_target_std: Optional[float], Target standard deviation for gradient rescaling, (default: None)
+        - grad_subtract_mean: Optional[bool], Whether to subtract mean before rescaling, (default: None)
+        - grad_epsilon: Optional[float], Small constant for numerical stability, (default: None)
+        - ensure_full_input_coverage: bool, Ensures each input is used at least once per node, (default: True)
+        - mapping_indices: Optional[torch.Tensor], Pre-defined mapping indices (output_size, n), (default: None)
         """
         self.seed = seed
 
@@ -266,11 +262,8 @@ class RandomLayer(BaseLUTLayer):
         Device determines kernel selection: if x is on CUDA device, CUDA kernel is used.
         Just call model.cuda() to use CUDA kernels automatically.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_size)
-
-        Returns:
-            Mapped inputs of shape (batch_size, output_size, n)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
         # Try CUDA kernel first based on tensor device (fastest, eliminates expand + gather overhead)
         # Device determines kernel selection, not config parameters
@@ -314,11 +307,8 @@ class RandomLayer(BaseLUTLayer):
         """
         Forward pass through random mapping and node.
 
-        Args:
-            x: Input tensor of shape (batch_size, input_size)
-
-        Returns:
-            Output tensor of shape (batch_size, output_size * output_dim)
+        Parameters:
+        - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
         # Validate input dimensions
         self._validate_input_dims(x)
@@ -327,7 +317,8 @@ class RandomLayer(BaseLUTLayer):
         mapped_inputs = self.get_mapping(x)
 
         batch_size = mapped_inputs.shape[0]
-        output_dim: int = self.nodes[0].output_dim  # pyright: ignore[reportAssignmentType]
+        # pyright: ignore[reportAssignmentType]
+        output_dim: int = self.nodes[0].output_dim
 
         # Preallocate output tensor
         output = torch.empty(

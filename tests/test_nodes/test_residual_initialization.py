@@ -72,7 +72,8 @@ class TestResidualInitPerfectPass:
 
         # Add node-specific parameters
         if node_type == "polylut":
-            init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
+            # Will be set by PolyLUT
+            init_kwargs["monomial_combinations"] = None
 
         node = node_class(
             init_fn=residual_init,
@@ -137,7 +138,8 @@ class TestResidualInitPerfectPass:
 
         # Add node-specific parameters
         if node_type == "polylut":
-            init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
+            # Will be set by PolyLUT
+            init_kwargs["monomial_combinations"] = None
 
         node = node_class(
             init_fn=residual_init,
@@ -203,7 +205,8 @@ class TestResidualInitPerfectPass:
 
         # Add node-specific parameters
         if node_type == "polylut":
-            init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
+            # Will be set by PolyLUT
+            init_kwargs["monomial_combinations"] = None
 
         node = node_class(
             init_fn=residual_init,
@@ -267,7 +270,8 @@ class TestResidualInitNoisyResidual:
 
         # Add node-specific parameters
         if node_type == "polylut":
-            init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
+            # Will be set by PolyLUT
+            init_kwargs["monomial_combinations"] = None
 
         # Create multiple nodes with same noise_factor
         nodes = []
@@ -323,7 +327,8 @@ class TestResidualInitNoisyResidual:
 
         # Add node-specific parameters
         if node_type == "polylut":
-            init_kwargs["monomial_combinations"] = None  # Will be set by PolyLUT
+            # Will be set by PolyLUT
+            init_kwargs["monomial_combinations"] = None
 
         node = node_class(
             init_fn=residual_init,

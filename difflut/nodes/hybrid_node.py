@@ -1,11 +1,12 @@
 import warnings
-from typing import Callable, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import torch
 import torch.nn as nn
 
 from ..registry import register_node
 from ..utils.cuda_utils import should_use_cuda_from_tensor
+from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
 
@@ -48,13 +49,10 @@ class HybridFunction(torch.autograd.Function):
         """
         Forward pass using CUDA kernel.
 
-        Args:
-            input: (batch_size, input_dim) float tensor
-            luts: (output_dim, 2^input_dim) float tensor
-            binary_combinations: (2^input_dim, input_dim) float tensor - precomputed binary patterns
-
-        Returns:
-            output: (batch_size, output_dim) float tensor
+        Parameters:
+        - input: torch.Tensor, (batch_size, input_dim) float tensor
+        - luts: torch.Tensor, (output_dim, 2^input_dim) float tensor
+        - binary_combinations: torch.Tensor, (2^input_dim, input_dim) float tensor
         """
         if not _HYBRID_CUDA_EXT_AVAILABLE:
             raise RuntimeError(
@@ -81,11 +79,8 @@ class HybridFunction(torch.autograd.Function):
         """
         Backward pass using CUDA kernel with probabilistic gradients.
 
-        Args:
-            grad_output: (batch_size, output_dim) gradient tensor
-
-        Returns:
-            Gradients for (input, luts, binary_combinations)
+        Parameters:
+        - grad_output: torch.Tensor, (batch_size, output_dim) gradient tensor
         """
         if not _HYBRID_CUDA_EXT_AVAILABLE:
             raise RuntimeError(
@@ -197,7 +192,8 @@ class HybridFunctionCPU(torch.autograd.Function):
 
         # Gradient w.r.t. LUTs
         # grad_luts = probs^T @ grad_output
-        grad_luts = torch.matmul(probs.t(), grad_output).t()  # (output_dim, 2^input_dim)
+        # (output_dim, 2^input_dim)
+        grad_luts = torch.matmul(probs.t(), grad_output).t()
 
         # Gradient w.r.t. inputs - vectorized version
         # Compute derivative factors for all inputs
@@ -206,7 +202,8 @@ class HybridFunctionCPU(torch.autograd.Function):
         )  # (batch_size, 2^input_dim, input_dim)
 
         # Weight by probabilities: (batch_size, 2^input_dim) -> (batch_size, 2^input_dim, 1)
-        prob_weighted = probs.unsqueeze(-1) * deriv_factors  # (batch_size, 2^input_dim, input_dim)
+        # (batch_size, 2^input_dim, input_dim)
+        prob_weighted = probs.unsqueeze(-1) * deriv_factors
 
         # Sum over LUT entries weighted by LUT values and output gradient
         # luts: (output_dim, 2^input_dim)

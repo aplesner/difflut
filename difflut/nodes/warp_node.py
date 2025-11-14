@@ -53,14 +53,16 @@ class WARPNode(BaseNode):
         eval_mode: str = DEFAULT_WARP_EVAL_MODE,
     ) -> None:
         """
-        Args:
-            input_dim: Number of inputs (e.g., 2 for 2-input gates)
-            output_dim: Number of outputs (e.g., 1)
-            init_fn: Optional initialization function. Should take (param: torch.Tensor, **kwargs)
-            init_kwargs: Keyword arguments for init_fn
-            regularizers: Dict of custom regularization functions
-            temperature: Temperature τ for sigmoid scaling during training
-            eval_mode: Evaluation mode ('sign' or 'threshold')
+        WARP-LUTs: Walsh-Assisted Relaxation for Probabilistic Look Up Tables.
+
+        Parameters:
+        - input_dim: Optional[int], Number of inputs (e.g., 2 for 2-input gates), (default: None)
+        - output_dim: Optional[int], Number of outputs (e.g., 1), (default: None)
+        - init_fn: Optional[Callable], Initialization function for parameters, (default: None)
+        - init_kwargs: Optional[Dict[str, Any]], Keyword arguments for init_fn, (default: None)
+        - regularizers: Optional[Dict], Custom regularization functions, (default: None)
+        - temperature: float, Temperature τ for sigmoid scaling during training, (default: 1.0)
+        - eval_mode: str, Evaluation mode ('sign' or 'threshold'), (default: 'sign')
         """
         # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:

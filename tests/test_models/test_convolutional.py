@@ -30,7 +30,8 @@ def convolutional_config():
         node_type="probabilistic",
         encoder_config={"name": "thermometer", "num_bits": 3},  # Reduced from 4
         node_input_dim=6,
-        layer_widths=[4],  # Not used for convolutional - see conv_layer_widths below
+        # Not used for convolutional - see conv_layer_widths below
+        layer_widths=[4],
         num_classes=10,
         dataset="test",
         input_size=None,  # Will be inferred from input
@@ -42,7 +43,8 @@ def convolutional_config():
             "input_channels": 1,  # Reduced from 3 (grayscale instead of RGB)
             "input_height": 8,  # Reduced from 16
             "input_width": 8,  # Reduced from 8
-            "conv_layer_widths": [4],  # Reduced from default [32, 64, 64] - only 4 output channels
+            # Reduced from default [32, 64, 64] - only 4 output channels
+            "conv_layer_widths": [4],
         },
     )
 
@@ -143,7 +145,8 @@ class TestSimpleConvolutionalBasics:
 class TestSimpleConvolutionalInputSizes:
     """Test different input sizes."""
 
-    @pytest.mark.parametrize("image_size", [8, 16])  # Reduced from [16, 28, 32]
+    # Reduced from [16, 28, 32]
+    @pytest.mark.parametrize("image_size", [8, 16])
     @pytest.mark.parametrize("channels", [1])  # Reduced from [1, 3]
     def test_different_input_sizes(self, image_size, channels):
         """Test model works with different input sizes."""
@@ -180,7 +183,8 @@ class TestSimpleConvolutionalInputSizes:
 class TestSimpleConvolutionalNumClasses:
     """Test different number of output classes."""
 
-    @pytest.mark.parametrize("num_classes", [2, 10])  # Reduced from [2, 10, 100]
+    # Reduced from [2, 10, 100]
+    @pytest.mark.parametrize("num_classes", [2, 10])
     def test_different_num_classes(self, num_classes):
         """Test model works with different number of classes."""
         config = ModelConfig(
