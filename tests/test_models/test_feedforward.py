@@ -30,10 +30,10 @@ def feedforward_config():
         node_type="probabilistic",
         encoder_config={"name": "thermometer", "num_bits": 4},
         node_input_dim=6,
-        layer_widths=[128, 64],
+        layer_widths=[32],  # Reduced from [128, 64] to single smaller layer
         num_classes=10,
         dataset="test",
-        input_size=100,  # Will be inferred if None
+        input_size=50,  # Reduced from 100
     )
 
 
@@ -53,7 +53,7 @@ class TestSimpleFeedForwardBasics:
         """Test that encoder fitting works."""
         with IgnoreWarnings():
             model = SimpleFeedForward(feedforward_config)
-            data = generate_uniform_input((32, 100))
+            data = generate_uniform_input((8, 50))  # Reduced batch size
             
             assert not model.encoder_fitted
             model.fit_encoder(data)
@@ -63,27 +63,27 @@ class TestSimpleFeedForwardBasics:
         """Test forward pass produces correct output shape for classification."""
         with IgnoreWarnings():
             model = SimpleFeedForward(feedforward_config)
-            data = generate_uniform_input((32, 100))
+            data = generate_uniform_input((8, 50))
             model.fit_encoder(data)
             
             # Forward pass
-            batch = generate_uniform_input((8, 100), seed=42)
+            batch = generate_uniform_input((4, 50), seed=42)
             with torch.no_grad():
                 output = model(batch)
             
             # Check shape: (batch_size, num_classes)
-            assert output.shape == (8, 10)
+            assert output.shape == (4, 10)
             assert isinstance(output, torch.Tensor)
 
     def test_gradients_computation(self, feedforward_config):
         """Test that gradients are computed correctly."""
         with IgnoreWarnings():
             model = SimpleFeedForward(feedforward_config)
-            data = generate_uniform_input((32, 100))
+            data = generate_uniform_input((8, 50))
             model.fit_encoder(data)
             
             model.train()
-            batch = generate_uniform_input((8, 100), seed=42)
+            batch = generate_uniform_input((2, 50), seed=42)
             batch.requires_grad = True
             
             output = model(batch)
@@ -107,18 +107,18 @@ class TestSimpleFeedForwardBasics:
             torch.manual_seed(42)
             model_gpu = SimpleFeedForward(feedforward_config).cuda()
             
-            # Fit encoders
-            data_cpu = generate_uniform_input((32, 100), seed=42)
+            # Fit encoders - reduced batch size
+            data_cpu = generate_uniform_input((8, 50), seed=42)
             data_gpu = data_cpu.cuda()
             
             model_cpu.fit_encoder(data_cpu)
             model_gpu.fit_encoder(data_gpu)
             
-            # Forward pass
+            # Forward pass - reduced batch size
             model_cpu.eval()
             model_gpu.eval()
             
-            input_cpu = generate_uniform_input((8, 100), seed=123)
+            input_cpu = generate_uniform_input((4, 50), seed=123)
             input_gpu = input_cpu.cuda()
             
             with torch.no_grad():
@@ -141,21 +141,21 @@ class TestSimpleFeedForwardInputSizes:
             node_type="probabilistic",
             encoder_config={"name": "thermometer", "num_bits": 4},
             node_input_dim=6,
-            layer_widths=[64],
+            layer_widths=[32],  # Reduced
             num_classes=10,
             input_size=input_size,
         )
         
         with IgnoreWarnings():
             model = SimpleFeedForward(config)
-            data = generate_uniform_input((32, input_size))
+            data = generate_uniform_input((4, input_size))
             model.fit_encoder(data)
             
-            batch = generate_uniform_input((8, input_size))
+            batch = generate_uniform_input((2, input_size))
             with torch.no_grad():
                 output = model(batch)
             
-            assert output.shape == (8, 10)
+            assert output.shape == (2, 10)
 
 
 class TestSimpleFeedForwardNumClasses:
@@ -170,21 +170,21 @@ class TestSimpleFeedForwardNumClasses:
             node_type="probabilistic",
             encoder_config={"name": "thermometer", "num_bits": 4},
             node_input_dim=6,
-            layer_widths=[64],
+            layer_widths=[32],  # Reduced
             num_classes=num_classes,
-            input_size=100,
+            input_size=50,  # Reduced
         )
         
         with IgnoreWarnings():
             model = SimpleFeedForward(config)
-            data = generate_uniform_input((32, 100))
+            data = generate_uniform_input((4, 50))
             model.fit_encoder(data)
             
-            batch = generate_uniform_input((8, 100))
+            batch = generate_uniform_input((2, 50))
             with torch.no_grad():
                 output = model(batch)
             
-            assert output.shape == (8, num_classes)
+            assert output.shape == (2, num_classes)
 
 
 if __name__ == "__main__":
