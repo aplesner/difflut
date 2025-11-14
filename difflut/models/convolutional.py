@@ -149,6 +149,12 @@ class SimpleConvolutional(BaseLUTModel):
         """
         config = self.config
         runtime = self.runtime
+        
+        # Set random seed to ensure reproducibility
+        # This is critical for CPU/GPU consistency since layers are built
+        # after model initialization (inside fit_encoder)
+        if config.seed is not None:
+            torch.manual_seed(config.seed)
 
         # Get layer and node classes from registry
         layer_class = REGISTRY.get_layer(config.layer_type)

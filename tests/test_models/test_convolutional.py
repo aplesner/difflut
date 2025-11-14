@@ -136,7 +136,7 @@ class TestSimpleConvolutionalBasics:
                 output_cpu = model_cpu(input_cpu)
                 output_gpu = model_gpu(input_gpu).cpu()
             
-            # Compare outputs
+            # Compare outputs - should be identical with same seed and weights
             torch.testing.assert_close(output_cpu, output_gpu, atol=1e-5, rtol=1e-4)
 
 

@@ -101,6 +101,12 @@ class SimpleFeedForward(BaseLUTModel):
 
         # Now build layers with correct input size
         self._build_layers()
+        
+        # Move layers to the same device as the input data
+        # This ensures GPU compatibility when model.cuda() is called before fit_encoder()
+        if data.is_cuda:
+            for layer in self.layers:
+                layer.to(data.device)
 
         self.encoder_fitted = True
 
@@ -113,6 +119,12 @@ class SimpleFeedForward(BaseLUTModel):
         """
         config = self.config
         current_size = self.encoded_input_size
+        
+        # Set random seed to ensure reproducibility
+        # This is critical for CPU/GPU consistency since layers are built
+        # after model initialization (inside fit_encoder)
+        if config.seed is not None:
+            torch.manual_seed(config.seed)
 
         # Get layer and node classes from registry
         layer_class = REGISTRY.get_layer(config.layer_type)
