@@ -155,6 +155,19 @@ def test_registry_get_model_works_for_all():
         assert model_class is not None, f"get_model('{model_name}') returned None"
 
 
+def test_registry_get_model_works_for_all():
+    """Test that get_model() works for all listed models."""
+    for model_name in REGISTRY.list_models():
+        model_class = REGISTRY.get_model(model_name)
+        assert model_class is not None, f"get_model('{model_name}') returned None"
+
+
+def test_registry_invalid_model_raises_error():
+    """Test that getting invalid model raises ValueError."""
+    with pytest.raises(ValueError):
+        REGISTRY.get_model("nonexistent_model_12345")
+
+
 def test_registry_get_encoder_works_for_all():
     """Test that get_encoder() works for all listed encoders."""
     for encoder_name in REGISTRY.list_encoders():

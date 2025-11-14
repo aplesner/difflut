@@ -281,10 +281,6 @@ Runtime parameters can be safely overridden without affecting model weights or s
 
 ```python
 runtime_overrides = {
-    # Probabilistic nodes
-    "temperature": 1.0,              # Higher = softer probabilities
-    "eval_mode": "expectation",      # "expectation" or "sampling"
-    
     # Bit flipping (test robustness)
     "flip_probability": 0.0,         # Probability to flip input bits
     
@@ -293,8 +289,7 @@ runtime_overrides = {
     
     # Regularization weights
     "regularizers": {
-        "entropy": 0.001,
-        "clarity": 0.0001
+        "l1": 0.001,
     },
     
     # Training initialization
