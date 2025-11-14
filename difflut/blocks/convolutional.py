@@ -1,5 +1,5 @@
 # Convolutional block for LUT-based models
-from typing import Optional, Type
+from typing import Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
@@ -20,14 +20,22 @@ class ConvolutionConfig:
     def __init__(
         self,
         tree_depth: int = 2,
-        in_channels: int | None = None,
-        out_channels: int | None = None,
-        receptive_field: int | tuple[int, int] = 5,
-        stride: int | tuple[int, int] = 1,
-        padding: int | tuple[int, int] = 0,
+        in_channels: Optional[int] = None,
+        out_channels: Optional[int] = None,
+        receptive_field: Optional[Tuple[int, int]] = None,
+        stride: Optional[Tuple[int, int]] = None,
+        padding: Optional[Tuple[int, int]] = None,
         seed: int = 42,
-        patch_chunk_size: int | None = None,  # Process patches in chunks to save memory
-    ):
+        # Process patches in chunks to save memory
+        patch_chunk_size: Optional[int] = None,
+    ) -> None:
+        if receptive_field is None:
+            receptive_field = (5, 5)
+        if stride is None:
+            stride = (1, 1)
+        if padding is None:
+            padding = (0, 0)
+
         assert in_channels is not None, "in_channels must be specified"
         assert out_channels is not None, "out_channels must be specified"
 
@@ -71,7 +79,25 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         grad_epsilon: Optional[float] = None,
         grouped_connections: bool = False,
         ensure_full_coverage: bool = False,
-    ):
+    ) -> None:
+        """
+        Convolutional block using LUT-based nodes with tree architecture.
+
+        Parameters:
+        - convolution_config: ConvolutionConfig, Configuration for the convolutional block
+        - node_type: Type[nn.Module], LUT node class to use
+        - node_kwargs: NodeConfig, Node configuration parameters
+        - layer_type: Type[nn.Module], Layer class to use
+        - n_inputs_per_node: int, Number of inputs per node (default: 6)
+        - layer_config: Optional[LayerConfig], Training parameters, (default: None)
+        - flip_probability: Optional[float], Probability of flipping bits during training, (default: None)
+        - grad_stabilization: Optional[str], Gradient stabilization mode, (default: None)
+        - grad_target_std: Optional[float], Target standard deviation for gradients, (default: None)
+        - grad_subtract_mean: Optional[bool], Subtract mean during gradient stabilization, (default: None)
+        - grad_epsilon: Optional[float], Epsilon for numerical stability, (default: None)
+        - grouped_connections: bool, Use channel-aware connections, (default: False)
+        - ensure_full_coverage: bool, Ensure each input is used at least once, (default: False)
+        """
         super().__init__()
 
         # Initialize LUTLayerMixin for bit flip and gradient stabilization
@@ -166,7 +192,9 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
             kernel_size=self.receptive_field, padding=self.padding, stride=self.stride
         )
 
-    def _pair(self, x: int | tuple[int, int]) -> tuple[int, int]:
+    def _pair(self, x):
+        # type: (int | Tuple[int, int]) -> Tuple[int, int]
+        """Convert single int or tuple to (int, int) pair."""
         if isinstance(x, int):
             return (x, x)
         return x
@@ -175,11 +203,8 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         """
         Process a batch of patches through all trees.
 
-        Args:
-            patches: Tensor of shape (num_patches, patch_size)
-
-        Returns:
-            Tensor of shape (num_patches, out_channels)
+        Parameters:
+        - patches: Tensor of shape (num_patches, patch_size)
         """
         outputs = []
         for tree_layers in self.trees:
@@ -210,11 +235,8 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         """
         Forward pass through convolutional LUT block.
 
-        Args:
-            x: Input tensor of shape (batch, in_channels, height, width)
-
-        Returns:
-            Output tensor of shape (batch, out_channels, out_height, out_width)
+        Parameters:
+        - x: Input tensor of shape (batch, in_channels, height, width)
         """
         batch_size = x.shape[0]
         input_h, input_w = x.shape[2], x.shape[3]
