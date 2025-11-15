@@ -239,15 +239,11 @@ def hybrid_forward(
     """
     # Ensure input is on the same device as parameters
     input = input.to(luts.device)
-    
+
     # Use CUDA if available based on tensor device
     # Device determines kernel selection, not config parameters
     # BOTH input and luts must be on CUDA for the CUDA kernel
-    if (
-        input.is_cuda
-        and luts.is_cuda
-        and _HYBRID_CUDA_EXT_AVAILABLE
-    ):
+    if input.is_cuda and luts.is_cuda and _HYBRID_CUDA_EXT_AVAILABLE:
         return HybridFunction.apply(input, luts, binary_combinations)
     else:
         # CPU fallback
@@ -314,7 +310,8 @@ class HybridNode(BaseNode):
             binary_combinations.append(bits)
 
         self.register_buffer(
-            "binary_combinations", torch.tensor(binary_combinations, dtype=torch.float32)
+            "binary_combinations",
+            torch.tensor(binary_combinations, dtype=torch.float32),
         )
 
     def _get_luts(self) -> torch.Tensor:
@@ -338,7 +335,7 @@ class HybridNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.raw_luts.device)
-        
+
         # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
 
@@ -364,7 +361,9 @@ class HybridNode(BaseNode):
         x_binary = x.float()
 
         # Compute LUT indices from binary inputs
-        powers = 2 ** torch.arange(self.num_inputs, device=x.device, dtype=torch.float32)
+        powers = 2 ** torch.arange(
+            self.num_inputs, device=x.device, dtype=torch.float32
+        )
         indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
 
         # Look up LUT values: luts is (output_dim, lut_size)

@@ -6,7 +6,8 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
-from ..utils.warnings import CUDAWarning, DefaultValueWarning, warn_default_value
+from ..utils.warnings import (CUDAWarning, DefaultValueWarning,
+                              warn_default_value)
 from .base_node import BaseNode
 from .cuda import is_cuda_available
 
@@ -72,19 +73,25 @@ class ProbabilisticFunction(torch.autograd.Function):
 
         # Ensure correct dtypes, contiguity, and device placement
         input = input.contiguous().float()
-        raw_weights = raw_weights.to(device=input.device, dtype=torch.float32).contiguous()
+        raw_weights = raw_weights.to(
+            device=input.device, dtype=torch.float32
+        ).contiguous()
 
         # Convert temperature to tensor (C++ binding expects torch.Tensor)
         # Use torch.as_tensor to avoid unnecessary copy warning
         if isinstance(temperature, torch.Tensor):
-            temperature_tensor = temperature.to(device=input.device, dtype=torch.float32)
+            temperature_tensor = temperature.to(
+                device=input.device, dtype=torch.float32
+            )
         else:
             temperature_tensor = torch.as_tensor(
                 temperature, dtype=torch.float32, device=input.device
             )
 
         # Call CUDA forward kernel
-        output = _probabilistic_cuda_module.forward(input, raw_weights, temperature_tensor)
+        output = _probabilistic_cuda_module.forward(
+            input, raw_weights, temperature_tensor
+        )
 
         # Save for backward
         ctx.save_for_backward(input, raw_weights)
@@ -119,7 +126,9 @@ class ProbabilisticFunction(torch.autograd.Function):
         # Convert temperature to tensor (C++ binding expects torch.Tensor)
         # Use torch.as_tensor to avoid unnecessary copy warning
         if isinstance(temperature, torch.Tensor):
-            temperature_tensor = temperature.to(device=input.device, dtype=torch.float32)
+            temperature_tensor = temperature.to(
+                device=input.device, dtype=torch.float32
+            )
         else:
             temperature_tensor = torch.as_tensor(
                 temperature, dtype=torch.float32, device=input.device
@@ -168,7 +177,9 @@ class ProbabilisticNode(BaseNode):
         output_dim: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        regularizers: Optional[
+            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
+        ] = None,
         temperature: float = DEFAULT_PROBABILISTIC_TEMPERATURE,
         eval_mode: str = DEFAULT_PROBABILISTIC_EVAL_MODE,
         use_cuda: bool = DEFAULT_PROBABILISTIC_USE_CUDA,
@@ -199,14 +210,22 @@ class ProbabilisticNode(BaseNode):
 
         # Warn if temperature was not explicitly provided
         if temperature == DEFAULT_PROBABILISTIC_TEMPERATURE:
-            warn_default_value("temperature (probabilistic_node)", temperature, stacklevel=2)
+            warn_default_value(
+                "temperature (probabilistic_node)", temperature, stacklevel=2
+            )
 
         self.register_buffer("temperature", torch.tensor(float(temperature)))
 
         # Validate and set eval_mode
-        assert eval_mode in {"expectation", "deterministic", "threshold"}, "Invalid eval_mode"
+        assert eval_mode in {
+            "expectation",
+            "deterministic",
+            "threshold",
+        }, "Invalid eval_mode"
         if eval_mode == DEFAULT_PROBABILISTIC_EVAL_MODE:
-            warn_default_value("eval_mode (probabilistic_node)", eval_mode, stacklevel=2)
+            warn_default_value(
+                "eval_mode (probabilistic_node)", eval_mode, stacklevel=2
+            )
         self.eval_mode = eval_mode
 
         # NOTE: use_cuda is no longer stored - CUDA kernels are selected based on device
@@ -251,7 +270,8 @@ class ProbabilisticNode(BaseNode):
             bits = [((i >> j) & 1) for j in range(self.input_dim)]  # LSB first
             binary_combinations.append(bits)
         self.register_buffer(
-            "binary_combinations", torch.tensor(binary_combinations, dtype=torch.float32)
+            "binary_combinations",
+            torch.tensor(binary_combinations, dtype=torch.float32),
         )
 
     @property
@@ -263,7 +283,9 @@ class ProbabilisticNode(BaseNode):
 
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
         """Convert binary vector to LUT index (LSB-first order)"""
-        powers = 2 ** torch.arange(self.input_dim, device=x_binary.device, dtype=torch.float32)
+        powers = 2 ** torch.arange(
+            self.input_dim, device=x_binary.device, dtype=torch.float32
+        )
         if x_binary.dim() == 1:
             return (x_binary * powers).sum().long()
         else:
@@ -296,20 +318,18 @@ class ProbabilisticNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.raw_weights.device)
-        
+
         batch_size, input_dim = x.shape
 
         # Try CUDA kernel first based on tensor device
         # Device determines kernel selection, not config parameters
         # BOTH input and weights must be on CUDA for the CUDA kernel
-        if (
-            x.is_cuda
-            and self.raw_weights.is_cuda
-            and _CUDA_EXT_AVAILABLE
-        ):
+        if x.is_cuda and self.raw_weights.is_cuda and _CUDA_EXT_AVAILABLE:
             # raw_weights shape: (2^input_dim, output_dim)
             # Ensure temperature is on same device as raw_weights
-            temperature_value = self.temperature.to(device=self.raw_weights.device).item()
+            temperature_value = self.temperature.to(
+                device=self.raw_weights.device
+            ).item()
             output = probabilistic_forward(x, self.raw_weights, temperature_value)
             if output is not None:
                 return output
@@ -319,7 +339,9 @@ class ProbabilisticNode(BaseNode):
         weights = self.weights
 
         # Ensure binary_combinations is on the same device and dtype as x
-        binary_combinations = self.binary_combinations.to(device=x.device, dtype=x.dtype)
+        binary_combinations = self.binary_combinations.to(
+            device=x.device, dtype=x.dtype
+        )
 
         # Vectorized probability computation
         x_expanded = x.unsqueeze(1)  # (batch_size, 1, input_dim)

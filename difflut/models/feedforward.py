@@ -11,10 +11,10 @@ from typing import Any, Callable, Dict, Optional
 import torch
 import torch.nn as nn
 
+from ..heads import GroupSum
 from ..layers.layer_config import LayerConfig
 from ..nodes.node_config import NodeConfig
 from ..registry import REGISTRY
-from ..utils import GroupSum
 from ..utils.warnings import warn_default_value
 from .base_model import BaseLUTModel
 from .model_config import ModelConfig
@@ -113,7 +113,9 @@ class SimpleFeedForward(BaseLUTModel):
         output_tau = config.runtime.get("output_tau", DEFAULT_OUTPUT_TAU)
         if output_tau == DEFAULT_OUTPUT_TAU and "output_tau" not in config.runtime:
             warn_default_value("output_tau", output_tau, stacklevel=2)
-        self.output_layer = GroupSum(k=self.num_classes, tau=output_tau, use_randperm=False)
+        self.output_layer = GroupSum(
+            k=self.num_classes, tau=output_tau, use_randperm=False
+        )
 
     def fit_encoder(self, data: torch.Tensor):
         """
@@ -142,7 +144,9 @@ class SimpleFeedForward(BaseLUTModel):
         self.encoder = self.encoder.to(data.device)
 
         # Fit encoder
-        print(f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}...")
+        print(
+            f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}..."
+        )
         self.encoder.fit(data_flat)
 
         # Get encoded size by encoding a sample
@@ -198,7 +202,10 @@ class SimpleFeedForward(BaseLUTModel):
             warn_default_value("node_type", node_type, stacklevel=2)
 
         node_input_dim = config.params.get("node_input_dim", DEFAULT_NODE_INPUT_DIM)
-        if node_input_dim == DEFAULT_NODE_INPUT_DIM and "node_input_dim" not in config.params:
+        if (
+            node_input_dim == DEFAULT_NODE_INPUT_DIM
+            and "node_input_dim" not in config.params
+        ):
             warn_default_value("node_input_dim", node_input_dim, stacklevel=2)
 
         layer_widths = config.params.get("layer_widths", DEFAULT_LAYER_WIDTHS)
@@ -331,7 +338,9 @@ class SimpleFeedForward(BaseLUTModel):
 
         elif node_type == "fourier":
             # No use_cuda - device determines kernel selection
-            extra_params["use_all_frequencies"] = runtime.get("use_all_frequencies", True)
+            extra_params["use_all_frequencies"] = runtime.get(
+                "use_all_frequencies", True
+            )
             extra_params["max_amplitude"] = runtime.get("max_amplitude", 0.5)
 
         elif node_type == "neurallut":
@@ -369,7 +378,9 @@ class SimpleFeedForward(BaseLUTModel):
             Encoded tensor (N, encoded_size)
         """
         if not self.encoder_fitted:
-            raise RuntimeError("Encoder must be fitted before encoding. Call fit_encoder() first.")
+            raise RuntimeError(
+                "Encoder must be fitted before encoding. Call fit_encoder() first."
+            )
         return self.encoder.encode(x)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -443,12 +454,16 @@ class SimpleFeedForward(BaseLUTModel):
         if "flip_probability" in self.runtime:
             for layer in self.layers:
                 if hasattr(layer, "layer_config"):
-                    layer.layer_config.flip_probability = self.runtime["flip_probability"]
+                    layer.layer_config.flip_probability = self.runtime[
+                        "flip_probability"
+                    ]
 
         if "grad_stabilization" in self.runtime:
             for layer in self.layers:
                 if hasattr(layer, "layer_config"):
-                    layer.layer_config.grad_stabilization = self.runtime["grad_stabilization"]
+                    layer.layer_config.grad_stabilization = self.runtime[
+                        "grad_stabilization"
+                    ]
 
 
 # Register the model

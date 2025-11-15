@@ -53,7 +53,9 @@ class DiffLogicNode(BaseNode):
         output_dim: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        regularizers: Optional[
+            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
+        ] = None,
         eval_mode: str = DEFAULT_DIFFLOGIC_EVAL_MODE,
     ) -> None:
         """
@@ -97,7 +99,10 @@ class DiffLogicNode(BaseNode):
         if eval_mode == DEFAULT_DIFFLOGIC_EVAL_MODE:
             warn_default_value("eval_mode", eval_mode, stacklevel=2)
 
-        assert eval_mode in {"expectation", "deterministic"}, f"Invalid eval_mode: {eval_mode}"
+        assert eval_mode in {
+            "expectation",
+            "deterministic",
+        }, f"Invalid eval_mode: {eval_mode}"
         self.eval_mode = eval_mode
 
         # For each output, learn a distribution over 16 Boolean functions
@@ -161,7 +166,7 @@ class DiffLogicNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.weights.device)
-        
+
         batch_size = x.shape[0]
 
         # Compute softmax over Boolean functions for each output
@@ -169,7 +174,9 @@ class DiffLogicNode(BaseNode):
         probs = torch.softmax(self.weights, dim=-1)
 
         # Initialize output
-        output = torch.zeros(batch_size, self.output_dim, device=x.device, dtype=x.dtype)
+        output = torch.zeros(
+            batch_size, self.output_dim, device=x.device, dtype=x.dtype
+        )
 
         # For each output dimension
         for out_idx in range(self.output_dim):
@@ -197,7 +204,7 @@ class DiffLogicNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.weights.device)
-        
+
         if self.eval_mode == "expectation":
             return self.forward_train(x)
 
@@ -207,7 +214,9 @@ class DiffLogicNode(BaseNode):
             # For each output, select the Boolean function with highest weight
             selected_funcs = torch.argmax(self.weights, dim=-1)
 
-            output = torch.zeros(batch_size, self.output_dim, device=x.device, dtype=x.dtype)
+            output = torch.zeros(
+                batch_size, self.output_dim, device=x.device, dtype=x.dtype
+            )
 
             # For each output dimension
             for out_idx in range(self.output_dim):
@@ -218,7 +227,9 @@ class DiffLogicNode(BaseNode):
 
                 # Compute output using selected Boolean function
                 func_idx = selected_funcs[out_idx].item()
-                output[:, out_idx] = self._compute_boolean_function_output(a, b, func_idx)
+                output[:, out_idx] = self._compute_boolean_function_output(
+                    a, b, func_idx
+                )
 
             return output
 

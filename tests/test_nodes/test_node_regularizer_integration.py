@@ -5,11 +5,8 @@ Tests that each node type works with each registered regularizer.
 
 import pytest
 import torch
-from testing_utils import (
-    IgnoreWarnings,
-    generate_uniform_input,
-    instantiate_node,
-)
+from testing_utils import (IgnoreWarnings, generate_uniform_input,
+                           instantiate_node)
 
 from difflut.registry import REGISTRY
 
@@ -27,7 +24,7 @@ def _get_input_dim_for_node(node_name: str) -> int:
 
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 @pytest.mark.parametrize("reg_name", REGISTRY.list_regularizers())
-def test_node_with_regularizer(node_name, reg_name):
+def test_node_with_regularizer(node_name, reg_name, device):
     """Test that each node works with each registered regularizer."""
     node_class = REGISTRY.get_node(node_name)
     reg_fn = REGISTRY.get_regularizer(reg_name)
@@ -35,15 +32,19 @@ def test_node_with_regularizer(node_name, reg_name):
 
     try:
         with IgnoreWarnings():
-            # Create node with regularizer
+            # Create node with regularizer on specified device
             # Format: {"name": (reg_fn, weight, kwargs)}
             regularizers_dict = {reg_name: (reg_fn, 1.0, {})}
             node = instantiate_node(
-                node_class, input_dim=input_dim, output_dim=2, regularizers=regularizers_dict
+                node_class,
+                input_dim=input_dim,
+                output_dim=2,
+                regularizers=regularizers_dict,
             )
+            node = node.to(device)
 
         # Test forward pass works
-        input_tensor = generate_uniform_input((8, input_dim), seed=42)
+        input_tensor = generate_uniform_input((8, input_dim), seed=42, device=device)
         with torch.no_grad():
             output = node(input_tensor)
 
@@ -54,10 +55,14 @@ def test_node_with_regularizer(node_name, reg_name):
         )
         assert not torch.isnan(
             output
-        ).any(), f"Node '{node_name}' with regularizer '{reg_name}' produced NaN outputs"
+        ).any(), (
+            f"Node '{node_name}' with regularizer '{reg_name}' produced NaN outputs"
+        )
         assert not torch.isinf(
             output
-        ).any(), f"Node '{node_name}' with regularizer '{reg_name}' produced Inf outputs"
+        ).any(), (
+            f"Node '{node_name}' with regularizer '{reg_name}' produced Inf outputs"
+        )
 
         # Test that regularizer can be computed
         try:

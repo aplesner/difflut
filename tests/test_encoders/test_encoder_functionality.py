@@ -8,13 +8,8 @@ Uses pytest parametrization for individual test discovery.
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import (
-    IgnoreWarnings,
-    assert_range,
-    assert_shape_equal,
-    generate_uniform_input,
-    instantiate_encoder,
-)
+from testing_utils import (IgnoreWarnings, assert_range, assert_shape_equal,
+                           generate_uniform_input, instantiate_encoder)
 
 from difflut.registry import REGISTRY
 
@@ -36,7 +31,9 @@ class TestEncoderForwardPass:
         encoder.eval()
 
         # Create input data
-        input_data = generate_uniform_input((10, 50), seed=42)  # 10 samples, 50 features
+        input_data = generate_uniform_input(
+            (10, 50), seed=42
+        )  # 10 samples, 50 features
 
         # Fit encoder
         encoder.fit(input_data)
@@ -58,7 +55,9 @@ class TestEncoderForwardPass:
         encoder.eval()
 
         # Create input data
-        input_data = generate_uniform_input((10, 50), seed=42)  # 10 samples, 50 features
+        input_data = generate_uniform_input(
+            (10, 50), seed=42
+        )  # 10 samples, 50 features
 
         # Fit encoder
         encoder.fit(input_data)
@@ -165,7 +164,9 @@ def test_encoder_different_input_sizes(encoder_name):
             output = encoder.encode(input_data)
 
         expected_shape = (10, n_features * 8)
-        assert output.shape == expected_shape, f"{encoder_name} failed for {n_features} features"
+        assert (
+            output.shape == expected_shape
+        ), f"{encoder_name} failed for {n_features} features"
 
 
 @pytest.mark.parametrize("encoder_name", REGISTRY.list_encoders())

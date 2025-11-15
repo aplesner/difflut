@@ -48,7 +48,9 @@ class WARPNode(BaseNode):
         output_dim: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        regularizers: Optional[
+            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
+        ] = None,
         temperature: float = DEFAULT_WARP_TEMPERATURE,
         eval_mode: str = DEFAULT_WARP_EVAL_MODE,
     ) -> None:
@@ -68,7 +70,9 @@ class WARPNode(BaseNode):
         if init_kwargs is None:
             init_kwargs = {}
         else:
-            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+            init_kwargs = (
+                init_kwargs.copy()
+            )  # Make a copy to avoid modifying the original
 
         # Add node_type and input_dim to init_kwargs if not already present (needed for residual_init)
         if "node_type" not in init_kwargs:
@@ -94,7 +98,9 @@ class WARPNode(BaseNode):
 
         # Store Walsh coefficients
         # Shape: (num_coefficients, output_dim)
-        self.coefficients = nn.Parameter(torch.randn(self.num_coefficients, self.output_dim) * 0.1)
+        self.coefficients = nn.Parameter(
+            torch.randn(self.num_coefficients, self.output_dim) * 0.1
+        )
         self._apply_init_fn(self.coefficients, name="coefficients")
 
         # Precompute subset masks for Walsh basis functions
@@ -146,7 +152,10 @@ class WARPNode(BaseNode):
         """
         batch_size = x_signed.shape[0]
         walsh_basis = torch.ones(
-            batch_size, self.num_coefficients, device=x_signed.device, dtype=x_signed.dtype
+            batch_size,
+            self.num_coefficients,
+            device=x_signed.device,
+            dtype=x_signed.dtype,
         )
 
         # Compute each Walsh basis function
@@ -173,7 +182,7 @@ class WARPNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.coefficients.device)
-        
+
         # Transform to signed basis: (batch_size, input_dim)
         x_signed = self._signed_basis_transform(x)
 
@@ -208,7 +217,7 @@ class WARPNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.coefficients.device)
-        
+
         # Transform to signed basis: (batch_size, input_dim)
         x_signed = self._signed_basis_transform(x)
 

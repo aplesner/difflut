@@ -160,7 +160,9 @@ class GradientStabilizedFunctionCPU(torch.autograd.Function):
 
             # LUT gradient - direct assignment to accessed entry
             for dim_idx in range(output_dim):
-                grad_luts[dim_idx, addr] += grad_output[batch_idx, dim_idx] * gradient_scale
+                grad_luts[dim_idx, addr] += (
+                    grad_output[batch_idx, dim_idx] * gradient_scale
+                )
 
             # Input gradient using Gradient Stabilized EFD
             for input_idx in range(input_dim):
@@ -235,7 +237,9 @@ class DWNStableNode(BaseNode):
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
         use_cuda: bool = True,
-        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        regularizers: Optional[
+            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
+        ] = None,
         gradient_scale: float = 1.25,
         init_fn: Optional[Callable] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
@@ -319,7 +323,7 @@ class DWNStableNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.raw_luts.device)
-        
+
         # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
 
@@ -351,7 +355,9 @@ class DWNStableNode(BaseNode):
         x_binary = x.float()
 
         # Compute LUT indices from binary inputs
-        powers = 2 ** torch.arange(self.num_inputs, device=x.device, dtype=torch.float32)
+        powers = 2 ** torch.arange(
+            self.num_inputs, device=x.device, dtype=torch.float32
+        )
         indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
 
         # Look up LUT values: luts is (output_dim, lut_size)

@@ -8,17 +8,10 @@ Uses pytest parametrization for individual test discovery.
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import (
-    CPU_GPU_ATOL,
-    CPU_GPU_RTOL,
-    IgnoreWarnings,
-    assert_gradients_exist,
-    assert_range,
-    assert_shape_equal,
-    generate_uniform_input,
-    instantiate_layer,
-    is_cuda_available,
-)
+from testing_utils import (CPU_GPU_ATOL, CPU_GPU_RTOL, IgnoreWarnings,
+                           assert_gradients_exist, assert_range,
+                           assert_shape_equal, generate_uniform_input,
+                           instantiate_layer)
 
 from difflut.registry import REGISTRY
 
@@ -38,7 +31,9 @@ class TestLayerForwardPass:
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
-            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(device)
+            layer = instantiate_layer(
+                layer_class, input_size=256, output_size=128, n=4
+            ).to(device)
 
         # Input shape: (batch_size, input_size)
         batch_size = 8
@@ -56,7 +51,9 @@ class TestLayerForwardPass:
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
-            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(device)
+            layer = instantiate_layer(
+                layer_class, input_size=256, output_size=128, n=4
+            ).to(device)
         layer.eval()
 
         # Test multiple random inputs
@@ -70,9 +67,6 @@ class TestLayerForwardPass:
     @pytest.mark.gpu
     def test_cpu_gpu_consistency(self, layer_name):
         """Test 2.3: CPU and GPU implementations give same forward pass results."""
-        if not is_cuda_available():
-            pytest.skip("CUDA not available")
-
         layer_class = REGISTRY.get_layer(layer_name)
 
         # Set seed before creating layers to ensure deterministic initialization
@@ -80,13 +74,17 @@ class TestLayerForwardPass:
         torch.manual_seed(42)
 
         with IgnoreWarnings():
-            layer_cpu = instantiate_layer(layer_class, input_size=256, output_size=128, n=4)
+            layer_cpu = instantiate_layer(
+                layer_class, input_size=256, output_size=128, n=4
+            )
 
         # Reset seed to get same random initialization for GPU layer
         torch.manual_seed(42)
 
         with IgnoreWarnings():
-            layer_gpu = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).cuda()
+            layer_gpu = instantiate_layer(
+                layer_class, input_size=256, output_size=128, n=4
+            ).cuda()
 
         # Copy parameters from CPU to GPU (in case there are differences from device transfer)
         layer_gpu.load_state_dict(layer_cpu.state_dict())
@@ -99,7 +97,9 @@ class TestLayerForwardPass:
             output_gpu = layer_gpu(input_gpu).cpu()
 
         try:
-            torch.testing.assert_close(output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL)
+            torch.testing.assert_close(
+                output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
+            )
         except AssertionError as e:
             pytest.fail(f"CPU/GPU outputs differ for {layer_name}: {e}")
 
@@ -108,7 +108,9 @@ class TestLayerForwardPass:
         layer_class = REGISTRY.get_layer(layer_name)
 
         with IgnoreWarnings():
-            layer = instantiate_layer(layer_class, input_size=256, output_size=128, n=4).to(device)
+            layer = instantiate_layer(
+                layer_class, input_size=256, output_size=128, n=4
+            ).to(device)
 
         layer.train()
         input_tensor = generate_uniform_input((8, 256), seed=42, device=device)
@@ -149,7 +151,10 @@ def test_layer_with_node_type(layer_name, node_name, device):
         with torch.no_grad():
             output = layer(input_tensor)
 
-        assert output.shape == (8, 128), f"{layer_name} with {node_name} produced wrong shape"
+        assert output.shape == (
+            8,
+            128,
+        ), f"{layer_name} with {node_name} produced wrong shape"
 
     except TypeError as e:
         # Some layer/node combinations might not be compatible

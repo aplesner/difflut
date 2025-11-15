@@ -14,7 +14,7 @@ import warnings
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import is_cuda_available
+from testing_utils import IgnoreWarnings
 
 from difflut.utils.warnings import CUDAWarning, DefaultValueWarning
 
@@ -120,7 +120,9 @@ def create_single_channel_pattern_dataset(
     return images, labels
 
 
-def train_model(model, train_images, train_labels, num_epochs=20, lr=0.01, device="cuda"):
+def train_model(
+    model, train_images, train_labels, num_epochs=20, lr=0.01, device="cuda"
+):
     """Train model and return final training accuracy."""
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -146,7 +148,9 @@ def train_model(model, train_images, train_labels, num_epochs=20, lr=0.01, devic
             if param.grad is not None:
                 grad_norm += param.grad.norm().item()
 
-        assert grad_norm > 0.0, f"Epoch {epoch+1}: Gradients are zero! Gradient flow is broken."
+        assert (
+            grad_norm > 0.0
+        ), f"Epoch {epoch+1}: Gradients are zero! Gradient flow is broken."
 
         optimizer.step()
 
@@ -163,14 +167,6 @@ def train_model(model, train_images, train_labels, num_epochs=20, lr=0.01, devic
 # ============================================================================
 # Test Fixtures
 # ============================================================================
-
-
-@pytest.fixture
-def device():
-    """Get available device for testing."""
-    if not is_cuda_available():
-        pytest.skip("CUDA not available")
-    return "cuda"
 
 
 @pytest.fixture
@@ -236,9 +232,9 @@ def test_grouped_connections_learning(
     """
     from difflut import REGISTRY
     from difflut.blocks import BlockConfig
+    from difflut.heads import GroupSum
     from difflut.layers.layer_config import LayerConfig
     from difflut.nodes.node_config import NodeConfig
-    from difflut.utils.modules import GroupSum
 
     train_images, train_labels, test_images, test_labels = train_test_data
 
@@ -256,7 +252,7 @@ def test_grouped_connections_learning(
         stride=(1, 1),
         padding=(0, 0),
         n_inputs_per_node=6,
-        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        node_kwargs={"input_dim": 6, "output_dim": 1},
         grouped_connections=use_grouped_connections,
         ensure_full_coverage=True,
     )
@@ -309,7 +305,9 @@ def test_grouped_connections_learning(
 
     # Verify accuracy is in expected range
     config_name = (
-        "WITH grouped connections" if use_grouped_connections else "WITHOUT grouped connections"
+        "WITH grouped connections"
+        if use_grouped_connections
+        else "WITHOUT grouped connections"
     )
 
     assert test_accuracy >= expected_min_accuracy, (

@@ -34,7 +34,9 @@ class GradientScalingFunction(torch.autograd.Function):
 
     @staticmethod
     def forward(
-        ctx: torch.autograd.function.FunctionCtx, input: torch.Tensor, grad_factor: float
+        ctx: torch.autograd.function.FunctionCtx,
+        input: torch.Tensor,
+        grad_factor: float,
     ) -> torch.Tensor:
         ctx.grad_factor = grad_factor
         return input
@@ -65,7 +67,9 @@ class NeuralLUTNode(BaseNode):
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
         activation: str = DEFAULT_NEURALLUT_ACTIVATION,
-        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        regularizers: Optional[
+            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
+        ] = None,
         tau_start: float = DEFAULT_NEURALLUT_TAU_START,
         tau_min: float = DEFAULT_NEURALLUT_TAU_MIN,
         tau_decay_iters: float = DEFAULT_NEURALLUT_TAU_DECAY_ITERS,
@@ -143,7 +147,9 @@ class NeuralLUTNode(BaseNode):
         if self.skip_interval > 0:
             for i in range(self.depth):
                 if i > 0 and i % self.skip_interval == 0:
-                    target_dim = self.hidden_width if i < self.depth - 1 else self.num_outputs
+                    target_dim = (
+                        self.hidden_width if i < self.depth - 1 else self.num_outputs
+                    )
                     skip = nn.Linear(self.num_inputs, target_dim)
                     self.skip_layers.append(skip)
                 else:
@@ -205,7 +211,7 @@ class NeuralLUTNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(next(self.parameters()).device)
-        
+
         batch_size, input_dim = x.shape
 
         # MLP forward + sigmoid
@@ -234,7 +240,7 @@ class NeuralLUTNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(next(self.parameters()).device)
-        
+
         batch_size, input_dim = x.shape
 
         # Compute same as forward_train (MLP + sigmoid)

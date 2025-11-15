@@ -7,7 +7,8 @@ Uses pytest parametrization for individual test discovery.
 
 import pytest
 import torch.nn as nn
-from testing_utils import IgnoreWarnings, instantiate_encoder, instantiate_layer, instantiate_node
+from testing_utils import (IgnoreWarnings, instantiate_encoder,
+                           instantiate_layer, instantiate_node)
 
 from difflut.registry import REGISTRY
 
@@ -94,28 +95,36 @@ def test_registry_list_nodes_consistency():
     """Test that list_nodes() is consistent with list_all()."""
     nodes_direct = REGISTRY.list_nodes()
     nodes_from_all = REGISTRY.list_all()["nodes"]
-    assert nodes_direct == nodes_from_all, "list_nodes() inconsistent with list_all()['nodes']"
+    assert (
+        nodes_direct == nodes_from_all
+    ), "list_nodes() inconsistent with list_all()['nodes']"
 
 
 def test_registry_list_layers_consistency():
     """Test that list_layers() is consistent with list_all()."""
     layers_direct = REGISTRY.list_layers()
     layers_from_all = REGISTRY.list_all()["layers"]
-    assert layers_direct == layers_from_all, "list_layers() inconsistent with list_all()['layers']"
+    assert (
+        layers_direct == layers_from_all
+    ), "list_layers() inconsistent with list_all()['layers']"
 
 
 def test_registry_list_blocks_consistency():
     """Test that list_blocks() is consistent with list_all()."""
     blocks_direct = REGISTRY.list_blocks()
     blocks_from_all = REGISTRY.list_all()["blocks"]
-    assert blocks_direct == blocks_from_all, "list_blocks() inconsistent with list_all()['blocks']"
+    assert (
+        blocks_direct == blocks_from_all
+    ), "list_blocks() inconsistent with list_all()['blocks']"
 
 
 def test_registry_list_models_consistency():
     """Test that list_models() is consistent with list_all()."""
     models_direct = REGISTRY.list_models()
     models_from_all = REGISTRY.list_all()["models"]
-    assert models_direct == models_from_all, "list_models() inconsistent with list_all()['models']"
+    assert (
+        models_direct == models_from_all
+    ), "list_models() inconsistent with list_all()['models']"
 
 
 def test_registry_list_encoders_consistency():

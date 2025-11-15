@@ -26,7 +26,9 @@ class BaseEncoder(nn.Module, ABC):
     """
 
     def __init__(
-        self, num_bits: int = DEFAULT_ENCODER_NUM_BITS, flatten: bool = DEFAULT_ENCODER_FLATTEN
+        self,
+        num_bits: int = DEFAULT_ENCODER_NUM_BITS,
+        flatten: bool = DEFAULT_ENCODER_FLATTEN,
     ) -> None:
         """
         Args:

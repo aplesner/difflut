@@ -77,8 +77,13 @@ class LearnableMappingFunction(torch.autograd.Function):
         - indices: torch.Tensor, (output_size,) int32 tensor - argmax results
         - input_size: int, needed for backward
         """
-        if not _LEARNABLE_MAPPING_CUDA_AVAILABLE or _learnable_mapping_cuda_module is None:
-            raise RuntimeError("CUDA extension not available. Use fallback implementation.")
+        if (
+            not _LEARNABLE_MAPPING_CUDA_AVAILABLE
+            or _learnable_mapping_cuda_module is None
+        ):
+            raise RuntimeError(
+                "CUDA extension not available. Use fallback implementation."
+            )
 
         # Ensure correct dtypes and contiguity
         input = input.contiguous().float()
@@ -104,7 +109,10 @@ class LearnableMappingFunction(torch.autograd.Function):
         Parameters:
         - grad_output: torch.Tensor, (batch_size, output_size) gradient tensor
         """
-        if not _LEARNABLE_MAPPING_CUDA_AVAILABLE or _learnable_mapping_cuda_module is None:
+        if (
+            not _LEARNABLE_MAPPING_CUDA_AVAILABLE
+            or _learnable_mapping_cuda_module is None
+        ):
             raise RuntimeError("CUDA extension not available.")
 
         # pyright: ignore[reportAttributeAccessIssue]
@@ -116,7 +124,9 @@ class LearnableMappingFunction(torch.autograd.Function):
         grad_output = grad_output.contiguous().float()
 
         # Call CUDA backward kernel
-        grad_input = _learnable_mapping_cuda_module.backward(grad_output, indices, input_size)
+        grad_input = _learnable_mapping_cuda_module.backward(
+            grad_output, indices, input_size
+        )
 
         # Return gradients (None for indices and input_size)
         return grad_input, None, None
@@ -224,7 +234,9 @@ class LearnableMappingModule(nn.Module):
             # Also create binary mask for PyTorch fallback
             # mask: (input_size, output_size) where mask[i, o] = 1 if input i is selected for output o
             mask = torch.zeros(
-                (self.input_size, self.output_size), dtype=torch.uint8, device=self.W.device
+                (self.input_size, self.output_size),
+                dtype=torch.uint8,
+                device=self.W.device,
             )
             output_indices = torch.arange(self.output_size, device=self.W.device)
             mask[hard_indices, output_indices] = 1
@@ -239,7 +251,7 @@ class LearnableMappingModule(nn.Module):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.W.device)
-        
+
         if self.training:
             # Soft selection - training mode
             # Try CUDA kernel first if available based on tensor device
@@ -368,7 +380,10 @@ class LearnableLayer(BaseLUTLayer):
 
         # Warn about parameter count after n is known
         total_connections = output_size * self.n
-        if total_connections > input_size * LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD:
+        if (
+            total_connections
+            > input_size * LEARNABLE_LAYER_CONNECTION_WARNING_THRESHOLD
+        ):
             warnings.warn(
                 f"LearnableLayer: Creating {total_connections} learnable connections from {input_size} inputs. "
                 f"This may lead to overfitting. Consider using GroupedLayer or fewer nodes/inputs per node (n={self.n}).",
@@ -475,9 +490,13 @@ class LearnableLayer(BaseLUTLayer):
 
     def extra_repr(self) -> str:
         """String representation for print(model)."""
-        flip_str = f", flip_prob={self.flip_probability}" if self.flip_probability > 0 else ""
+        flip_str = (
+            f", flip_prob={self.flip_probability}" if self.flip_probability > 0 else ""
+        )
         grad_str = (
-            f", grad_stab={self.grad_stabilization}" if self.grad_stabilization != "none" else ""
+            f", grad_stab={self.grad_stabilization}"
+            if self.grad_stabilization != "none"
+            else ""
         )
         return (
             f"input_size={self.input_size}, output_size={self.output_size}, "

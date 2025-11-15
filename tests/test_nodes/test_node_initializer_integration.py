@@ -5,11 +5,8 @@ Tests that each node type works with each registered initializer.
 
 import pytest
 import torch
-from testing_utils import (
-    IgnoreWarnings,
-    generate_uniform_input,
-    instantiate_node,
-)
+from testing_utils import (IgnoreWarnings, generate_uniform_input,
+                           instantiate_node)
 
 from difflut.registry import REGISTRY
 
@@ -47,7 +44,7 @@ def _get_input_dim_for_node(node_name: str) -> int:
 
 @pytest.mark.parametrize("node_name", REGISTRY.list_nodes())
 @pytest.mark.parametrize("init_name", REGISTRY.list_initializers())
-def test_node_with_initializer(node_name, init_name):
+def test_node_with_initializer(node_name, init_name, device):
     """Test that each node works with each registered initializer."""
     node_class = REGISTRY.get_node(node_name)
     init_fn = REGISTRY.get_initializer(init_name)
@@ -63,11 +60,14 @@ def test_node_with_initializer(node_name, init_name):
 
     try:
         with IgnoreWarnings():
-            # Create node with initializer
-            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2, init_fn=init_fn)
+            # Create node with initializer on specified device
+            node = instantiate_node(
+                node_class, input_dim=input_dim, output_dim=2, init_fn=init_fn
+            )
+            node = node.to(device)
 
         # Test forward pass works
-        input_tensor = generate_uniform_input((8, input_dim), seed=42)
+        input_tensor = generate_uniform_input((8, input_dim), seed=42, device=device)
         with torch.no_grad():
             output = node(input_tensor)
 
@@ -78,10 +78,14 @@ def test_node_with_initializer(node_name, init_name):
         )
         assert not torch.isnan(
             output
-        ).any(), f"Node '{node_name}' with initializer '{init_name}' produced NaN outputs"
+        ).any(), (
+            f"Node '{node_name}' with initializer '{init_name}' produced NaN outputs"
+        )
         assert not torch.isinf(
             output
-        ).any(), f"Node '{node_name}' with initializer '{init_name}' produced Inf outputs"
+        ).any(), (
+            f"Node '{node_name}' with initializer '{init_name}' produced Inf outputs"
+        )
 
         # Verify parameters were initialized properly
         for param_name, param in node.named_parameters():
@@ -115,7 +119,14 @@ def test_node_with_residual_initializer(node_name):
     }
 
     # Add input_dim for LUT-based nodes (required for truth table sizing)
-    if node_type in ["dwn", "dwn_stable", "probabilistic", "hybrid", "linear_lut", "difflogic"]:
+    if node_type in [
+        "dwn",
+        "dwn_stable",
+        "probabilistic",
+        "hybrid",
+        "linear_lut",
+        "difflogic",
+    ]:
         init_kwargs["input_dim"] = input_dim
 
     # Add node-specific parameters
@@ -149,7 +160,8 @@ def test_node_with_residual_initializer(node_name):
 
         # Verify output shape and validity
         assert output.shape == (8, 1), (
-            f"Node '{node_name}' with residual initializer " f"produced wrong shape: {output.shape}"
+            f"Node '{node_name}' with residual initializer "
+            f"produced wrong shape: {output.shape}"
         )
         assert not torch.isnan(
             output

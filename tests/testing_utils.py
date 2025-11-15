@@ -1,6 +1,8 @@
 """
 Test utilities and fixtures for DiffLUT test suite.
-Provides device management, tolerance constants, and helper functions.
+Provides tolerance constants and helper functions.
+
+Device handling is managed via pytest fixtures in conftest.py.
 """
 
 import warnings
@@ -8,57 +10,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 import torch.nn as nn
-
-# ==================== Device Configuration ====================
-
-
-def get_device() -> str:
-    """
-    Get the best available device for testing.
-
-    Returns 'cuda' if CUDA is available, otherwise 'cpu'.
-    This allows tests to automatically use GPU when available.
-
-    Returns:
-        str: 'cuda' if available, else 'cpu'
-
-    Example:
-        >>> device = get_device()
-        >>> model = MyModel().to(device)
-        >>> x = torch.randn(10, 5).to(device)
-    """
-    return "cuda" if torch.cuda.is_available() else "cpu"
-
-
-def get_available_devices() -> List[str]:
-    """
-    Get list of available devices for testing.
-
-    Returns:
-        List of device strings: ['cpu'] or ['cpu', 'cuda'] if CUDA available
-    """
-    devices = ["cpu"]
-    if torch.cuda.is_available():
-        devices.append("cuda")
-    return devices
-
-
-def is_cuda_available() -> bool:
-    """Check if CUDA is available."""
-    return torch.cuda.is_available()
-
-
-def skip_if_no_cuda(test_func):
-    """Decorator to skip test if CUDA not available."""
-
-    def wrapper(*args, **kwargs):
-        if not is_cuda_available():
-            print(f"  ⊘ Skipping CUDA test (CUDA not available)")
-            return None
-        return test_func(*args, **kwargs)
-
-    return wrapper
-
 
 # ==================== Tolerance Constants ====================
 
@@ -144,11 +95,17 @@ def generate_uniform_input(
 
 def assert_shape_equal(actual: torch.Tensor, expected: Tuple[int, ...], msg: str = ""):
     """Assert tensor shape matches expected."""
-    assert actual.shape == expected, f"Shape mismatch: {actual.shape} != {expected}. {msg}"
+    assert (
+        actual.shape == expected
+    ), f"Shape mismatch: {actual.shape} != {expected}. {msg}"
 
 
 def assert_range(
-    tensor: torch.Tensor, min_val: float, max_val: float, msg: str = "", rtol: float = 1e-5
+    tensor: torch.Tensor,
+    min_val: float,
+    max_val: float,
+    msg: str = "",
+    rtol: float = 1e-5,
 ):
     """
     Assert all tensor values are in range [min_val, max_val].
@@ -164,8 +121,12 @@ def assert_range(
     actual_max = tensor.max().item()
     tolerance = rtol * (max_val - min_val)
 
-    assert actual_min >= min_val - tolerance, f"Min value {actual_min} < {min_val}. {msg}"
-    assert actual_max <= max_val + tolerance, f"Max value {actual_max} > {max_val}. {msg}"
+    assert (
+        actual_min >= min_val - tolerance
+    ), f"Min value {actual_min} < {min_val}. {msg}"
+    assert (
+        actual_max <= max_val + tolerance
+    ), f"Max value {actual_max} > {max_val}. {msg}"
 
 
 def assert_gradients_exist(module: nn.Module, msg: str = ""):
@@ -180,7 +141,9 @@ def assert_gradients_exist(module: nn.Module, msg: str = ""):
     for param in module.parameters():
         if param.grad is not None:
             has_grads = True
-            assert param.grad.abs().sum().item() > 0, f"Found zero gradient for parameter. {msg}"
+            assert (
+                param.grad.abs().sum().item() > 0
+            ), f"Found zero gradient for parameter. {msg}"
     assert has_grads, f"No gradients found in module. {msg}"
 
 
@@ -233,8 +196,10 @@ def compare_cpu_gpu_forward(
         AssertionError: If outputs don't match
         RuntimeError: If CUDA not available
     """
+    import pytest
+
     if not torch.cuda.is_available():
-        raise RuntimeError("CUDA not available for GPU comparison test")
+        pytest.skip("CUDA not available for GPU comparison test")
 
     # CPU forward pass
     module_cpu = module.cpu()
@@ -253,7 +218,11 @@ def compare_cpu_gpu_forward(
 
     # Check consistency
     assert_tensors_close(
-        output_cpu, output_gpu_cpu, atol=atol, rtol=rtol, msg="CPU and GPU outputs differ"
+        output_cpu,
+        output_gpu_cpu,
+        atol=atol,
+        rtol=rtol,
+        msg="CPU and GPU outputs differ",
     )
 
     return output_cpu, output_gpu_cpu
@@ -291,7 +260,11 @@ def compute_numerical_gradient(
             output_plus = module(input_plus)
         if isinstance(output_plus, tuple):
             output_plus = output_plus[0]
-        f_plus = output_plus.sum() if output_index is None else output_plus.view(-1)[output_index]
+        f_plus = (
+            output_plus.sum()
+            if output_index is None
+            else output_plus.view(-1)[output_index]
+        )
 
         # Compute f(x - eps)
         input_minus = input_tensor.clone()
@@ -301,7 +274,9 @@ def compute_numerical_gradient(
         if isinstance(output_minus, tuple):
             output_minus = output_minus[0]
         f_minus = (
-            output_minus.sum() if output_index is None else output_minus.view(-1)[output_index]
+            output_minus.sum()
+            if output_index is None
+            else output_minus.view(-1)[output_index]
         )
 
         # Finite difference
@@ -311,7 +286,10 @@ def compute_numerical_gradient(
 
 
 def check_gradients(
-    module: nn.Module, input_tensor: torch.Tensor, atol: float = GRAD_ATOL, rtol: float = GRAD_RTOL
+    module: nn.Module,
+    input_tensor: torch.Tensor,
+    atol: float = GRAD_ATOL,
+    rtol: float = GRAD_RTOL,
 ) -> bool:
     """
     Check that gradients are computed correctly using numerical gradient checking.

@@ -11,12 +11,8 @@ Tests specific to convolutional model behavior:
 
 import pytest
 import torch
-from testing_utils import (
-    IgnoreWarnings,
-    assert_gradients_exist,
-    generate_uniform_input,
-    is_cuda_available,
-)
+from testing_utils import (IgnoreWarnings, assert_gradients_exist,
+                           generate_uniform_input)
 
 from difflut.models import ModelConfig, SimpleConvolutional
 
@@ -69,7 +65,9 @@ class TestSimpleConvolutionalBasics:
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config).to(device)
             # Input: (batch, channels, height, width) - reduced to 1 channel, 8x8
-            data = generate_uniform_input((4, 1, 8, 8)).to(device)  # Reduced batch and size
+            data = generate_uniform_input((4, 1, 8, 8)).to(
+                device
+            )  # Reduced batch and size
 
             assert not model.encoder_fitted
             model.fit_encoder(data)
@@ -84,7 +82,9 @@ class TestSimpleConvolutionalBasics:
             model.fit_encoder(data)
 
             # Forward pass
-            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(device)  # Match new config
+            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(
+                device
+            )  # Match new config
             with torch.no_grad():
                 output = model(batch)
 
@@ -101,7 +101,9 @@ class TestSimpleConvolutionalBasics:
             model.fit_encoder(data)
 
             model.train()
-            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(device)  # Match new config
+            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(
+                device
+            )  # Match new config
             batch = batch.requires_grad_(True)
 
             output = model(batch)
@@ -114,9 +116,6 @@ class TestSimpleConvolutionalBasics:
     @pytest.mark.gpu
     def test_cpu_gpu_consistency(self, convolutional_config):
         """Test that CPU and GPU give same results."""
-        if not is_cuda_available():
-            pytest.skip("CUDA not available")
-
         with IgnoreWarnings():
             # Create models with same seed before moving to device
             torch.manual_seed(42)
@@ -128,7 +127,9 @@ class TestSimpleConvolutionalBasics:
             model_gpu = model_gpu.cuda()
 
             # Fit encoders - match new config
-            data_cpu = generate_uniform_input((4, 1, 8, 8), seed=42).cpu()  # Match new config
+            data_cpu = generate_uniform_input(
+                (4, 1, 8, 8), seed=42
+            ).cpu()  # Match new config
             data_gpu = generate_uniform_input(
                 (4, 1, 8, 8), seed=42
             ).cuda()  # Same seed for same data
@@ -140,7 +141,9 @@ class TestSimpleConvolutionalBasics:
             model_cpu.eval()
             model_gpu.eval()
 
-            input_cpu = generate_uniform_input((2, 1, 8, 8), seed=123).cpu()  # Match new config
+            input_cpu = generate_uniform_input(
+                (2, 1, 8, 8), seed=123
+            ).cpu()  # Match new config
             input_gpu = generate_uniform_input(
                 (2, 1, 8, 8), seed=123
             ).cuda()  # Same seed for same data
@@ -159,15 +162,17 @@ class TestSimpleConvolutionalInputSizes:
     # Reduced from [16, 28, 32]
     @pytest.mark.parametrize("image_size", [8, 16])
     @pytest.mark.parametrize("channels", [1])  # Reduced from [1, 3]
-    def test_different_input_sizes(self, image_size, channels):
+    def test_different_input_sizes(self, image_size, channels, device):
         """Test model works with different input sizes."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         config = ModelConfig(
             model_type="convolutional",
             params={
                 "layer_type": "random",
                 "node_type": "probabilistic",
-                "encoder_config": {"name": "thermometer", "num_bits": 3},  # Reduced from 4
+                "encoder_config": {
+                    "name": "thermometer",
+                    "num_bits": 3,
+                },  # Reduced from 4
                 "node_input_dim": 6,
                 "layer_widths": [4],  # Reduced from [8]
                 "num_classes": 10,
@@ -189,7 +194,9 @@ class TestSimpleConvolutionalInputSizes:
             )  # Reduced batch
             model.fit_encoder(data)
 
-            batch = generate_uniform_input((2, channels, image_size, image_size)).to(device)
+            batch = generate_uniform_input((2, channels, image_size, image_size)).to(
+                device
+            )
             with torch.no_grad():
                 output = model(batch)
 
@@ -201,15 +208,17 @@ class TestSimpleConvolutionalNumClasses:
 
     # Reduced from [2, 10, 100]
     @pytest.mark.parametrize("num_classes", [2, 10])
-    def test_different_num_classes(self, num_classes):
+    def test_different_num_classes(self, num_classes, device):
         """Test model works with different number of classes."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         config = ModelConfig(
             model_type="convolutional",
             params={
                 "layer_type": "random",
                 "node_type": "probabilistic",
-                "encoder_config": {"name": "thermometer", "num_bits": 3},  # Reduced from 4
+                "encoder_config": {
+                    "name": "thermometer",
+                    "num_bits": 3,
+                },  # Reduced from 4
                 "node_input_dim": 6,
                 "layer_widths": [4],  # Reduced from [8]
                 "num_classes": num_classes,

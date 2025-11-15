@@ -54,7 +54,9 @@ class MappingFunction(torch.autograd.Function):
         - input_size: int, needed for backward
         """
         if not _MAPPING_CUDA_AVAILABLE or _mapping_cuda_module is None:
-            raise RuntimeError("CUDA extension not available. Use fallback implementation.")
+            raise RuntimeError(
+                "CUDA extension not available. Use fallback implementation."
+            )
 
         # Ensure correct dtypes and contiguity
         input = input.contiguous().float()
@@ -266,7 +268,7 @@ class RandomLayer(BaseLUTLayer):
         """
         # Ensure input is on the same device as mapping indices buffer
         x = x.to(self._mapping_indices.device)
-        
+
         # Try CUDA kernel first based on tensor device (fastest, eliminates expand + gather overhead)
         # Device determines kernel selection, not config parameters
         if x.is_cuda and _MAPPING_CUDA_AVAILABLE:
@@ -346,9 +348,13 @@ class RandomLayer(BaseLUTLayer):
 
     def extra_repr(self) -> str:
         """String representation for print(model)."""
-        flip_str = f", flip_prob={self.flip_probability}" if self.flip_probability > 0 else ""
+        flip_str = (
+            f", flip_prob={self.flip_probability}" if self.flip_probability > 0 else ""
+        )
         grad_str = (
-            f", grad_stab={self.grad_stabilization}" if self.grad_stabilization != "none" else ""
+            f", grad_stab={self.grad_stabilization}"
+            if self.grad_stabilization != "none"
+            else ""
         )
         return (
             f"input_size={self.input_size}, output_size={self.output_size}, "

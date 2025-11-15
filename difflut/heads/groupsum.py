@@ -1,10 +1,17 @@
+"""
+GroupSum head for DiffLUT models.
+
+Provides a final output head that groups input features and sums them.
+Designed as a head module that can be easily extended with other head types.
+"""
+
 import warnings
 from typing import Optional
 
 import torch
 import torch.nn as nn
 
-from .warnings import warn_default_value
+from ..utils.warnings import warn_default_value
 
 # Default number of output groups (typically number of classes)
 # GroupSum will divide input features into k groups and sum within each group
@@ -31,6 +38,10 @@ class GroupSum(nn.Module):
 
     The input is reshaped to (batch_size, k, group_size) where
     group_size = num_features // k, then summed across groups.
+
+    Device Handling:
+    When you call groupsum.to(device), all components are automatically moved to the device.
+    This includes the tau parameter if registered as a buffer.
     """
 
     def __init__(
@@ -55,12 +66,15 @@ class GroupSum(nn.Module):
         else:
             self.k = k
 
-        # Set tau with default and warning
+        # Set tau with default and warning - register as buffer for device handling
         if tau is None:
-            self.tau = DEFAULT_GROUPSUM_TAU
-            warn_default_value("tau (GroupSum)", self.tau, stacklevel=2)
+            tau_value = DEFAULT_GROUPSUM_TAU
+            warn_default_value("tau (GroupSum)", tau_value, stacklevel=2)
         else:
-            self.tau = tau
+            tau_value = tau
+
+        # Register tau as a buffer so it moves with the module when .to(device) is called
+        self.register_buffer("tau", torch.tensor(tau_value, dtype=torch.float32))
 
         # Set use_randperm with default and warning
         if use_randperm is None:
@@ -74,8 +88,8 @@ class GroupSum(nn.Module):
         # Validate parameters
         if not isinstance(self.k, int) or self.k <= 0:
             raise ValueError(f"k must be a positive integer, got {self.k}")
-        if not isinstance(self.tau, (int, float)) or self.tau <= 0:
-            raise ValueError(f"tau must be a positive number, got {self.tau}")
+        if not isinstance(tau_value, (int, float)) or tau_value <= 0:
+            raise ValueError(f"tau must be a positive number, got {tau_value}")
 
     def _validate_input_dim(self, x: torch.Tensor) -> None:
         """
@@ -133,6 +147,11 @@ class GroupSum(nn.Module):
             A warning will be generated if padding occurs, as this typically
             indicates a configuration mismatch.
         """
+        # Ensure input is on the same device as the module
+        # This is important for FSDP and distributed training
+        device = self.tau.device
+        x = x.to(device)
+
         # Validate input dimensions
         self._validate_input_dim(x)
 

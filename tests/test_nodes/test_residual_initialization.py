@@ -12,14 +12,8 @@ import itertools
 import pytest
 import torch
 
-from difflut.nodes import (
-    DWNNode,
-    DWNStableNode,
-    HybridNode,
-    LinearLUTNode,
-    PolyLUTNode,
-    ProbabilisticNode,
-)
+from difflut.nodes import (DWNNode, DWNStableNode, HybridNode, LinearLUTNode,
+                           PolyLUTNode, ProbabilisticNode)
 from difflut.nodes.utils.initializers import residual_init
 
 
@@ -53,7 +47,7 @@ class TestResidualInitPerfectPass:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_perfect_residual_eval_mode(self, node_class, node_kwargs):
+    def test_perfect_residual_eval_mode(self, node_class, node_kwargs, device):
         """
         Test that forward_eval with noise_factor=0 gives perfect pass-through.
 
@@ -79,7 +73,7 @@ class TestResidualInitPerfectPass:
             init_fn=residual_init,
             init_kwargs=init_kwargs,
             **node_kwargs,
-        )
+        ).to(device)
         node.eval()
 
         # Generate all binary combinations for comprehensive testing
@@ -90,7 +84,7 @@ class TestResidualInitPerfectPass:
         for bits in itertools.product([0, 1], repeat=max_bits):
             all_inputs.append(bits + (0,) * (input_dim - max_bits))
 
-        all_inputs = torch.tensor(all_inputs, dtype=torch.float32)
+        all_inputs = torch.tensor(all_inputs, dtype=torch.float32, device=device)
 
         # Extract first input (bit 0, which is idx & 1 in LUT indexing)
         first_input = all_inputs[:, 0]
@@ -116,7 +110,9 @@ class TestResidualInitPerfectPass:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_perfect_residual_train_mode_first_input_dependent(self, node_class, node_kwargs):
+    def test_perfect_residual_train_mode_first_input_dependent(
+        self, node_class, node_kwargs, device
+    ):
         """
         Test that forward_train with noise_factor=0 depends only on first input.
 
@@ -145,12 +141,12 @@ class TestResidualInitPerfectPass:
             init_fn=residual_init,
             init_kwargs=init_kwargs,
             **node_kwargs,
-        )
+        ).to(device)
         node.train()
 
         # Generate test inputs where only first bit varies
-        first_bit_0 = torch.zeros((50, input_dim))
-        first_bit_1 = torch.ones((50, input_dim))
+        first_bit_0 = torch.zeros((50, input_dim), device=device)
+        first_bit_1 = torch.ones((50, input_dim), device=device)
 
         with torch.no_grad():
             output_first_0 = node.forward_train(first_bit_0).squeeze()
@@ -184,7 +180,9 @@ class TestResidualInitPerfectPass:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_perfect_residual_first_input_only_dependency(self, node_class, node_kwargs):
+    def test_perfect_residual_first_input_only_dependency(
+        self, node_class, node_kwargs, device
+    ):
         """
         Test that with noise_factor=0, output depends ONLY on first input.
 
@@ -212,15 +210,15 @@ class TestResidualInitPerfectPass:
             init_fn=residual_init,
             init_kwargs=init_kwargs,
             **node_kwargs,
-        )
+        ).to(device)
         node.train()
 
         # Create two inputs that only differ in non-first bits
         # Input A: first_bit=0, others=0
-        input_a = torch.zeros((1, input_dim))
+        input_a = torch.zeros((1, input_dim), device=device)
 
         # Input B: first_bit=0, others=1 (different in all non-first bits)
-        input_b = torch.zeros((1, input_dim))
+        input_b = torch.zeros((1, input_dim), device=device)
         input_b[0, 1:] = 1.0
 
         with torch.no_grad():
@@ -249,7 +247,9 @@ class TestResidualInitNoisyResidual:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_noisy_residual_has_noise_on_other_weights(self, node_class, node_kwargs):
+    def test_noisy_residual_has_noise_on_other_weights(
+        self, node_class, node_kwargs, device
+    ):
         """
         Test that with noise_factor > 0, other weights are noisy.
 
@@ -280,7 +280,7 @@ class TestResidualInitNoisyResidual:
                 init_fn=residual_init,
                 init_kwargs=init_kwargs.copy(),
                 **node_kwargs,
-            )
+            ).to(device)
             nodes.append(node)
 
         # Get parameters from each node
@@ -306,7 +306,9 @@ class TestResidualInitNoisyResidual:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_noisy_residual_maintains_correlation(self, node_class, node_kwargs):
+    def test_noisy_residual_maintains_correlation(
+        self, node_class, node_kwargs, device
+    ):
         """
         Test that with noise_factor > 0, first input still has high correlation with output.
 
@@ -334,7 +336,7 @@ class TestResidualInitNoisyResidual:
             init_fn=residual_init,
             init_kwargs=init_kwargs,
             **node_kwargs,
-        )
+        ).to(device)
         node.eval()
 
         batch_size = 100
@@ -343,7 +345,7 @@ class TestResidualInitNoisyResidual:
         test_inputs = []
         for first_bit in [0, 1]:
             for _ in range(batch_size // 2):
-                inp = torch.randint(0, 2, (1, input_dim)).float()
+                inp = torch.randint(0, 2, (1, input_dim), device=device).float()
                 inp[0, 0] = first_bit
                 test_inputs.append(inp)
 
@@ -363,7 +365,7 @@ class TestResidualInitNoisyResidual:
 class TestResidualInitParameterPropagation:
     """Test that residual initialization parameters propagate correctly."""
 
-    def test_noise_factor_parameter_propagation(self):
+    def test_noise_factor_parameter_propagation(self, device):
         """Test that noise_factor parameter affects initialization."""
         node_kwargs = {"input_dim": 6, "output_dim": 1}
 
@@ -377,7 +379,7 @@ class TestResidualInitParameterPropagation:
                 "input_dim": 6,  # Required for DWNStable
             },
             **node_kwargs,
-        )
+        ).to(device)
 
         # Node with noise
         node_noisy = DWNStableNode(
@@ -389,7 +391,7 @@ class TestResidualInitParameterPropagation:
                 "input_dim": 6,  # Required for DWNStable
             },
             **node_kwargs,
-        )
+        ).to(device)
 
         # Get parameter values
         params_clean = [p.data.clone() for p in node_clean.parameters()]
@@ -406,7 +408,7 @@ class TestResidualInitParameterPropagation:
             var_clean != var_noisy
         ), "Clean and noisy nodes should have different parameter variance"
 
-    def test_logit_clarity_parameter_propagation(self):
+    def test_logit_clarity_parameter_propagation(self, device):
         """Test that logit_clarity parameter affects initialization."""
         node_kwargs = {"input_dim": 6, "output_dim": 1}
 
@@ -419,7 +421,7 @@ class TestResidualInitParameterPropagation:
                 "logit_clarity": 1.0,
             },
             **node_kwargs,
-        )
+        ).to(device)
 
         # Node with high clarity
         node_high = LinearLUTNode(
@@ -430,28 +432,34 @@ class TestResidualInitParameterPropagation:
                 "logit_clarity": 10.0,
             },
             **node_kwargs,
-        )
+        ).to(device)
 
         # Get first weight (should be set to 2*logit_clarity)
         weight_low = node_low.weights[0, 0].item()
         weight_high = node_high.weights[0, 0].item()
 
         # Weight should be proportional to 2*logit_clarity
-        assert abs(weight_low - 2.0) < 0.1, f"Expected weight ≈ 2.0, got {weight_low:.4f}"
-        assert abs(weight_high - 20.0) < 0.1, f"Expected weight ≈ 20.0, got {weight_high:.4f}"
+        assert (
+            abs(weight_low - 2.0) < 0.1
+        ), f"Expected weight ≈ 2.0, got {weight_low:.4f}"
+        assert (
+            abs(weight_high - 20.0) < 0.1
+        ), f"Expected weight ≈ 20.0, got {weight_high:.4f}"
 
         # Check bias is set to -logit_clarity
         bias_low = node_low.bias[0].item()
         bias_high = node_high.bias[0].item()
 
         assert abs(bias_low - (-1.0)) < 0.1, f"Expected bias ≈ -1.0, got {bias_low:.4f}"
-        assert abs(bias_high - (-10.0)) < 0.1, f"Expected bias ≈ -10.0, got {bias_high:.4f}"
+        assert (
+            abs(bias_high - (-10.0)) < 0.1
+        ), f"Expected bias ≈ -10.0, got {bias_high:.4f}"
 
 
 class TestResidualInitPolynomial:
     """Specific tests for polynomial (PolyLUT) residual initialization."""
 
-    def test_polynomial_first_input_linear_term(self):
+    def test_polynomial_first_input_linear_term(self, device):
         """Test that PolyLUT initializes first input linear term correctly."""
         node = PolyLUTNode(
             input_dim=4,
@@ -463,7 +471,7 @@ class TestResidualInitPolynomial:
                 "noise_factor": 0.0,
                 "logit_clarity": 5.0,
             },
-        )
+        ).to(device)
 
         # Find the (1,0,0,0) monomial (first input linear term)
         first_input_linear_idx = None
@@ -478,7 +486,7 @@ class TestResidualInitPolynomial:
         coeff = node.weights[first_input_linear_idx, 0].item()
         assert abs(coeff - 10.0) < 0.1, f"Expected coefficient ≈ 10.0, got {coeff:.4f}"
 
-    def test_polynomial_other_terms_zero_noise(self):
+    def test_polynomial_other_terms_zero_noise(self, device):
         """Test that PolyLUT initializes other terms appropriately (with noise_factor=0)."""
         node = PolyLUTNode(
             input_dim=4,
@@ -490,7 +498,7 @@ class TestResidualInitPolynomial:
                 "noise_factor": 0.0,
                 "logit_clarity": 5.0,
             },
-        )
+        ).to(device)
 
         # Find the (1,0,0,0) monomial index and (0,0,0,0) constant index
         first_input_linear_idx = None

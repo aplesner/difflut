@@ -133,7 +133,11 @@ class BaseLUTModel(nn.Module):
         total = sum(p.numel() for p in self.parameters())
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
 
-        return {"total": total, "trainable": trainable, "non_trainable": total - trainable}
+        return {
+            "total": total,
+            "trainable": trainable,
+            "non_trainable": total - trainable,
+        }
 
     def get_regularization_loss(self) -> torch.Tensor:
         """

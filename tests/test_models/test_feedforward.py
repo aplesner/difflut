@@ -11,12 +11,8 @@ Tests specific to feedforward model behavior:
 
 import pytest
 import torch
-from testing_utils import (
-    IgnoreWarnings,
-    assert_gradients_exist,
-    generate_uniform_input,
-    is_cuda_available,
-)
+from testing_utils import (IgnoreWarnings, assert_gradients_exist,
+                           generate_uniform_input)
 
 from difflut.models import ModelConfig, SimpleFeedForward
 
@@ -102,9 +98,6 @@ class TestSimpleFeedForwardBasics:
     @pytest.mark.gpu
     def test_cpu_gpu_consistency(self, feedforward_config):
         """Test that CPU and GPU give same results."""
-        if not is_cuda_available():
-            pytest.skip("CUDA not available")
-
         with IgnoreWarnings():
             # Create models with same seed before moving to device
             torch.manual_seed(42)
@@ -117,7 +110,9 @@ class TestSimpleFeedForwardBasics:
 
             # Fit encoders - reduced batch size
             data_cpu = generate_uniform_input((8, 50), seed=42).cpu()
-            data_gpu = generate_uniform_input((8, 50), seed=42).cuda()  # Same seed for same data
+            data_gpu = generate_uniform_input(
+                (8, 50), seed=42
+            ).cuda()  # Same seed for same data
 
             model_cpu.fit_encoder(data_cpu)
             model_gpu.fit_encoder(data_gpu)
@@ -127,7 +122,9 @@ class TestSimpleFeedForwardBasics:
             model_gpu.eval()
 
             input_cpu = generate_uniform_input((4, 50), seed=123).cpu()
-            input_gpu = generate_uniform_input((4, 50), seed=123).cuda()  # Same seed for same data
+            input_gpu = generate_uniform_input(
+                (4, 50), seed=123
+            ).cuda()  # Same seed for same data
 
             with torch.no_grad():
                 output_cpu = model_cpu(input_cpu)
@@ -141,9 +138,8 @@ class TestSimpleFeedForwardInputSizes:
     """Test different input sizes."""
 
     @pytest.mark.parametrize("input_size", [50, 100, 784, 1024])
-    def test_different_input_sizes(self, input_size):
+    def test_different_input_sizes(self, input_size, device):
         """Test model works with different input sizes."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         config = ModelConfig(
             model_type="feedforward",
             params={
@@ -173,9 +169,8 @@ class TestSimpleFeedForwardNumClasses:
     """Test different number of output classes."""
 
     @pytest.mark.parametrize("num_classes", [2, 10, 100, 1000])
-    def test_different_num_classes(self, num_classes):
+    def test_different_num_classes(self, num_classes, device):
         """Test model works with different number of classes."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         config = ModelConfig(
             model_type="feedforward",
             params={

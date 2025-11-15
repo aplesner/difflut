@@ -28,7 +28,9 @@ class PolyLUTNode(BaseNode):
         degree: int = DEFAULT_POLYLUT_DEGREE,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
+        regularizers: Optional[
+            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
+        ] = None,
     ) -> None:
         """
         Polynomial LUT Node that computes multivariate polynomials up to degree D.
@@ -47,13 +49,17 @@ class PolyLUTNode(BaseNode):
         from .base_node import DEFAULT_NODE_INPUT_DIM
 
         temp_input_dim = input_dim if input_dim is not None else DEFAULT_NODE_INPUT_DIM
-        monomial_combinations = PolyLUTNode._generate_monomial_combinations(temp_input_dim, degree)
+        monomial_combinations = PolyLUTNode._generate_monomial_combinations(
+            temp_input_dim, degree
+        )
 
         # Prepare init_kwargs with required parameters for residual initialization
         if init_kwargs is None:
             init_kwargs = {}
         else:
-            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
+            init_kwargs = (
+                init_kwargs.copy()
+            )  # Make a copy to avoid modifying the original
 
         # Always set monomial_combinations, even if it exists but is None
         if (
@@ -82,12 +88,15 @@ class PolyLUTNode(BaseNode):
 
         # Store as buffer for efficient computation
         self.register_buffer(
-            "exponent_matrix", torch.tensor(self.monomial_combinations, dtype=torch.float32)
+            "exponent_matrix",
+            torch.tensor(self.monomial_combinations, dtype=torch.float32),
         )
 
         # Initialize weights for polynomial coefficients
         # Shape: (num_monomials, num_outputs)
-        self.weights = nn.Parameter(torch.randn(self.num_monomials, self.num_outputs) * 0.1)
+        self.weights = nn.Parameter(
+            torch.randn(self.num_monomials, self.num_outputs) * 0.1
+        )
 
         self._apply_init_fn(self.weights, name="weights")
 
@@ -148,7 +157,7 @@ class PolyLUTNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.weights.device)
-        
+
         batch_size, input_dim = x.shape
 
         # Compute all monomials: (batch_size, num_monomials)
@@ -174,7 +183,7 @@ class PolyLUTNode(BaseNode):
         """
         # Ensure input is on the same device as parameters
         x = x.to(self.weights.device)
-        
+
         batch_size, input_dim = x.shape
 
         # Compute all monomials: (batch_size, num_monomials)

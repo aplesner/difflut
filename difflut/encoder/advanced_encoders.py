@@ -165,7 +165,9 @@ class OneHotEncoder(BaseEncoder):
         # Shape: (num_features, num_bits + 1)
         self.bin_edges = torch.stack(
             [
-                torch.linspace(min_val[i], max_val[i], self.num_bits + 1, device=x.device)
+                torch.linspace(
+                    min_val[i], max_val[i], self.num_bits + 1, device=x.device
+                )
                 for i in range(x.shape[1])
             ],
             dim=0,
@@ -196,7 +198,9 @@ class OneHotEncoder(BaseEncoder):
         for i in range(x.shape[1]):
             bins = torch.bucketize(x[:, i], self.bin_edges[i][1:-1])
             bins = torch.clamp(bins, 0, self.num_bits - 1)
-            encoded[:, i, :] = torch.nn.functional.one_hot(bins, num_classes=self.num_bits).float()
+            encoded[:, i, :] = torch.nn.functional.one_hot(
+                bins, num_classes=self.num_bits
+            ).float()
 
         # Flatten if requested
         if self.flatten:
@@ -311,7 +315,9 @@ class SignMagnitudeEncoder(BaseEncoder):
 
         # Warn if using defaults for this specific encoder
         if num_bits == 8:
-            warn_default_value("num_bits (SignMagnitudeEncoder)", num_bits, stacklevel=2)
+            warn_default_value(
+                "num_bits (SignMagnitudeEncoder)", num_bits, stacklevel=2
+            )
         if flatten == True:
             warn_default_value("flatten (SignMagnitudeEncoder)", flatten, stacklevel=2)
 

@@ -74,10 +74,14 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
 
         # Set defaults for optional parameters
         tree_depth = config.tree_depth if config.tree_depth is not None else 2
-        receptive_field = config.receptive_field if config.receptive_field is not None else (5, 5)
+        receptive_field = (
+            config.receptive_field if config.receptive_field is not None else (5, 5)
+        )
         stride = config.stride if config.stride is not None else (1, 1)
         padding = config.padding if config.padding is not None else (0, 0)
-        n_inputs_per_node = config.n_inputs_per_node if config.n_inputs_per_node is not None else 6
+        n_inputs_per_node = (
+            config.n_inputs_per_node if config.n_inputs_per_node is not None else 6
+        )
 
         # Extract training parameters from config
         flip_probability = config.flip_probability
@@ -105,7 +109,9 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
         self.in_channels = config.in_channels
         self.out_channels = config.out_channels
         self.receptive_field = self._pair(receptive_field)
-        self.input_size = self.in_channels * self.receptive_field[0] * self.receptive_field[1]
+        self.input_size = (
+            self.in_channels * self.receptive_field[0] * self.receptive_field[1]
+        )
         self.stride = self._pair(stride)
         self.padding = self._pair(padding)
         self.node_type = node_type
@@ -120,7 +126,8 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
         #   Layer 1: 36 -> 6 nodes (6^1)
         #   Layer 2: 6 -> 1 node (6^0) per output channel
         hidden_layers = [
-            self.n_inputs_per_node ** (self.tree_depth - i) for i in range(self.tree_depth + 1)
+            self.n_inputs_per_node ** (self.tree_depth - i)
+            for i in range(self.tree_depth + 1)
         ]
         self.hidden_layers = hidden_layers
 
@@ -231,8 +238,12 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
             return None
 
         # Calculate output spatial dimensions
-        out_h = (in_h + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
-        out_w = (in_w + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
+        out_h = (in_h + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[
+            0
+        ] + 1
+        out_w = (in_w + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[
+            1
+        ] + 1
 
         return torch.Size([batch_size, self.out_channels, out_h, out_w])
 
@@ -278,13 +289,17 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
         # Ensure input is on the same device as block parameters
         device = next(self.parameters()).device if list(self.parameters()) else "cpu"
         x = x.to(device)
-        
+
         batch_size = x.shape[0]
         input_h, input_w = x.shape[2], x.shape[3]
 
         # Calculate output spatial dimensions
-        out_h = (input_h + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
-        out_w = (input_w + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
+        out_h = (
+            input_h + 2 * self.padding[0] - self.receptive_field[0]
+        ) // self.stride[0] + 1
+        out_w = (
+            input_w + 2 * self.padding[1] - self.receptive_field[1]
+        ) // self.stride[1] + 1
 
         # Extract patches: (batch, patch_size, num_patches)
         # patch_size = in_channels * receptive_field[0] * receptive_field[1]

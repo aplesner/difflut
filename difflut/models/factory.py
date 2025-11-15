@@ -95,7 +95,9 @@ def build_model(
     # ==================== Case 1: Pretrained Model Name ====================
     if isinstance(source, str) and not os.path.isfile(source):
         # Try to find pretrained model
-        config, weights_path = _load_pretrained_model(source, pretrained_dir, load_weights)
+        config, weights_path = _load_pretrained_model(
+            source, pretrained_dir, load_weights
+        )
 
     # ==================== Case 2: YAML Configuration File ====================
     elif isinstance(source, str) and source.endswith((".yaml", ".yml")):
@@ -234,7 +236,9 @@ def build_model_for_experiment(
     # ==================== Load Weights if Pretrained ====================
 
     if load_from_pretrained and pretrained_name:
-        _, weights_path = _load_pretrained_model(pretrained_name, pretrained_dir, load_weights=True)
+        _, weights_path = _load_pretrained_model(
+            pretrained_name, pretrained_dir, load_weights=True
+        )
         if weights_path and os.path.exists(weights_path):
             print(f"Loading pretrained weights from: {weights_path}")
             model.load_weights(weights_path)
@@ -415,7 +419,9 @@ def _find_model_in_dir(
 
     config_path = version_dir / f"{model_name}.yaml"
     if not config_path.exists():
-        raise FileNotFoundError(f"Config not found for model '{model_name}' in {version_dir}")
+        raise FileNotFoundError(
+            f"Config not found for model '{model_name}' in {version_dir}"
+        )
 
     weights_path = None
     if load_weights:
@@ -620,7 +626,9 @@ def get_pretrained_model_info(
     else:
         pretrained_dir = Path(pretrained_dir)
 
-    config, weights_path = _load_pretrained_model(name, pretrained_dir, load_weights=True)
+    config, weights_path = _load_pretrained_model(
+        name, pretrained_dir, load_weights=True
+    )
 
     # Find config path by trying all possible locations
     config_path = None
@@ -652,7 +660,10 @@ def get_pretrained_model_info(
                 if not model_type_dir.is_dir():
                     continue
                 candidate = (
-                    model_type_dir / model_name / potential_model_type / f"{model_name}.yaml"
+                    model_type_dir
+                    / model_name
+                    / potential_model_type
+                    / f"{model_name}.yaml"
                 )
                 if candidate.exists():
                     config_path = candidate

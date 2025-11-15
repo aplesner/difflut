@@ -52,7 +52,9 @@ def test_0_imports():
             print("      ✓ efd_cuda (standard) available")
         except ImportError:
             print("      ⚠ efd_cuda (standard) NOT available")
-            print("        This is expected if CUDA extensions haven't been compiled yet.")
+            print(
+                "        This is expected if CUDA extensions haven't been compiled yet."
+            )
 
         try:
             import efd_fused_cuda
@@ -60,7 +62,9 @@ def test_0_imports():
             print("      ✓ efd_fused_cuda (fused) available")
         except ImportError:
             print("      ⚠ efd_fused_cuda (fused) NOT available")
-            print("        This is expected if fused CUDA extensions haven't been compiled yet.")
+            print(
+                "        This is expected if fused CUDA extensions haven't been compiled yet."
+            )
 
         print("\n" + "=" * 80)
         print("  ✓ ALL IMPORTS SUCCESSFUL")
