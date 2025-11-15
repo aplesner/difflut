@@ -86,7 +86,9 @@ class SimpleFeedForward(BaseLUTModel):
         super().__init__(config)
 
         # Setup encoder - get from params dict
-        encoder_config_data = config.params.get("encoder_config", DEFAULT_ENCODER_CONFIG)
+        encoder_config_data = config.params.get(
+            "encoder_config", DEFAULT_ENCODER_CONFIG
+        )
         if encoder_config_data == DEFAULT_ENCODER_CONFIG:
             warn_default_value("encoder_config", encoder_config_data, stacklevel=2)
 
@@ -413,7 +415,7 @@ class SimpleFeedForward(BaseLUTModel):
         # Ensure input is on the same device as model parameters
         device = next(self.parameters()).device if list(self.parameters()) else "cpu"
         x = x.to(device)
-        
+
         # Ensure encoder is on the same device as input
         self.encoder = self.encoder.to(device)
 
