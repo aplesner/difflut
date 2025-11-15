@@ -11,8 +11,7 @@ Tests specific to feedforward model behavior:
 
 import pytest
 import torch
-from testing_utils import (IgnoreWarnings, assert_gradients_exist,
-                           generate_uniform_input)
+from testing_utils import IgnoreWarnings, assert_gradients_exist, generate_uniform_input
 
 from difflut.models import ModelConfig, SimpleFeedForward
 
@@ -110,9 +109,7 @@ class TestSimpleFeedForwardBasics:
 
             # Fit encoders - reduced batch size
             data_cpu = generate_uniform_input((8, 50), seed=42).cpu()
-            data_gpu = generate_uniform_input(
-                (8, 50), seed=42
-            ).cuda()  # Same seed for same data
+            data_gpu = generate_uniform_input((8, 50), seed=42).cuda()  # Same seed for same data
 
             model_cpu.fit_encoder(data_cpu)
             model_gpu.fit_encoder(data_gpu)
@@ -122,9 +119,7 @@ class TestSimpleFeedForwardBasics:
             model_gpu.eval()
 
             input_cpu = generate_uniform_input((4, 50), seed=123).cpu()
-            input_gpu = generate_uniform_input(
-                (4, 50), seed=123
-            ).cuda()  # Same seed for same data
+            input_gpu = generate_uniform_input((4, 50), seed=123).cuda()  # Same seed for same data
 
             with torch.no_grad():
                 output_cpu = model_cpu(input_cpu)

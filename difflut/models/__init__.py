@@ -36,13 +36,20 @@ Usage Examples:
 """
 
 from .base_model import BaseLUTModel
+
 # Model implementations
 from .convolutional import SimpleConvolutional
+
 # Factory functions
-from .factory import (build_model, build_model_for_experiment,
-                      get_pretrained_model_info, list_pretrained_models,
-                      load_pretrained)
+from .factory import (
+    build_model,
+    build_model_for_experiment,
+    get_pretrained_model_info,
+    list_pretrained_models,
+    load_pretrained,
+)
 from .feedforward import SimpleFeedForward
+
 # Core components
 from .model_config import ModelConfig
 

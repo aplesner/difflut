@@ -8,9 +8,15 @@ Uses pytest parametrization for individual test discovery.
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import (CPU_GPU_ATOL, CPU_GPU_RTOL, IgnoreWarnings,
-                           assert_gradients_exist, assert_range,
-                           assert_shape_equal, generate_uniform_input)
+from testing_utils import (
+    CPU_GPU_ATOL,
+    CPU_GPU_RTOL,
+    IgnoreWarnings,
+    assert_gradients_exist,
+    assert_range,
+    assert_shape_equal,
+    generate_uniform_input,
+)
 
 from difflut.blocks import BlockConfig, ConvolutionalLayer
 from difflut.layers.layer_config import LayerConfig
@@ -84,9 +90,7 @@ class TestBlockForwardPass:
 
         # Test multiple random inputs
         for seed in [42, 123, 456]:
-            input_tensor = generate_uniform_input(
-                (4, 16, 16, 16), seed=seed, device=device
-            )
+            input_tensor = generate_uniform_input((4, 16, 16, 16), seed=seed, device=device)
             with torch.no_grad():
                 output = block(input_tensor)
 
@@ -122,9 +126,7 @@ class TestBlockForwardPass:
             output_gpu = block_gpu(input_gpu).cpu()
 
         try:
-            torch.testing.assert_close(
-                output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
-            )
+            torch.testing.assert_close(output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL)
         except AssertionError as e:
             pytest.fail(f"CPU/GPU outputs differ for {block_name}: {e}")
 
@@ -224,9 +226,7 @@ def test_block_different_sizes(block_name, device):
                 layer_type=layer_type,
             ).to(device)
 
-        input_tensor = generate_uniform_input(
-            (2, in_channels, 16, 16), seed=42, device=device
-        )
+        input_tensor = generate_uniform_input((2, in_channels, 16, 16), seed=42, device=device)
         with torch.no_grad():
             output = block(input_tensor)
 

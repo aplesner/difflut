@@ -345,13 +345,9 @@ class ModelConfig:
     def __repr__(self) -> str:
         """String representation of config."""
         runtime_str = (
-            ", ".join(f"{k}={v}" for k, v in self.runtime.items())
-            if self.runtime
-            else "none"
+            ", ".join(f"{k}={v}" for k, v in self.runtime.items()) if self.runtime else "none"
         )
-        params_str = ", ".join(
-            f"{k}={v}" for k, v in list(self.params.items())[:3]
-        )  # Show first 3
+        params_str = ", ".join(f"{k}={v}" for k, v in list(self.params.items())[:3])  # Show first 3
         if len(self.params) > 3:
             params_str += ", ..."
         return (

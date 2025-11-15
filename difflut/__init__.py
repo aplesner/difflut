@@ -31,16 +31,32 @@ warnings.filterwarnings('error', module='difflut')
 
 from .encoder.base_encoder import BaseEncoder
 from .layers.base_layer import BaseLUTLayer
+
 # Import model zoo
-from .models import (BaseLUTModel, ModelConfig, SimpleFeedForward, build_model,
-                     get_pretrained_model_info, list_pretrained_models,
-                     load_pretrained)
+from .models import (
+    BaseLUTModel,
+    ModelConfig,
+    SimpleFeedForward,
+    build_model,
+    get_pretrained_model_info,
+    list_pretrained_models,
+    load_pretrained,
+)
+
 # Import base classes
 from .nodes.base_node import BaseNode
+
 # Import registry first
-from .registry import (REGISTRY, register_block, register_encoder,
-                       register_initializer, register_layer, register_model,
-                       register_node, register_regularizer)
+from .registry import (
+    REGISTRY,
+    register_block,
+    register_encoder,
+    register_initializer,
+    register_layer,
+    register_model,
+    register_node,
+    register_regularizer,
+)
 
 __version__ = "1.4.4"
 

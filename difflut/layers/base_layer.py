@@ -82,9 +82,7 @@ class LUTLayerMixin(nn.Module):
             # Set flip_probability with default
             if flip_probability is None:
                 self.flip_probability = DEFAULT_LAYER_FLIP_PROBABILITY
-                warn_default_value(
-                    "flip_probability", self.flip_probability, stacklevel=2
-                )
+                warn_default_value("flip_probability", self.flip_probability, stacklevel=2)
             else:
                 self.flip_probability = flip_probability
 
@@ -100,9 +98,7 @@ class LUTLayerMixin(nn.Module):
             # Set grad_stabilization with default
             if grad_stabilization is None:
                 self.grad_stabilization = DEFAULT_LAYER_GRAD_STABILIZATION
-                warn_default_value(
-                    "grad_stabilization", self.grad_stabilization, stacklevel=2
-                )
+                warn_default_value("grad_stabilization", self.grad_stabilization, stacklevel=2)
             else:
                 self.grad_stabilization = grad_stabilization
 
@@ -117,16 +113,11 @@ class LUTLayerMixin(nn.Module):
             # Set grad_target_std with default
             if grad_target_std is None:
                 self.grad_target_std = DEFAULT_LAYER_GRAD_TARGET_STD
-                warn_default_value(
-                    "grad_target_std", self.grad_target_std, stacklevel=2
-                )
+                warn_default_value("grad_target_std", self.grad_target_std, stacklevel=2)
             else:
                 self.grad_target_std = grad_target_std
 
-            if (
-                not isinstance(self.grad_target_std, (int, float))
-                or self.grad_target_std <= 0
-            ):
+            if not isinstance(self.grad_target_std, (int, float)) or self.grad_target_std <= 0:
                 raise ValueError(
                     f"grad_target_std must be a positive number, got {self.grad_target_std}. "
                     f"Example: grad_target_std=1.0 for unit variance"
@@ -135,9 +126,7 @@ class LUTLayerMixin(nn.Module):
             # Set grad_subtract_mean with default
             if grad_subtract_mean is None:
                 self.grad_subtract_mean = DEFAULT_LAYER_GRAD_SUBTRACT_MEAN
-                warn_default_value(
-                    "grad_subtract_mean", self.grad_subtract_mean, stacklevel=2
-                )
+                warn_default_value("grad_subtract_mean", self.grad_subtract_mean, stacklevel=2)
             else:
                 self.grad_subtract_mean = grad_subtract_mean
 
@@ -148,10 +137,7 @@ class LUTLayerMixin(nn.Module):
             else:
                 self.grad_epsilon = grad_epsilon
 
-            if (
-                not isinstance(self.grad_epsilon, (int, float))
-                or self.grad_epsilon <= 0
-            ):
+            if not isinstance(self.grad_epsilon, (int, float)) or self.grad_epsilon <= 0:
                 raise ValueError(
                     f"grad_epsilon must be a positive number, got {self.grad_epsilon}. "
                     f"Used for numerical stability in variance calculation"
@@ -398,9 +384,7 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
 
         # Create a ModuleList of individual node instances
         # Each node operates independently on (batch_size, input_dim) -> (batch_size, output_dim)
-        self.nodes = nn.ModuleList(
-            [node_type(**node_kwargs.to_dict()) for _ in range(output_size)]
-        )
+        self.nodes = nn.ModuleList([node_type(**node_kwargs.to_dict()) for _ in range(output_size)])
 
         # Extract n (number of inputs per node) and output_dim from first node
         # pyright: ignore[reportAttributeAccessIssue]
@@ -431,10 +415,7 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
             )
 
         # Warning 2: Very small mapping
-        if (
-            self.output_size * self.n
-            < self.input_size // LAYER_UNDERUSE_WARNING_DIVISOR
-        ):
+        if self.output_size * self.n < self.input_size // LAYER_UNDERUSE_WARNING_DIVISOR:
             warnings.warn(
                 f"BaseLUTLayer: Creating only {total_connections} node inputs from "
                 f"{self.input_size} input features. Most input features will be unused. "
@@ -482,9 +463,7 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
             )
 
         if batch_size == 0:
-            raise ValueError(
-                f"BaseLUTLayer requires non-empty batch, got batch_size={batch_size}"
-            )
+            raise ValueError(f"BaseLUTLayer requires non-empty batch, got batch_size={batch_size}")
 
     @abstractmethod
     def get_mapping(self, x: torch.Tensor) -> torch.Tensor:

@@ -80,9 +80,7 @@ def create_edge_detection_dataset(num_samples, image_size=16, num_channels=3):
     return images, labels
 
 
-def train_model(
-    model, train_images, train_labels, num_epochs=5, lr=0.01, device="cuda"
-):
+def train_model(model, train_images, train_labels, num_epochs=5, lr=0.01, device="cuda"):
     """Train model and return final accuracy."""
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -108,9 +106,7 @@ def train_model(
             if param.grad is not None:
                 grad_norm += param.grad.norm().item()
 
-        assert (
-            grad_norm > 0.0
-        ), f"Epoch {epoch+1}: Gradients are zero! Gradient flow is broken."
+        assert grad_norm > 0.0, f"Epoch {epoch+1}: Gradients are zero! Gradient flow is broken."
 
         optimizer.step()
 
@@ -173,9 +169,7 @@ def train_test_data(device):
         ),
     ],
 )
-def test_convolutional_learning_scenarios(
-    scenario_name, layer_config, device, train_test_data
-):
+def test_convolutional_learning_scenarios(scenario_name, layer_config, device, train_test_data):
     """Test ConvolutionalLayer learning with different configurations."""
     from difflut import REGISTRY
     from difflut.blocks import BlockConfig, ConvolutionalLayer
@@ -216,14 +210,22 @@ def test_convolutional_learning_scenarios(
     )
 
     # Create feedforward layer
+    # Note: This layer has many unused inputs (3136 features -> 300 node inputs)
+    # which is intentional for testing. Suppress the warning.
+    import warnings
+
     node_config = NodeConfig(input_dim=6, output_dim=1)
-    feedforward_layer = layer_type(
-        input_size=16 * 14 * 14,
-        output_size=50,
-        node_type=node_type,
-        node_kwargs=node_config,
-        seed=43,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore", message=".*Creating only.*node inputs from.*input features.*"
+        )
+        feedforward_layer = layer_type(
+            input_size=16 * 14 * 14,
+            output_size=50,
+            node_type=node_type,
+            node_kwargs=node_config,
+            seed=43,
+        )
 
     # Create groupsum
     groupsum_layer = GroupSum(k=2, tau=10.0, use_randperm=False)

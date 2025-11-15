@@ -5,8 +5,7 @@ Tests that each node type works with each registered initializer.
 
 import pytest
 import torch
-from testing_utils import (IgnoreWarnings, generate_uniform_input,
-                           instantiate_node)
+from testing_utils import IgnoreWarnings, generate_uniform_input, instantiate_node
 
 from difflut.registry import REGISTRY
 
@@ -61,9 +60,7 @@ def test_node_with_initializer(node_name, init_name, device):
     try:
         with IgnoreWarnings():
             # Create node with initializer on specified device
-            node = instantiate_node(
-                node_class, input_dim=input_dim, output_dim=2, init_fn=init_fn
-            )
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2, init_fn=init_fn)
             node = node.to(device)
 
         # Test forward pass works
@@ -78,14 +75,10 @@ def test_node_with_initializer(node_name, init_name, device):
         )
         assert not torch.isnan(
             output
-        ).any(), (
-            f"Node '{node_name}' with initializer '{init_name}' produced NaN outputs"
-        )
+        ).any(), f"Node '{node_name}' with initializer '{init_name}' produced NaN outputs"
         assert not torch.isinf(
             output
-        ).any(), (
-            f"Node '{node_name}' with initializer '{init_name}' produced Inf outputs"
-        )
+        ).any(), f"Node '{node_name}' with initializer '{init_name}' produced Inf outputs"
 
         # Verify parameters were initialized properly
         for param_name, param in node.named_parameters():
@@ -160,8 +153,7 @@ def test_node_with_residual_initializer(node_name):
 
         # Verify output shape and validity
         assert output.shape == (8, 1), (
-            f"Node '{node_name}' with residual initializer "
-            f"produced wrong shape: {output.shape}"
+            f"Node '{node_name}' with residual initializer " f"produced wrong shape: {output.shape}"
         )
         assert not torch.isnan(
             output

@@ -38,9 +38,7 @@ def _generate_hamming_neighbors(z: torch.Tensor) -> torch.Tensor:
 
 
 # Helper function (not registered)
-def _l_regularizer_input_based(
-    node: nn.Module, inputs: torch.Tensor, p: int
-) -> torch.Tensor:
+def _l_regularizer_input_based(node: nn.Module, inputs: torch.Tensor, p: int) -> torch.Tensor:
     """
     Input-based functional L-regularization for DiffLUT nodes.
 

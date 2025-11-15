@@ -12,8 +12,14 @@ import itertools
 import pytest
 import torch
 
-from difflut.nodes import (DWNNode, DWNStableNode, HybridNode, LinearLUTNode,
-                           PolyLUTNode, ProbabilisticNode)
+from difflut.nodes import (
+    DWNNode,
+    DWNStableNode,
+    HybridNode,
+    LinearLUTNode,
+    PolyLUTNode,
+    ProbabilisticNode,
+)
 from difflut.nodes.utils.initializers import residual_init
 
 
@@ -180,9 +186,7 @@ class TestResidualInitPerfectPass:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_perfect_residual_first_input_only_dependency(
-        self, node_class, node_kwargs, device
-    ):
+    def test_perfect_residual_first_input_only_dependency(self, node_class, node_kwargs, device):
         """
         Test that with noise_factor=0, output depends ONLY on first input.
 
@@ -247,9 +251,7 @@ class TestResidualInitNoisyResidual:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_noisy_residual_has_noise_on_other_weights(
-        self, node_class, node_kwargs, device
-    ):
+    def test_noisy_residual_has_noise_on_other_weights(self, node_class, node_kwargs, device):
         """
         Test that with noise_factor > 0, other weights are noisy.
 
@@ -306,9 +308,7 @@ class TestResidualInitNoisyResidual:
             (PolyLUTNode, {"input_dim": 4, "output_dim": 1, "degree": 2}),
         ],
     )
-    def test_noisy_residual_maintains_correlation(
-        self, node_class, node_kwargs, device
-    ):
+    def test_noisy_residual_maintains_correlation(self, node_class, node_kwargs, device):
         """
         Test that with noise_factor > 0, first input still has high correlation with output.
 
@@ -399,8 +399,13 @@ class TestResidualInitParameterPropagation:
 
         # With noise_factor=0.0, params should be more uniform
         # With noise_factor>0.0, params should have higher variance
-        var_clean = sum(p.var().item() for p in params_clean) / len(params_clean)
-        var_noisy = sum(p.var().item() for p in params_noisy) / len(params_noisy)
+        # Suppress variance warning for single-element tensors
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*var.*degrees of freedom.*")
+            var_clean = sum(p.var().item() for p in params_clean) / len(params_clean)
+            var_noisy = sum(p.var().item() for p in params_noisy) / len(params_noisy)
 
         # Noisy should have similar or higher variance (noise adds variance)
         # Note: This depends on the parameter range, so we just check they're different
@@ -439,21 +444,15 @@ class TestResidualInitParameterPropagation:
         weight_high = node_high.weights[0, 0].item()
 
         # Weight should be proportional to 2*logit_clarity
-        assert (
-            abs(weight_low - 2.0) < 0.1
-        ), f"Expected weight ≈ 2.0, got {weight_low:.4f}"
-        assert (
-            abs(weight_high - 20.0) < 0.1
-        ), f"Expected weight ≈ 20.0, got {weight_high:.4f}"
+        assert abs(weight_low - 2.0) < 0.1, f"Expected weight ≈ 2.0, got {weight_low:.4f}"
+        assert abs(weight_high - 20.0) < 0.1, f"Expected weight ≈ 20.0, got {weight_high:.4f}"
 
         # Check bias is set to -logit_clarity
         bias_low = node_low.bias[0].item()
         bias_high = node_high.bias[0].item()
 
         assert abs(bias_low - (-1.0)) < 0.1, f"Expected bias ≈ -1.0, got {bias_low:.4f}"
-        assert (
-            abs(bias_high - (-10.0)) < 0.1
-        ), f"Expected bias ≈ -10.0, got {bias_high:.4f}"
+        assert abs(bias_high - (-10.0)) < 0.1, f"Expected bias ≈ -10.0, got {bias_high:.4f}"
 
 
 class TestResidualInitPolynomial:

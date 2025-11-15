@@ -20,9 +20,7 @@ class ThermometerEncoder(BaseEncoder):
     Example: value=0.6 with 3 bits and thresholds [0.25, 0.5, 0.75] -> [1, 1, 0]
     """
 
-    def __init__(
-        self, num_bits: int = DEFAULT_THERMOMETER_NUM_BITS, flatten: bool = True
-    ) -> None:
+    def __init__(self, num_bits: int = DEFAULT_THERMOMETER_NUM_BITS, flatten: bool = True) -> None:
         """
         Args:
             num_bits: Number of threshold bits
@@ -35,7 +33,8 @@ class ThermometerEncoder(BaseEncoder):
         # are now explicitly provided in configs. Only warn when parameters are
         # truly missing (not provided in kwargs).
 
-        self.thresholds = None
+        # Don't initialize as None - let register_buffer handle it
+        # self.thresholds = None
 
     def _compute_thresholds(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -56,9 +55,9 @@ class ThermometerEncoder(BaseEncoder):
         step_size = (max_value - min_value) / (self.num_bits + 1)
 
         # Shape: (num_features, num_bits)
-        thresholds = min_value.unsqueeze(-1) + threshold_indices.unsqueeze(
-            0
-        ) * step_size.unsqueeze(-1)
+        thresholds = min_value.unsqueeze(-1) + threshold_indices.unsqueeze(0) * step_size.unsqueeze(
+            -1
+        )
 
         return thresholds
 
@@ -85,8 +84,13 @@ class ThermometerEncoder(BaseEncoder):
             )
 
         thresholds = self._compute_thresholds(x)
-        # Register thresholds as a buffer so they move with the model via .to(device)
-        self.register_buffer("thresholds", thresholds)
+        # Register or update thresholds as a buffer so they move with the model via .to(device)
+        try:
+            # Try to copy if buffer already exists
+            self.thresholds.copy_(thresholds)
+        except AttributeError:
+            # First time - register the buffer
+            self.register_buffer("thresholds", thresholds)
         self._is_fitted = True
         return self
 
@@ -152,9 +156,9 @@ class GaussianThermometerEncoder(ThermometerEncoder):
             Threshold tensor with shape (num_features, num_bits)
         """
         # Compute quantiles for Gaussian distribution
-        quantile_positions = torch.arange(
-            1, self.num_bits + 1, device=x.device
-        ).float() / (self.num_bits + 1)
+        quantile_positions = torch.arange(1, self.num_bits + 1, device=x.device).float() / (
+            self.num_bits + 1
+        )
         std_skews = torch.distributions.Normal(0, 1).icdf(quantile_positions)
 
         # Compute mean and std per feature
@@ -163,9 +167,7 @@ class GaussianThermometerEncoder(ThermometerEncoder):
 
         # Compute thresholds: threshold = mean + std_skew * std
         # Shape: (num_features, num_bits)
-        thresholds = torch.stack(
-            [std_skew * std + mean for std_skew in std_skews], dim=-1
-        )
+        thresholds = torch.stack([std_skew * std + mean for std_skew in std_skews], dim=-1)
 
         return thresholds
 
@@ -198,10 +200,7 @@ class DistributiveThermometerEncoder(ThermometerEncoder):
 
         # Compute indices for quantiles
         indices = torch.tensor(
-            [
-                int(num_samples * i / (self.num_bits + 1))
-                for i in range(1, self.num_bits + 1)
-            ],
+            [int(num_samples * i / (self.num_bits + 1)) for i in range(1, self.num_bits + 1)],
             device=x.device,
         )
 

@@ -361,9 +361,7 @@ class HybridNode(BaseNode):
         x_binary = x.float()
 
         # Compute LUT indices from binary inputs
-        powers = 2 ** torch.arange(
-            self.num_inputs, device=x.device, dtype=torch.float32
-        )
+        powers = 2 ** torch.arange(self.num_inputs, device=x.device, dtype=torch.float32)
         indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
 
         # Look up LUT values: luts is (output_dim, lut_size)

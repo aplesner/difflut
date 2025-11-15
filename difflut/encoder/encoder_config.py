@@ -133,9 +133,7 @@ class EncoderConfig:
         flatten = data.get("flatten", True)
 
         # Everything else goes to extra_params
-        extra_params = {
-            k: v for k, v in data.items() if k not in ("name", "num_bits", "flatten")
-        }
+        extra_params = {k: v for k, v in data.items() if k not in ("name", "num_bits", "flatten")}
 
         return EncoderConfig(
             name=name,

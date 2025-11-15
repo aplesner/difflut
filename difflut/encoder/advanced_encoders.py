@@ -49,8 +49,9 @@ class GrayEncoder(BaseEncoder):
         if flatten == True:
             warn_default_value("flatten (GrayEncoder)", flatten, stacklevel=2)
 
-        self.min_value = None
-        self.max_value = None
+        # Don't initialize as None - let register_buffer handle it
+        # self.min_value = None
+        # self.max_value = None
         self.max_int = (2**num_bits) - 1
 
     def _binary_to_gray(self, binary: torch.Tensor) -> torch.Tensor:
@@ -83,9 +84,15 @@ class GrayEncoder(BaseEncoder):
 
         min_value = x.min(dim=0)[0]
         max_value = x.max(dim=0)[0]
-        # Register as buffers so they move with the model via .to(device)
-        self.register_buffer("min_value", min_value)
-        self.register_buffer("max_value", max_value)
+        # Register or update as buffers so they move with the model via .to(device)
+        try:
+            # Try to copy if buffers already exist
+            self.min_value.copy_(min_value)
+            self.max_value.copy_(max_value)
+        except AttributeError:
+            # First time - register the buffers
+            self.register_buffer("min_value", min_value)
+            self.register_buffer("max_value", max_value)
 
         self._is_fitted = True
         return self
@@ -148,7 +155,8 @@ class OneHotEncoder(BaseEncoder):
         if flatten == True:
             warn_default_value("flatten (OneHotEncoder)", flatten, stacklevel=2)
 
-        self.bin_edges = None
+        # Don't initialize as None - let register_buffer handle it
+        # self.bin_edges = None
 
     def fit(self, x: torch.Tensor) -> "OneHotEncoder":
         """
@@ -168,15 +176,18 @@ class OneHotEncoder(BaseEncoder):
         # Shape: (num_features, num_bits + 1)
         bin_edges = torch.stack(
             [
-                torch.linspace(
-                    min_val[i], max_val[i], self.num_bits + 1, device=x.device
-                )
+                torch.linspace(min_val[i], max_val[i], self.num_bits + 1, device=x.device)
                 for i in range(x.shape[1])
             ],
             dim=0,
         )
-        # Register bin_edges as a buffer so it moves with the model via .to(device)
-        self.register_buffer("bin_edges", bin_edges)
+        # Register or update bin_edges as a buffer so it moves with the model via .to(device)
+        try:
+            # Try to copy if buffer already exists
+            self.bin_edges.copy_(bin_edges)
+        except AttributeError:
+            # First time - register the buffer
+            self.register_buffer("bin_edges", bin_edges)
 
         self._is_fitted = True
         return self
@@ -203,9 +214,7 @@ class OneHotEncoder(BaseEncoder):
         for i in range(x.shape[1]):
             bins = torch.bucketize(x[:, i], self.bin_edges[i][1:-1])
             bins = torch.clamp(bins, 0, self.num_bits - 1)
-            encoded[:, i, :] = torch.nn.functional.one_hot(
-                bins, num_classes=self.num_bits
-            ).float()
+            encoded[:, i, :] = torch.nn.functional.one_hot(bins, num_classes=self.num_bits).float()
 
         # Flatten if requested
         if self.flatten:
@@ -240,8 +249,9 @@ class BinaryEncoder(BaseEncoder):
         if flatten == True:
             warn_default_value("flatten (BinaryEncoder)", flatten, stacklevel=2)
 
-        self.min_value = None
-        self.max_value = None
+        # Don't initialize as None - let register_buffer handle it
+        # self.min_value = None
+        # self.max_value = None
         self.max_int = (2**num_bits) - 1
 
     def fit(self, x: torch.Tensor) -> "BinaryEncoder":
@@ -258,9 +268,15 @@ class BinaryEncoder(BaseEncoder):
 
         min_value = x.min(dim=0)[0]
         max_value = x.max(dim=0)[0]
-        # Register as buffers so they move with the model via .to(device)
-        self.register_buffer("min_value", min_value)
-        self.register_buffer("max_value", max_value)
+        # Register or update as buffers so they move with the model via .to(device)
+        try:
+            # Try to copy if buffers already exist
+            self.min_value.copy_(min_value)
+            self.max_value.copy_(max_value)
+        except AttributeError:
+            # First time - register the buffers
+            self.register_buffer("min_value", min_value)
+            self.register_buffer("max_value", max_value)
 
         self._is_fitted = True
         return self
@@ -323,14 +339,13 @@ class SignMagnitudeEncoder(BaseEncoder):
 
         # Warn if using defaults for this specific encoder
         if num_bits == 8:
-            warn_default_value(
-                "num_bits (SignMagnitudeEncoder)", num_bits, stacklevel=2
-            )
+            warn_default_value("num_bits (SignMagnitudeEncoder)", num_bits, stacklevel=2)
         if flatten == True:
             warn_default_value("flatten (SignMagnitudeEncoder)", flatten, stacklevel=2)
 
         assert num_bits >= 2, "num_bits must be at least 2 for sign-magnitude encoding"
-        self.max_abs_value = None
+        # Don't initialize as None - let register_buffer handle it
+        # self.max_abs_value = None
         self.magnitude_bits = num_bits - 1
         self.max_int = (2**self.magnitude_bits) - 1
 
@@ -347,8 +362,13 @@ class SignMagnitudeEncoder(BaseEncoder):
         x = self._to_tensor(x)
 
         max_abs_value = x.abs().max(dim=0)[0]
-        # Register as buffer so it moves with the model via .to(device)
-        self.register_buffer("max_abs_value", max_abs_value)
+        # Register or update as buffer so it moves with the model via .to(device)
+        try:
+            # Try to copy if buffer already exists
+            self.max_abs_value.copy_(max_abs_value)
+        except AttributeError:
+            # First time - register the buffer
+            self.register_buffer("max_abs_value", max_abs_value)
 
         self._is_fitted = True
         return self
@@ -424,9 +444,10 @@ class LogarithmicEncoder(BaseEncoder):
 
         assert base > 0 and base != 1, "base must be positive and not equal to 1"
         self.base = base
-        self.min_log = None
-        self.max_log = None
-        self.offset = None  # To handle negative values
+        # Don't initialize as None - let register_buffer handle it
+        # self.min_log = None
+        # self.max_log = None
+        # self.offset = None  # To handle negative values
         self.max_int = (2**num_bits) - 1
 
     def fit(self, x: torch.Tensor) -> "LogarithmicEncoder":
@@ -453,10 +474,17 @@ class LogarithmicEncoder(BaseEncoder):
         min_log = x_log.min(dim=0)[0]
         max_log = x_log.max(dim=0)[0]
 
-        # Register as buffers so they move with the model via .to(device)
-        self.register_buffer("offset", offset)
-        self.register_buffer("min_log", min_log)
-        self.register_buffer("max_log", max_log)
+        # Register or update as buffers so they move with the model via .to(device)
+        try:
+            # Try to copy if buffers already exist
+            self.offset.copy_(offset)
+            self.min_log.copy_(min_log)
+            self.max_log.copy_(max_log)
+        except AttributeError:
+            # First time - register the buffers
+            self.register_buffer("offset", offset)
+            self.register_buffer("min_log", min_log)
+            self.register_buffer("max_log", max_log)
 
         self._is_fitted = True
         return self

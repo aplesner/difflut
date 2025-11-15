@@ -65,9 +65,7 @@ class GroupSum(nn.Module):
         # Set use_randperm with default and warning
         if use_randperm is None:
             self.use_randperm = DEFAULT_GROUPSUM_USE_RANDPERM
-            warn_default_value(
-                "use_randperm (GroupSum)", self.use_randperm, stacklevel=2
-            )
+            warn_default_value("use_randperm (GroupSum)", self.use_randperm, stacklevel=2)
         else:
             self.use_randperm = use_randperm
 
@@ -98,9 +96,7 @@ class GroupSum(nn.Module):
         batch_size, num_features = x.shape
 
         if batch_size == 0:
-            raise ValueError(
-                f"GroupSum requires non-empty batch, got batch_size={batch_size}"
-            )
+            raise ValueError(f"GroupSum requires non-empty batch, got batch_size={batch_size}")
 
         if num_features == 0:
             raise ValueError(

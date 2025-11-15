@@ -22,6 +22,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DefaultValueWarning)
 warnings.filterwarnings("ignore", category=CUDAWarning)
 
+# Suppress layer configuration warnings about unused inputs
+warnings.filterwarnings("ignore", message=".*Creating only.*node inputs from.*input features.*")
+
 
 @pytest.mark.parametrize("seed", [42, 43, 44, 45, 100])
 def test_grouped_connections_coverage(seed, device):
@@ -92,9 +95,7 @@ def test_grouped_connections_coverage(seed, device):
         mapping_grouped_tree = conv_layer_grouped.trees[tree_idx][0]._mapping_indices
         all_indices_grouped.append(mapping_grouped_tree)
 
-        mapping_nongrouped_tree = conv_layer_nongrouped.trees[tree_idx][
-            0
-        ]._mapping_indices
+        mapping_nongrouped_tree = conv_layer_nongrouped.trees[tree_idx][0]._mapping_indices
         all_indices_nongrouped.append(mapping_nongrouped_tree)
 
     # Concatenate all indices from all trees
@@ -109,9 +110,7 @@ def test_grouped_connections_coverage(seed, device):
     channel_coverage_grouped = (all_indices_grouped.flatten() // 9).unique().numel()
 
     # Calculate channel coverage for non-grouped connections
-    channel_coverage_nongrouped = (
-        (all_indices_nongrouped.flatten() // 9).unique().numel()
-    )
+    channel_coverage_nongrouped = (all_indices_nongrouped.flatten() // 9).unique().numel()
 
     # Grouped connections should cover all 64 channels
     assert channel_coverage_grouped == 64, (
@@ -173,14 +172,11 @@ def test_grouped_connections_forward_pass(seed):
     # Verify output shape: (batch_size, out_channels, out_height, out_width)
     expected_output_shape = (4, 16, 14, 14)
     assert output.shape == expected_output_shape, (
-        f"Seed {seed}: Expected output shape {expected_output_shape}, "
-        f"got {output.shape}"
+        f"Seed {seed}: Expected output shape {expected_output_shape}, " f"got {output.shape}"
     )
 
     # Verify output contains valid values (not NaN or Inf)
-    assert torch.isfinite(
-        output
-    ).all(), f"Seed {seed}: Output contains NaN or Inf values"
+    assert torch.isfinite(output).all(), f"Seed {seed}: Output contains NaN or Inf values"
 
 
 @pytest.mark.parametrize("seed", [42, 43])
@@ -232,9 +228,7 @@ def test_grouped_connections_gradient_flow(seed):
     assert (
         input_tensor.grad is not None
     ), f"Seed {seed}: Input tensor should have gradients after backward pass"
-    assert not torch.all(
-        input_tensor.grad == 0
-    ), f"Seed {seed}: All input gradients are zero"
+    assert not torch.all(input_tensor.grad == 0), f"Seed {seed}: All input gradients are zero"
 
     # Check that layer parameters have gradients
     param_count = 0

@@ -8,8 +8,7 @@ Uses pytest parametrization for comprehensive testing.
 import pytest
 import torch
 import torch.nn as nn
-from testing_utils import (assert_gradients_exist, assert_shape_equal,
-                           generate_uniform_input)
+from testing_utils import assert_gradients_exist, assert_shape_equal, generate_uniform_input
 
 # ============================================================================
 # GroupSum Module Tests
@@ -43,9 +42,7 @@ class TestGroupSum:
         # Group 1: [2, 2, 2, 2] -> sum = 8
         groupsum = GroupSum(k=2, tau=1.0, use_randperm=False).to(device)
 
-        input_tensor = torch.tensor(
-            [[1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]], device=device
-        )
+        input_tensor = torch.tensor([[1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]], device=device)
 
         output = groupsum(input_tensor)
 
@@ -58,9 +55,7 @@ class TestGroupSum:
         from difflut.heads import GroupSum
 
         # Create input: [4, 4] -> with different tau values
-        input_tensor = torch.tensor(
-            [[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]], device=device
-        )
+        input_tensor = torch.tensor([[1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]], device=device)
 
         groupsum = GroupSum(k=2, tau=tau, use_randperm=False).to(device)
         output = groupsum(input_tensor)
@@ -139,6 +134,8 @@ class TestGroupSum:
 
     def test_uneven_grouping(self, device):
         """Test GroupSum with non-divisible feature counts (should pad or handle)."""
+        import warnings
+
         from difflut.heads import GroupSum
 
         # k=3 groups, 10 features -> not evenly divisible
@@ -147,7 +144,10 @@ class TestGroupSum:
         input_tensor = generate_uniform_input((4, 10), seed=42).to(device)
 
         # Should still work (either by padding or other strategy)
-        output = groupsum(input_tensor)
+        # Suppress the expected padding warning
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message=".*not divisible by k.*")
+            output = groupsum(input_tensor)
 
         # Output should still be (batch_size, k)
         assert output.shape[0] == 4

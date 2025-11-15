@@ -86,9 +86,7 @@ class BaseLUTBlock(ABC, nn.Module):
 
         # Validate config
         if not isinstance(config, BlockConfig):
-            raise TypeError(
-                f"config must be a BlockConfig instance, got {type(config).__name__}"
-            )
+            raise TypeError(f"config must be a BlockConfig instance, got {type(config).__name__}")
 
         self.config = config
 
@@ -111,9 +109,7 @@ class BaseLUTBlock(ABC, nn.Module):
         """
         raise NotImplementedError("Subclasses must implement forward()")
 
-    def apply_runtime_overrides(
-        self, overrides: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def apply_runtime_overrides(self, overrides: Optional[Dict[str, Any]] = None) -> None:
         """
         Apply runtime-only parameter overrides.
 

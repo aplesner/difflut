@@ -11,8 +11,7 @@ Tests specific to convolutional model behavior:
 
 import pytest
 import torch
-from testing_utils import (IgnoreWarnings, assert_gradients_exist,
-                           generate_uniform_input)
+from testing_utils import IgnoreWarnings, assert_gradients_exist, generate_uniform_input
 
 from difflut.models import ModelConfig, SimpleConvolutional
 
@@ -70,9 +69,7 @@ class TestSimpleConvolutionalBasics:
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config).to(device)
             # Input: (batch, channels, height, width) - reduced to 1 channel, 8x8
-            data = generate_uniform_input((4, 1, 8, 8)).to(
-                device
-            )  # Reduced batch and size
+            data = generate_uniform_input((4, 1, 8, 8)).to(device)  # Reduced batch and size
 
             assert not model.encoder_fitted
             model.fit_encoder(data)
@@ -86,9 +83,7 @@ class TestSimpleConvolutionalBasics:
             model.fit_encoder(data)
 
             # Forward pass
-            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(
-                device
-            )  # Match new config
+            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(device)  # Match new config
             with torch.no_grad():
                 output = model(batch)
 
@@ -104,9 +99,7 @@ class TestSimpleConvolutionalBasics:
             model.fit_encoder(data)
 
             model.train()
-            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(
-                device
-            )  # Match new config
+            batch = generate_uniform_input((2, 1, 8, 8), seed=42).to(device)  # Match new config
             batch = batch.requires_grad_(True)
 
             output = model(batch)
@@ -130,9 +123,7 @@ class TestSimpleConvolutionalBasics:
             model_gpu = model_gpu.cuda()
 
             # Fit encoders - match new config
-            data_cpu = generate_uniform_input(
-                (4, 1, 8, 8), seed=42
-            ).cpu()  # Match new config
+            data_cpu = generate_uniform_input((4, 1, 8, 8), seed=42).cpu()  # Match new config
             data_gpu = generate_uniform_input(
                 (4, 1, 8, 8), seed=42
             ).cuda()  # Same seed for same data
@@ -144,9 +135,7 @@ class TestSimpleConvolutionalBasics:
             model_cpu.eval()
             model_gpu.eval()
 
-            input_cpu = generate_uniform_input(
-                (2, 1, 8, 8), seed=123
-            ).cpu()  # Match new config
+            input_cpu = generate_uniform_input((2, 1, 8, 8), seed=123).cpu()  # Match new config
             input_gpu = generate_uniform_input(
                 (2, 1, 8, 8), seed=123
             ).cuda()  # Same seed for same data
@@ -203,9 +192,7 @@ class TestSimpleConvolutionalInputSizes:
             )  # Reduced batch
             model.fit_encoder(data)
 
-            batch = generate_uniform_input((2, channels, image_size, image_size)).to(
-                device
-            )
+            batch = generate_uniform_input((2, channels, image_size, image_size)).to(device)
             with torch.no_grad():
                 output = model(batch)
 

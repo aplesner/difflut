@@ -68,8 +68,7 @@ class Registry:
         """
         if name not in self._nodes:
             raise ValueError(
-                f"Node '{name}' not found. "
-                f"Available nodes: {list(self._nodes.keys())}"
+                f"Node '{name}' not found. " f"Available nodes: {list(self._nodes.keys())}"
             )
         return self._nodes[name]
 
@@ -122,8 +121,7 @@ class Registry:
         """
         if name not in self._layers:
             raise ValueError(
-                f"Layer '{name}' not found. "
-                f"Available layers: {list(self._layers.keys())}"
+                f"Layer '{name}' not found. " f"Available layers: {list(self._layers.keys())}"
             )
         return self._layers[name]
 
@@ -178,8 +176,7 @@ class Registry:
         """
         if name not in self._blocks:
             raise ValueError(
-                f"Block '{name}' not found. "
-                f"Available blocks: {list(self._blocks.keys())}"
+                f"Block '{name}' not found. " f"Available blocks: {list(self._blocks.keys())}"
             )
         return self._blocks[name]
 
@@ -232,8 +229,7 @@ class Registry:
         """
         if name not in self._encoders:
             raise ValueError(
-                f"Encoder '{name}' not found. "
-                f"Available encoders: {list(self._encoders.keys())}"
+                f"Encoder '{name}' not found. " f"Available encoders: {list(self._encoders.keys())}"
             )
         return self._encoders[name]
 
@@ -472,8 +468,7 @@ class Registry:
         """
         if name not in self._models:
             raise ValueError(
-                f"Model '{name}' not found. "
-                f"Available models: {list(self._models.keys())}"
+                f"Model '{name}' not found. " f"Available models: {list(self._models.keys())}"
             )
         return self._models[name]
 

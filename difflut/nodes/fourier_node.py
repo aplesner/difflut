@@ -94,9 +94,7 @@ class FourierFunction(torch.autograd.Function):
     @staticmethod
     def backward(
         ctx: torch.autograd.function.FunctionCtx, grad_output: torch.Tensor
-    ) -> Tuple[
-        torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None, None
-    ]:
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, None, None]:
         """
         Backward pass using CUDA kernel with 2D tensors.
 
@@ -115,10 +113,8 @@ class FourierFunction(torch.autograd.Function):
         grad_output = grad_output.contiguous().float()
 
         # Call CUDA backward kernel
-        grad_input, grad_amplitudes, grad_phases, grad_bias = (
-            _fourier_cuda_module.backward(
-                input, frequencies, amplitudes, phases, grad_output, max_amplitude
-            )
+        grad_input, grad_amplitudes, grad_phases, grad_bias = _fourier_cuda_module.backward(
+            input, frequencies, amplitudes, phases, grad_output, max_amplitude
         )
 
         # Return gradients (None for frequencies and max_amplitude as they don't need gradients)
@@ -170,9 +166,7 @@ def fourier_forward(
         # x_processed: (batch_size, num_inputs)
         # frequencies: (num_freq, num_inputs)
         # Result: (batch_size, num_freq)
-        dot_products = torch.matmul(
-            x_processed, frequencies.t()
-        )  # (batch_size, num_freq)
+        dot_products = torch.matmul(x_processed, frequencies.t())  # (batch_size, num_freq)
 
         # Compute angles: 2π * <k, x>
         angles = 2 * np.pi * dot_products  # (batch_size, num_freq)
@@ -239,9 +233,7 @@ class FourierNode(BaseNode):
         use_cuda: bool = DEFAULT_FOURIER_USE_CUDA,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[
-            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
-        ] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
     ) -> None:
         """
         Args:
@@ -313,9 +305,7 @@ class FourierNode(BaseNode):
             # This gives angles in {0, π, 2π, ...} instead of {0, 2π, 4π, ...}
             frequencies = []
             for i in range(2**self.num_inputs):
-                k = [
-                    0.5 * ((i >> j) & 1) for j in reversed(range(self.num_inputs))
-                ]  # Scale by 0.5
+                k = [0.5 * ((i >> j) & 1) for j in reversed(range(self.num_inputs))]  # Scale by 0.5
                 frequencies.append(k)
             frequencies = torch.tensor(frequencies, dtype=torch.float32)
         else:
@@ -331,9 +321,7 @@ class FourierNode(BaseNode):
         # Shape: (num_frequencies, output_dim)
 
         # Amplitudes (always positive) - create with defaults, then apply init_fn if provided
-        self.amplitudes = nn.Parameter(
-            torch.rand(self.num_frequencies, self.num_outputs) * 0.1
-        )
+        self.amplitudes = nn.Parameter(torch.rand(self.num_frequencies, self.num_outputs) * 0.1)
         self._apply_init_fn(self.amplitudes, name="amplitudes")
 
         # Phases (in radians)
@@ -373,9 +361,7 @@ class FourierNode(BaseNode):
         # amplitudes: (num_frequencies, output_dim)
         # Σ|w_k| ≤ max_amplitude
         normalized_amplitudes = (
-            self.amplitudes
-            / (self.amplitudes.sum(dim=0, keepdim=True) + 1e-8)
-            * self.max_amplitude
+            self.amplitudes / (self.amplitudes.sum(dim=0, keepdim=True) + 1e-8) * self.max_amplitude
         )
 
         # Compute: Σ_k |w_k| * cos(2π * <k, x> + φ_k)
@@ -499,9 +485,7 @@ class FourierNode(BaseNode):
         with torch.no_grad():
             # Average amplitude across output dimensions
             avg_amplitudes = self.amplitudes.mean(dim=1)
-            top_indices = torch.topk(
-                avg_amplitudes, min(top_k, self.num_frequencies)
-            ).indices
+            top_indices = torch.topk(avg_amplitudes, min(top_k, self.num_frequencies)).indices
             return self.frequencies[top_indices]
 
     def extra_repr(self) -> str:

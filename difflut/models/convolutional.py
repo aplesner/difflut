@@ -111,9 +111,7 @@ class SimpleConvolutional(BaseLUTModel):
         super().__init__(config)
 
         # Setup encoder - get from params dict
-        encoder_config_data = config.params.get(
-            "encoder_config", DEFAULT_ENCODER_CONFIG
-        )
+        encoder_config_data = config.params.get("encoder_config", DEFAULT_ENCODER_CONFIG)
         if encoder_config_data == DEFAULT_ENCODER_CONFIG:
             warn_default_value("encoder_config", encoder_config_data, stacklevel=2)
 
@@ -157,9 +155,7 @@ class SimpleConvolutional(BaseLUTModel):
         self.encoded_input_size = None
 
         # Convolutional parameters from params dict
-        self.conv_kernel_size = config.params.get(
-            "conv_kernel_size", DEFAULT_CONV_KERNEL_SIZE
-        )
+        self.conv_kernel_size = config.params.get("conv_kernel_size", DEFAULT_CONV_KERNEL_SIZE)
         if (
             self.conv_kernel_size == DEFAULT_CONV_KERNEL_SIZE
             and "conv_kernel_size" not in config.params
@@ -167,26 +163,18 @@ class SimpleConvolutional(BaseLUTModel):
             warn_default_value("conv_kernel_size", self.conv_kernel_size, stacklevel=2)
 
         self.conv_stride = config.params.get("conv_stride", DEFAULT_CONV_STRIDE)
-        if (
-            self.conv_stride == DEFAULT_CONV_STRIDE
-            and "conv_stride" not in config.params
-        ):
+        if self.conv_stride == DEFAULT_CONV_STRIDE and "conv_stride" not in config.params:
             warn_default_value("conv_stride", self.conv_stride, stacklevel=2)
 
         self.conv_padding = config.params.get("conv_padding", DEFAULT_CONV_PADDING)
-        if (
-            self.conv_padding == DEFAULT_CONV_PADDING
-            and "conv_padding" not in config.params
-        ):
+        if self.conv_padding == DEFAULT_CONV_PADDING and "conv_padding" not in config.params:
             warn_default_value("conv_padding", self.conv_padding, stacklevel=2)
 
         # Output layer (GroupSum)
         output_tau = config.runtime.get("output_tau", DEFAULT_OUTPUT_TAU)
         if output_tau == DEFAULT_OUTPUT_TAU and "output_tau" not in config.runtime:
             warn_default_value("output_tau", output_tau, stacklevel=2)
-        self.output_layer = GroupSum(
-            k=self.num_classes, tau=output_tau, use_randperm=False
-        )
+        self.output_layer = GroupSum(k=self.num_classes, tau=output_tau, use_randperm=False)
 
     def fit_encoder(self, data: torch.Tensor):
         """
@@ -208,10 +196,7 @@ class SimpleConvolutional(BaseLUTModel):
         if data.dim() >= 3:
             actual_channels = data.shape[1]
             # Only warn if config had explicit channel mismatch (not from flattened size)
-            if (
-                isinstance(self.input_size, (tuple, list))
-                and self.in_channels != actual_channels
-            ):
+            if isinstance(self.input_size, (tuple, list)) and self.in_channels != actual_channels:
                 print(
                     f"Warning: Input channels mismatch. "
                     f"Config: {self.in_channels}, Data: {actual_channels}"
@@ -223,9 +208,7 @@ class SimpleConvolutional(BaseLUTModel):
         self.encoder = self.encoder.to(data.device)
 
         # Fit encoder
-        print(
-            f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}..."
-        )
+        print(f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}...")
         self.encoder.fit(data_flat)
 
         # Get encoded size by encoding a sample
@@ -279,10 +262,7 @@ class SimpleConvolutional(BaseLUTModel):
             warn_default_value("node_type", node_type, stacklevel=2)
 
         node_input_dim = config.params.get("node_input_dim", DEFAULT_NODE_INPUT_DIM)
-        if (
-            node_input_dim == DEFAULT_NODE_INPUT_DIM
-            and "node_input_dim" not in config.params
-        ):
+        if node_input_dim == DEFAULT_NODE_INPUT_DIM and "node_input_dim" not in config.params:
             warn_default_value("node_input_dim", node_input_dim, stacklevel=2)
 
         layer_class = REGISTRY.get_layer(layer_type)
@@ -298,11 +278,14 @@ class SimpleConvolutional(BaseLUTModel):
         )
 
         # Get layer widths (output channels for each conv layer)
-        conv_layer_widths = config.params.get(
-            "conv_layer_widths", DEFAULT_CONV_LAYER_WIDTHS
+        # Check runtime first (conv-specific parameters), then params (shared parameters)
+        conv_layer_widths = runtime.get(
+            "conv_layer_widths",
+            config.params.get("conv_layer_widths", DEFAULT_CONV_LAYER_WIDTHS),
         )
         if (
             conv_layer_widths == DEFAULT_CONV_LAYER_WIDTHS
+            and "conv_layer_widths" not in runtime
             and "conv_layer_widths" not in config.params
         ):
             warn_default_value("conv_layer_widths", conv_layer_widths, stacklevel=2)
@@ -343,9 +326,7 @@ class SimpleConvolutional(BaseLUTModel):
                 node_kwargs=node_kwargs.to_dict(),
                 layer_config=layer_cfg.to_dict() if layer_cfg else {},
                 flip_probability=layer_cfg.flip_probability if layer_cfg else 0.0,
-                grad_stabilization=(
-                    layer_cfg.grad_stabilization if layer_cfg else "none"
-                ),
+                grad_stabilization=(layer_cfg.grad_stabilization if layer_cfg else "none"),
                 grad_target_std=layer_cfg.grad_target_std if layer_cfg else 1.0,
                 grad_subtract_mean=layer_cfg.grad_subtract_mean if layer_cfg else False,
                 grad_epsilon=layer_cfg.grad_epsilon if layer_cfg else 1e-8,
@@ -369,9 +350,7 @@ class SimpleConvolutional(BaseLUTModel):
         # Also move output_layer to same device
         self.output_layer = self.output_layer.to(device)
 
-        print(
-            f"Built {len(self.conv_layers)} convolutional layers with widths {conv_layer_widths}"
-        )
+        print(f"Built {len(self.conv_layers)} convolutional layers with widths {conv_layer_widths}")
 
     def _build_node_config(self, fan_in: int, fan_out: float) -> NodeConfig:
         """
@@ -450,9 +429,7 @@ class SimpleConvolutional(BaseLUTModel):
 
         elif node_type == "fourier":
             # No use_cuda - device determines kernel selection
-            extra_params["use_all_frequencies"] = runtime.get(
-                "use_all_frequencies", True
-            )
+            extra_params["use_all_frequencies"] = runtime.get("use_all_frequencies", True)
             extra_params["max_amplitude"] = runtime.get("max_amplitude", 0.5)
 
         elif node_type == "neurallut":
@@ -556,9 +533,7 @@ class SimpleConvolutional(BaseLUTModel):
                 dtype=x_encoded.dtype,
             )
             x_encoded_padded[:, :encoded_size] = x_encoded
-            x = x_encoded_padded.view(
-                batch_size, self.in_channels, spatial_h, spatial_w
-            )
+            x = x_encoded_padded.view(batch_size, self.in_channels, spatial_h, spatial_w)
         else:
             x = x_encoded.view(batch_size, self.in_channels, spatial_h, spatial_w)
         # Pass through convolutional layers

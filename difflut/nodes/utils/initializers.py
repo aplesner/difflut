@@ -191,9 +191,7 @@ def kaiming_uniform_init(
     if mode == DEFAULT_KAIMING_MODE:
         warn_default_value("mode (kaiming_uniform_init)", mode, stacklevel=3)
     if nonlinearity == DEFAULT_KAIMING_NONLINEARITY:
-        warn_default_value(
-            "nonlinearity (kaiming_uniform_init)", nonlinearity, stacklevel=3
-        )
+        warn_default_value("nonlinearity (kaiming_uniform_init)", nonlinearity, stacklevel=3)
 
     gain = nn.init.calculate_gain(nonlinearity, a)
 
@@ -238,9 +236,7 @@ def kaiming_normal_init(
     if mode == DEFAULT_KAIMING_MODE:
         warn_default_value("mode (kaiming_normal_init)", mode, stacklevel=3)
     if nonlinearity == DEFAULT_KAIMING_NONLINEARITY:
-        warn_default_value(
-            "nonlinearity (kaiming_normal_init)", nonlinearity, stacklevel=3
-        )
+        warn_default_value("nonlinearity (kaiming_normal_init)", nonlinearity, stacklevel=3)
 
     gain = nn.init.calculate_gain(nonlinearity, a)
 
@@ -278,17 +274,11 @@ def variance_stabilized_init(
     - **kwargs: Any, Unused, for API consistency
     """
     if v_target == DEFAULT_VARIANCE_STABILIZED_V_TARGET:
-        warn_default_value(
-            "v_target (variance_stabilized_init)", v_target, stacklevel=3
-        )
+        warn_default_value("v_target (variance_stabilized_init)", v_target, stacklevel=3)
     if fan_in is None:
-        warn_default_value(
-            "fan_in (variance_stabilized_init)", "inferred", stacklevel=3
-        )
+        warn_default_value("fan_in (variance_stabilized_init)", "inferred", stacklevel=3)
     if fan_out is None:
-        warn_default_value(
-            "fan_out (variance_stabilized_init)", "inferred", stacklevel=3
-        )
+        warn_default_value("fan_out (variance_stabilized_init)", "inferred", stacklevel=3)
 
     # Infer fan_in and fan_out from parameter shape if not provided
     if fan_in is None or fan_out is None:
@@ -828,9 +818,7 @@ def residual_init(
 
     elif node_type_lower == "polylut":
         if monomial_combinations is None:
-            raise ValueError(
-                "residual_init for polylut nodes requires 'monomial_combinations'"
-            )
+            raise ValueError("residual_init for polylut nodes requires 'monomial_combinations'")
         _residual_init_polynomial(
             param,
             monomial_combinations=monomial_combinations,
@@ -856,9 +844,7 @@ def residual_init(
 
     elif node_type_lower == "fourier":
         if num_frequencies is None:
-            raise ValueError(
-                "residual_init for fourier nodes requires 'num_frequencies'"
-            )
+            raise ValueError("residual_init for fourier nodes requires 'num_frequencies'")
         if param_name is None:
             raise ValueError("residual_init for fourier nodes requires 'param_name'")
         _residual_init_fourier(

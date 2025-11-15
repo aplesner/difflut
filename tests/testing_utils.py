@@ -95,9 +95,7 @@ def generate_uniform_input(
 
 def assert_shape_equal(actual: torch.Tensor, expected: Tuple[int, ...], msg: str = ""):
     """Assert tensor shape matches expected."""
-    assert (
-        actual.shape == expected
-    ), f"Shape mismatch: {actual.shape} != {expected}. {msg}"
+    assert actual.shape == expected, f"Shape mismatch: {actual.shape} != {expected}. {msg}"
 
 
 def assert_range(
@@ -121,12 +119,8 @@ def assert_range(
     actual_max = tensor.max().item()
     tolerance = rtol * (max_val - min_val)
 
-    assert (
-        actual_min >= min_val - tolerance
-    ), f"Min value {actual_min} < {min_val}. {msg}"
-    assert (
-        actual_max <= max_val + tolerance
-    ), f"Max value {actual_max} > {max_val}. {msg}"
+    assert actual_min >= min_val - tolerance, f"Min value {actual_min} < {min_val}. {msg}"
+    assert actual_max <= max_val + tolerance, f"Max value {actual_max} > {max_val}. {msg}"
 
 
 def assert_gradients_exist(module: nn.Module, msg: str = ""):
@@ -141,9 +135,7 @@ def assert_gradients_exist(module: nn.Module, msg: str = ""):
     for param in module.parameters():
         if param.grad is not None:
             has_grads = True
-            assert (
-                param.grad.abs().sum().item() > 0
-            ), f"Found zero gradient for parameter. {msg}"
+            assert param.grad.abs().sum().item() > 0, f"Found zero gradient for parameter. {msg}"
     assert has_grads, f"No gradients found in module. {msg}"
 
 
@@ -260,11 +252,7 @@ def compute_numerical_gradient(
             output_plus = module(input_plus)
         if isinstance(output_plus, tuple):
             output_plus = output_plus[0]
-        f_plus = (
-            output_plus.sum()
-            if output_index is None
-            else output_plus.view(-1)[output_index]
-        )
+        f_plus = output_plus.sum() if output_index is None else output_plus.view(-1)[output_index]
 
         # Compute f(x - eps)
         input_minus = input_tensor.clone()
@@ -274,9 +262,7 @@ def compute_numerical_gradient(
         if isinstance(output_minus, tuple):
             output_minus = output_minus[0]
         f_minus = (
-            output_minus.sum()
-            if output_index is None
-            else output_minus.view(-1)[output_index]
+            output_minus.sum() if output_index is None else output_minus.view(-1)[output_index]
         )
 
         # Finite difference

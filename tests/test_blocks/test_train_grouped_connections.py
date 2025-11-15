@@ -26,6 +26,9 @@ warnings.filterwarnings("ignore", category=RuntimeWarning)
 warnings.filterwarnings("ignore", category=DefaultValueWarning)
 warnings.filterwarnings("ignore", category=CUDAWarning)
 
+# Suppress layer configuration warnings about unused inputs
+warnings.filterwarnings("ignore", message=".*Creating only.*node inputs from.*input features.*")
+
 
 IN_CHANNELS = 128
 OUT_CHANNELS = 32
@@ -120,9 +123,7 @@ def create_single_channel_pattern_dataset(
     return images, labels
 
 
-def train_model(
-    model, train_images, train_labels, num_epochs=20, lr=0.01, device="cuda"
-):
+def train_model(model, train_images, train_labels, num_epochs=20, lr=0.01, device="cuda"):
     """Train model and return final training accuracy."""
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -148,9 +149,7 @@ def train_model(
             if param.grad is not None:
                 grad_norm += param.grad.norm().item()
 
-        assert (
-            grad_norm > 0.0
-        ), f"Epoch {epoch+1}: Gradients are zero! Gradient flow is broken."
+        assert grad_norm > 0.0, f"Epoch {epoch+1}: Gradients are zero! Gradient flow is broken."
 
         optimizer.step()
 
@@ -305,9 +304,7 @@ def test_grouped_connections_learning(
 
     # Verify accuracy is in expected range
     config_name = (
-        "WITH grouped connections"
-        if use_grouped_connections
-        else "WITHOUT grouped connections"
+        "WITH grouped connections" if use_grouped_connections else "WITHOUT grouped connections"
     )
 
     assert test_accuracy >= expected_min_accuracy, (

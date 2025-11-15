@@ -81,9 +81,7 @@ class EFDFunction(torch.autograd.Function):
         - beta: float, scalar float for Hamming distance decay
         """
         if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
-            raise RuntimeError(
-                "CUDA extension not available. Please compile efd_cuda extension."
-            )
+            raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
 
         # Ensure correct dtypes and contiguity
         input = input.contiguous().float()
@@ -110,9 +108,7 @@ class EFDFunction(torch.autograd.Function):
         - grad_output: torch.Tensor, (batch_size, output_dim) gradient tensor
         """
         if not _CUDA_EXT_AVAILABLE or _efd_cuda_module is None:
-            raise RuntimeError(
-                "CUDA extension not available. Please compile efd_cuda extension."
-            )
+            raise RuntimeError("CUDA extension not available. Please compile efd_cuda extension.")
 
         # pyright: ignore[reportAttributeAccessIssue]
         input, luts = ctx.saved_tensors
@@ -123,9 +119,7 @@ class EFDFunction(torch.autograd.Function):
         grad_output = grad_output.contiguous().float()
 
         # Call CUDA backward kernel with alpha and beta
-        grad_input, grad_luts = _efd_cuda_module.backward(
-            input, luts, grad_output, alpha, beta
-        )
+        grad_input, grad_luts = _efd_cuda_module.backward(input, luts, grad_output, alpha, beta)
 
         # Return gradients (None for alpha, beta)
         return grad_input, grad_luts, None, None
@@ -352,9 +346,7 @@ class DWNNode(BaseNode):
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
         use_cuda: bool = True,
-        regularizers: Optional[
-            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
-        ] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
         alpha: Optional[float] = None,
         beta: Optional[float] = None,
         clamp_luts: bool = True,
@@ -379,9 +371,7 @@ class DWNNode(BaseNode):
         if init_kwargs is None:
             init_kwargs = {}
         else:
-            init_kwargs = (
-                init_kwargs.copy()
-            )  # Make a copy to avoid modifying the original
+            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
 
         # Add input_dim to init_kwargs if not already present (needed for residual_init)
         if "input_dim" not in init_kwargs:
@@ -476,9 +466,7 @@ class DWNNode(BaseNode):
         x_binary = x.float()
 
         # Compute LUT indices from binary inputs
-        powers = 2 ** torch.arange(
-            self.num_inputs, device=x.device, dtype=torch.float32
-        )
+        powers = 2 ** torch.arange(self.num_inputs, device=x.device, dtype=torch.float32)
         indices = (x_binary * powers).sum(dim=-1).long()  # (batch_size,)
 
         # Look up LUT values: luts is (output_dim, lut_size)
@@ -491,9 +479,7 @@ class DWNNode(BaseNode):
 
         return output
 
-    def forward_with_mapping(
-        self, x: torch.Tensor, mapping_indices: torch.Tensor
-    ) -> torch.Tensor:
+    def forward_with_mapping(self, x: torch.Tensor, mapping_indices: torch.Tensor) -> torch.Tensor:
         """
         Fused forward pass: mapping + LUT lookup in single CUDA kernel.
         Avoids materializing mapped_inputs tensor, saving massive memory.

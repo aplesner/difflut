@@ -24,9 +24,7 @@ class LinearLUTNode(BaseNode):
         output_dim: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[
-            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
-        ] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
     ) -> None:
         """
         Linear LUT Node with differentiable training and hard decisions for eval.
@@ -42,9 +40,7 @@ class LinearLUTNode(BaseNode):
         if init_kwargs is None:
             init_kwargs = {}
         else:
-            init_kwargs = (
-                init_kwargs.copy()
-            )  # Make a copy to avoid modifying the original
+            init_kwargs = init_kwargs.copy()  # Make a copy to avoid modifying the original
 
         # Add input_dim to init_kwargs if not already present (needed for residual_init)
         if "input_dim" not in init_kwargs:
@@ -62,9 +58,7 @@ class LinearLUTNode(BaseNode):
 
         # Initialize weights
         # Shape: (input_dim, output_dim)
-        self.weights = nn.Parameter(
-            torch.randn(self.num_inputs, self.num_outputs) * 0.1
-        )
+        self.weights = nn.Parameter(torch.randn(self.num_inputs, self.num_outputs) * 0.1)
 
         # Initialize bias (needed for residual initialization to work properly)
         # Shape: (output_dim,)

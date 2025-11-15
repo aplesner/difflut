@@ -97,10 +97,7 @@ class LayerConfig:
             )
 
         # Validate grad_target_std
-        if (
-            not isinstance(self.grad_target_std, (int, float))
-            or self.grad_target_std <= 0
-        ):
+        if not isinstance(self.grad_target_std, (int, float)) or self.grad_target_std <= 0:
             raise ValueError(
                 f"grad_target_std must be a positive number, got {self.grad_target_std}. "
                 f"Example: grad_target_std=1.0 for unit variance"

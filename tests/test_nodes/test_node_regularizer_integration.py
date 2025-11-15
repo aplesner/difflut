@@ -5,8 +5,7 @@ Tests that each node type works with each registered regularizer.
 
 import pytest
 import torch
-from testing_utils import (IgnoreWarnings, generate_uniform_input,
-                           instantiate_node)
+from testing_utils import IgnoreWarnings, generate_uniform_input, instantiate_node
 
 from difflut.registry import REGISTRY
 
@@ -55,14 +54,10 @@ def test_node_with_regularizer(node_name, reg_name, device):
         )
         assert not torch.isnan(
             output
-        ).any(), (
-            f"Node '{node_name}' with regularizer '{reg_name}' produced NaN outputs"
-        )
+        ).any(), f"Node '{node_name}' with regularizer '{reg_name}' produced NaN outputs"
         assert not torch.isinf(
             output
-        ).any(), (
-            f"Node '{node_name}' with regularizer '{reg_name}' produced Inf outputs"
-        )
+        ).any(), f"Node '{node_name}' with regularizer '{reg_name}' produced Inf outputs"
 
         # Test that regularizer can be computed
         try:

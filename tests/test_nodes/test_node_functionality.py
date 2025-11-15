@@ -7,10 +7,16 @@ Uses pytest parametrization for individual test discovery.
 
 import pytest
 import torch
-from testing_utils import (CPU_GPU_ATOL, CPU_GPU_RTOL, IgnoreWarnings,
-                           assert_gradients_exist, assert_range,
-                           assert_shape_equal, generate_uniform_input,
-                           instantiate_node)
+from testing_utils import (
+    CPU_GPU_ATOL,
+    CPU_GPU_RTOL,
+    IgnoreWarnings,
+    assert_gradients_exist,
+    assert_range,
+    assert_shape_equal,
+    generate_uniform_input,
+    instantiate_node,
+)
 
 from difflut.registry import REGISTRY
 
@@ -40,9 +46,7 @@ class TestNodeForwardPass:
         input_dim = _get_input_dim_for_node(node_name)
 
         with IgnoreWarnings():
-            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(
-                device
-            )
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(device)
 
         # Input shape: (batch_size, input_dim)
         batch_size = 8
@@ -61,23 +65,19 @@ class TestNodeForwardPass:
         input_dim = _get_input_dim_for_node(node_name)
 
         with IgnoreWarnings():
-            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(
-                device
-            )
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(device)
         node.eval()
 
         # Test multiple random inputs
         for seed in [42, 123, 456]:
-            input_tensor = generate_uniform_input(
-                (8, input_dim), seed=seed, device=device
-            )
+            input_tensor = generate_uniform_input((8, input_dim), seed=seed, device=device)
             with torch.no_grad():
                 output = node(input_tensor)
 
             assert_range(output, 0.0, 1.0)
 
     @pytest.mark.gpu
-    def test_cpu_gpu_consistency(self, node_name):
+    def test_cpu_gpu_consistency(self, node_name, device):
         """Test 1.3: CPU and GPU implementations give same forward pass results."""
         node_class = REGISTRY.get_node(node_name)
         input_dim = _get_input_dim_for_node(node_name)
@@ -93,9 +93,7 @@ class TestNodeForwardPass:
         torch.manual_seed(42)
 
         with IgnoreWarnings():
-            node_gpu = instantiate_node(
-                node_class, input_dim=input_dim, output_dim=2
-            ).cuda()
+            node_gpu = instantiate_node(node_class, input_dim=input_dim, output_dim=2).cuda()
 
         # Copy parameters from CPU to GPU (in case there are differences from device transfer)
         node_gpu.load_state_dict(node_cpu.state_dict())
@@ -112,9 +110,7 @@ class TestNodeForwardPass:
             output_gpu = node_gpu(input_gpu).cpu()
 
         try:
-            torch.testing.assert_close(
-                output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL
-            )
+            torch.testing.assert_close(output_cpu, output_gpu, atol=CPU_GPU_ATOL, rtol=CPU_GPU_RTOL)
         except AssertionError as e:
             pytest.fail(f"CPU/GPU outputs differ for {node_name}: {e}")
 
@@ -124,9 +120,7 @@ class TestNodeForwardPass:
         input_dim = _get_input_dim_for_node(node_name)
 
         with IgnoreWarnings():
-            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(
-                device
-            )
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=2).to(device)
 
         node.train()
         input_tensor = generate_uniform_input((8, input_dim), seed=42, device=device)
@@ -185,14 +179,12 @@ def test_node_different_dimensions(node_name, device):
 
     for batch_size, input_dim, output_dim in test_configs:
         with IgnoreWarnings():
-            node = instantiate_node(
-                node_class, input_dim=input_dim, output_dim=output_dim
-            ).to(device)
+            node = instantiate_node(node_class, input_dim=input_dim, output_dim=output_dim).to(
+                device
+            )
         node.eval()
 
-        input_tensor = generate_uniform_input(
-            (batch_size, input_dim), seed=42, device=device
-        )
+        input_tensor = generate_uniform_input((batch_size, input_dim), seed=42, device=device)
 
         with torch.no_grad():
             output = node(input_tensor)

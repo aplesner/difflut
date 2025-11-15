@@ -53,9 +53,7 @@ class DiffLogicNode(BaseNode):
         output_dim: Optional[int] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
-        regularizers: Optional[
-            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
-        ] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
         eval_mode: str = DEFAULT_DIFFLOGIC_EVAL_MODE,
     ) -> None:
         """
@@ -174,9 +172,7 @@ class DiffLogicNode(BaseNode):
         probs = torch.softmax(self.weights, dim=-1)
 
         # Initialize output
-        output = torch.zeros(
-            batch_size, self.output_dim, device=x.device, dtype=x.dtype
-        )
+        output = torch.zeros(batch_size, self.output_dim, device=x.device, dtype=x.dtype)
 
         # For each output dimension
         for out_idx in range(self.output_dim):
@@ -214,9 +210,7 @@ class DiffLogicNode(BaseNode):
             # For each output, select the Boolean function with highest weight
             selected_funcs = torch.argmax(self.weights, dim=-1)
 
-            output = torch.zeros(
-                batch_size, self.output_dim, device=x.device, dtype=x.dtype
-            )
+            output = torch.zeros(batch_size, self.output_dim, device=x.device, dtype=x.dtype)
 
             # For each output dimension
             for out_idx in range(self.output_dim):
@@ -227,9 +221,7 @@ class DiffLogicNode(BaseNode):
 
                 # Compute output using selected Boolean function
                 func_idx = selected_funcs[out_idx].item()
-                output[:, out_idx] = self._compute_boolean_function_output(
-                    a, b, func_idx
-                )
+                output[:, out_idx] = self._compute_boolean_function_output(a, b, func_idx)
 
             return output
 

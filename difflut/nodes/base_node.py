@@ -34,9 +34,7 @@ class BaseNode(nn.Module, ABC):
         self,
         input_dim: Optional[int] = None,
         output_dim: Optional[int] = None,
-        regularizers: Optional[
-            Dict[str, Tuple[Callable, float, Dict[str, Any]]]
-        ] = None,
+        regularizers: Optional[Dict[str, Tuple[Callable, float, Dict[str, Any]]]] = None,
         init_fn: Optional[Callable[[torch.Tensor], None]] = None,
         init_kwargs: Optional[Dict[str, Any]] = None,
         **kwargs,  # Accept extra kwargs for compatibility but ignore them
@@ -259,9 +257,7 @@ class BaseNode(nn.Module, ABC):
         else:
             return self.forward_eval(x)
 
-    def forward_with_mapping(
-        self, x: torch.Tensor, mapping_indices: torch.Tensor
-    ) -> torch.Tensor:
+    def forward_with_mapping(self, x: torch.Tensor, mapping_indices: torch.Tensor) -> torch.Tensor:
         """
         Forward pass with fused mapping (memory optimization).
 
@@ -344,9 +340,7 @@ class BaseNode(nn.Module, ABC):
             Scalar tensor with regularization value (default: 0.0)
         """
         device: torch.device = (
-            next(self.parameters()).device
-            if list(self.parameters())
-            else torch.device("cpu")
+            next(self.parameters()).device if list(self.parameters()) else torch.device("cpu")
         )
         return torch.tensor(0.0, device=device)
 
@@ -361,9 +355,7 @@ class BaseNode(nn.Module, ABC):
         bitstream = []
 
         with torch.no_grad():
-            device = (
-                next(self.parameters()).device if list(self.parameters()) else "cpu"
-            )
+            device = next(self.parameters()).device if list(self.parameters()) else "cpu"
 
             for bits in itertools.product([0, 1], repeat=self.num_inputs):
                 x = torch.tensor([bits], dtype=torch.float32, device=device)
