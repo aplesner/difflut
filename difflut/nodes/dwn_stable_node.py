@@ -323,7 +323,12 @@ class DWNStableNode(BaseNode):
 
         # Use CUDA if available based on tensor device
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _CUDA_EXT_AVAILABLE:
+        # BOTH input and weights must be on CUDA for the CUDA kernel
+        if (
+            should_use_cuda_from_tensor(x)
+            and should_use_cuda_from_tensor(self.raw_luts)
+            and _CUDA_EXT_AVAILABLE
+        ):
             output = dwn_stable_forward(x, luts, self.gradient_scale.item())
         else:
             # CPU fallback

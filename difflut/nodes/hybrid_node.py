@@ -240,7 +240,12 @@ def hybrid_forward(
     """
     # Use CUDA if available based on tensor device
     # Device determines kernel selection, not config parameters
-    if should_use_cuda_from_tensor(input) and _HYBRID_CUDA_EXT_AVAILABLE:
+    # BOTH input and luts must be on CUDA for the CUDA kernel
+    if (
+        should_use_cuda_from_tensor(input)
+        and should_use_cuda_from_tensor(luts)
+        and _HYBRID_CUDA_EXT_AVAILABLE
+    ):
         return HybridFunction.apply(input, luts, binary_combinations)
     else:
         # CPU fallback

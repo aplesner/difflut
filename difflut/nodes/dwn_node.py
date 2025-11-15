@@ -443,7 +443,12 @@ class DWNNode(BaseNode):
 
         # Use CUDA if available and tensor is on CUDA device
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _CUDA_EXT_AVAILABLE:
+        # BOTH input and weights must be on CUDA for the CUDA kernel
+        if (
+            should_use_cuda_from_tensor(x)
+            and should_use_cuda_from_tensor(self.luts)
+            and _CUDA_EXT_AVAILABLE
+        ):
             output = efd_forward(x, self.luts, self.alpha.item(), self.beta.item())
         else:
             # CPU fallback
@@ -504,7 +509,12 @@ class DWNNode(BaseNode):
 
         # Use fused CUDA kernel if available based on tensor device
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _FUSED_CUDA_EXT_AVAILABLE:
+        # BOTH input and weights must be on CUDA for the CUDA kernel
+        if (
+            should_use_cuda_from_tensor(x)
+            and should_use_cuda_from_tensor(self.luts)
+            and _FUSED_CUDA_EXT_AVAILABLE
+        ):
             # Prepare LUTs in the shape expected by fused kernel: (layer_size, output_dim, lut_size)
             # Current LUTs shape: (output_dim, lut_size)
             # Need to expand/repeat for each node in the layer

@@ -1,7 +1,7 @@
 model_type: feedforward
 seed: 42
 layer_type: random
-node_type: fourier
+node_type: dwn
 encoder_config:
   name: distributive_thermometer
   num_bits: 3

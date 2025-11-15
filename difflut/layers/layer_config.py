@@ -120,6 +120,21 @@ class LayerConfig:
             grad_epsilon=self.grad_epsilon,
         )
 
+    def to_dict(self) -> dict:
+        """
+        Convert configuration to dictionary.
+
+        Returns:
+            Dictionary representation of the configuration
+        """
+        return {
+            "flip_probability": self.flip_probability,
+            "grad_stabilization": self.grad_stabilization,
+            "grad_target_std": self.grad_target_std,
+            "grad_subtract_mean": self.grad_subtract_mean,
+            "grad_epsilon": self.grad_epsilon,
+        }
+
     def __repr__(self) -> str:
         """String representation showing all parameters."""
         params = []

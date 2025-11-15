@@ -404,7 +404,12 @@ class FourierNode(BaseNode):
 
         # Use CUDA-accelerated forward if available based on tensor device
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _FOURIER_CUDA_EXT_AVAILABLE:
+        # BOTH input and weights must be on CUDA for the CUDA kernel
+        if (
+            should_use_cuda_from_tensor(x)
+            and should_use_cuda_from_tensor(self.amplitudes)
+            and _FOURIER_CUDA_EXT_AVAILABLE
+        ):
             output = fourier_forward(
                 x,
                 self.frequencies,
@@ -434,7 +439,12 @@ class FourierNode(BaseNode):
 
         # Use CUDA-accelerated forward_eval if available based on tensor device
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _FOURIER_CUDA_EXT_AVAILABLE:
+        # BOTH input and weights must be on CUDA for the CUDA kernel
+        if (
+            should_use_cuda_from_tensor(x)
+            and should_use_cuda_from_tensor(self.amplitudes)
+            and _FOURIER_CUDA_EXT_AVAILABLE
+        ):
             output = fourier_forward(
                 x,
                 self.frequencies,

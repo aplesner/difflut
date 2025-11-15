@@ -138,6 +138,9 @@ class SimpleFeedForward(BaseLUTModel):
             self.input_size = data_flat.shape[1]
             self.config.params["input_size"] = self.input_size
 
+        # Move encoder to same device as data
+        self.encoder = self.encoder.to(data.device)
+
         # Fit encoder
         print(f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}...")
         self.encoder.fit(data_flat)
@@ -148,25 +151,36 @@ class SimpleFeedForward(BaseLUTModel):
         print(f"Encoded input size: {self.encoded_input_size}")
 
         # Now build layers with correct input size
-        self._build_layers()
-
-        # Move layers to the same device as the input data
-        # This ensures GPU compatibility when model.cuda() is called before fit_encoder()
-        if data.is_cuda:
-            for layer in self.layers:
-                layer.to(data.device)
+        # Pass the data device to _build_layers to ensure layers are built on the right device
+        self._build_layers(device=data.device)
 
         self.encoder_fitted = True
 
-    def _build_layers(self):
+    def _build_layers(self, device: Optional[torch.device] = None):
         """
         Build layers after encoder is fitted.
 
         Uses the registry to get layer and node classes, properly handles
         initialization and regularization.
+
+        Args:
+            device: Device to build layers on. If None, tries to infer from model.
         """
         config = self.config
         current_size = self.encoded_input_size
+
+        # Determine the device for building layers
+        if device is None:
+            # Try encoder parameters first, then any model parameter, otherwise CPU
+            try:
+                device = next(self.encoder.parameters()).device
+            except StopIteration:
+                # Encoder has no parameters, try to get device from any model parameter
+                try:
+                    device = next(self.parameters()).device
+                except StopIteration:
+                    # No parameters at all, default to CPU
+                    device = torch.device("cpu")
 
         # Set random seed to ensure reproducibility
         # This is critical for CPU/GPU consistency since layers are built
@@ -229,8 +243,14 @@ class SimpleFeedForward(BaseLUTModel):
                 layer_config=layer_cfg,
             )
 
+            # Move layer to same device as model
+            layer = layer.to(device)
+
             self.layers.append(layer)
             current_size = layer_width
+
+        # Also move output_layer to same device
+        self.output_layer = self.output_layer.to(device)
 
         print(f"Built {len(self.layers)} layers: {layer_widths}")
 
@@ -372,9 +392,6 @@ class SimpleFeedForward(BaseLUTModel):
         batch_size = x.shape[0]
         if x.dim() > 2:
             x = x.view(batch_size, -1)
-
-        # Move encoder to same device as input
-        self.encoder.to(x.device)
 
         # Encode input
         x = self.encoder.encode(x)

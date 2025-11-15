@@ -258,7 +258,9 @@ class ProbabilisticNode(BaseNode):
     @property
     def weights(self) -> torch.Tensor:
         """Get weights with sigmoid applied (temperature scaled) in [0,1]."""
-        return torch.sigmoid(self.raw_weights / self.temperature.clamp(min=1e-6))
+        # Ensure temperature is on same device as raw_weights
+        temperature = self.temperature.to(device=self.raw_weights.device)
+        return torch.sigmoid(self.raw_weights / temperature.clamp(min=1e-6))
 
     def _binary_to_index(self, x_binary: torch.Tensor) -> torch.Tensor:
         """Convert binary vector to LUT index (LSB-first order)"""
@@ -297,10 +299,16 @@ class ProbabilisticNode(BaseNode):
 
         # Try CUDA kernel first based on tensor device
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _CUDA_EXT_AVAILABLE:
+        # BOTH input and weights must be on CUDA for the CUDA kernel
+        if (
+            should_use_cuda_from_tensor(x)
+            and should_use_cuda_from_tensor(self.raw_weights)
+            and _CUDA_EXT_AVAILABLE
+        ):
             # raw_weights shape: (2^input_dim, output_dim)
-            # self.temperature is already a tensor buffer
-            output = probabilistic_forward(x, self.raw_weights, self.temperature.item())
+            # Ensure temperature is on same device as raw_weights
+            temperature_value = self.temperature.to(device=self.raw_weights.device).item()
+            output = probabilistic_forward(x, self.raw_weights, temperature_value)
             if output is not None:
                 return output
 
@@ -341,6 +349,9 @@ class ProbabilisticNode(BaseNode):
 
         # Look up weights and threshold at 0.5 to get binary output
         weights = self.weights  # (2^input_dim, output_dim)
+
+        # Ensure indices are on same device as weights
+        indices = indices.to(device=weights.device)
 
         # Gather weights: (batch_size, output_dim)
         output = weights[indices]  # (batch_size, output_dim)

@@ -8,51 +8,18 @@ from ..layers.base_layer import LUTLayerMixin
 from ..layers.layer_config import GroupedInputConfig, LayerConfig
 from ..nodes.node_config import NodeConfig
 from ..registry import register_block
-
-
-class ConvolutionConfig:
-    """
-    Configuration for ConvolutionalBlock.
-
-    Simplified configuration - no chunking needed.
-    """
-
-    def __init__(
-        self,
-        tree_depth: int = 2,
-        in_channels: Optional[int] = None,
-        out_channels: Optional[int] = None,
-        receptive_field: Optional[Tuple[int, int]] = None,
-        stride: Optional[Tuple[int, int]] = None,
-        padding: Optional[Tuple[int, int]] = None,
-        seed: int = 42,
-        # Process patches in chunks to save memory
-        patch_chunk_size: Optional[int] = None,
-    ) -> None:
-        if receptive_field is None:
-            receptive_field = (5, 5)
-        if stride is None:
-            stride = (1, 1)
-        if padding is None:
-            padding = (0, 0)
-
-        assert in_channels is not None, "in_channels must be specified"
-        assert out_channels is not None, "out_channels must be specified"
-
-        self.tree_depth = tree_depth
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.receptive_field = receptive_field
-        self.stride = stride
-        self.padding = padding
-        self.seed = seed
-        self.patch_chunk_size = patch_chunk_size  # None = process all at once
+from .base_block import BaseLUTBlock
+from .block_config import BlockConfig
 
 
 @register_block("convolutional")
-class ConvolutionalLayer(LUTLayerMixin, nn.Module):
+class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
     """
     Simplified convolutional block using LUT-based nodes.
+
+    A composable block module that applies tree-based convolutional processing
+    using LUT nodes. It reuses the same tree weights for all spatial positions
+    (like standard convolution).
 
     Strategy:
     1. Build a tree of layers once (reusable across all spatial positions)
@@ -60,70 +27,92 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
     3. Process all patches through the same tree in parallel
     4. Reshape output back to spatial format
 
-    This is much simpler than the previous chunked implementation and reuses
-    the same tree weights for all spatial positions (like standard convolution).
+    This block can be used within larger models or as a standalone module.
     """
 
     def __init__(
         self,
-        convolution_config: ConvolutionConfig,
+        config: BlockConfig,
         node_type: Type[nn.Module],
-        node_kwargs: NodeConfig,
         layer_type: Type[nn.Module],
-        n_inputs_per_node: int = 6,
-        layer_config: Optional[LayerConfig] = None,
-        flip_probability: Optional[float] = None,
-        grad_stabilization: Optional[str] = None,
-        grad_target_std: Optional[float] = None,
-        grad_subtract_mean: Optional[bool] = None,
-        grad_epsilon: Optional[float] = None,
-        grouped_connections: bool = False,
-        ensure_full_coverage: bool = False,
     ) -> None:
         """
-        Convolutional block using LUT-based nodes with tree architecture.
+        Initialize convolutional block from BlockConfig.
 
         Parameters:
-        - convolution_config: ConvolutionConfig, Configuration for the convolutional block
+        - config: BlockConfig, Configuration for the convolutional block
         - node_type: Type[nn.Module], LUT node class to use
-        - node_kwargs: NodeConfig, Node configuration parameters
         - layer_type: Type[nn.Module], Layer class to use
-        - n_inputs_per_node: int, Number of inputs per node (default: 6)
-        - layer_config: Optional[LayerConfig], Training parameters, (default: None)
-        - flip_probability: Optional[float], Probability of flipping bits during training, (default: None)
-        - grad_stabilization: Optional[str], Gradient stabilization mode, (default: None)
-        - grad_target_std: Optional[float], Target standard deviation for gradients, (default: None)
-        - grad_subtract_mean: Optional[bool], Subtract mean during gradient stabilization, (default: None)
-        - grad_epsilon: Optional[float], Epsilon for numerical stability, (default: None)
-        - grouped_connections: bool, Use channel-aware connections, (default: False)
-        - ensure_full_coverage: bool, Ensure each input is used at least once, (default: False)
-        """
-        super().__init__()
 
-        # Initialize LUTLayerMixin for bit flip and gradient stabilization
-        self._init_lut_layer_mixin(
-            layer_config,
-            flip_probability,
-            grad_stabilization,
-            grad_target_std,
-            grad_subtract_mean,
-            grad_epsilon,
+        Required in config:
+        - in_channels: int, Number of input channels
+        - out_channels: int, Number of output channels
+        - tree_depth: int, Depth of tree architecture (default: 2)
+
+        Optional in config:
+        - receptive_field: Tuple[int, int], Size of receptive field (default: (5, 5))
+        - stride: Tuple[int, int], Stride for convolution (default: (1, 1))
+        - padding: Tuple[int, int], Padding for convolution (default: (0, 0))
+        - patch_chunk_size: Optional[int], Process patches in chunks to save memory
+        - n_inputs_per_node: int, Number of inputs per node (default: 6)
+        - flip_probability: float, Probability of flipping bits during training
+        - grad_stabilization: str, Gradient stabilization mode
+        - grad_target_std: float, Target standard deviation for gradients
+        - grad_subtract_mean: bool, Subtract mean during gradient stabilization
+        - grad_epsilon: float, Epsilon for numerical stability
+        - grouped_connections: bool, Use channel-aware connections
+        - ensure_full_coverage: bool, Ensure each input is used at least once
+        """
+        BaseLUTBlock.__init__(self, config)
+        # Don't call LUTLayerMixin.__init__ directly; it will be called via _init_lut_layer_mixin
+
+        # Validate required parameters
+        if config.in_channels is None:
+            raise ValueError("config.in_channels must be specified")
+        if config.out_channels is None:
+            raise ValueError("config.out_channels must be specified")
+
+        # Set defaults for optional parameters
+        tree_depth = config.tree_depth if config.tree_depth is not None else 2
+        receptive_field = config.receptive_field if config.receptive_field is not None else (5, 5)
+        stride = config.stride if config.stride is not None else (1, 1)
+        padding = config.padding if config.padding is not None else (0, 0)
+        n_inputs_per_node = config.n_inputs_per_node if config.n_inputs_per_node is not None else 6
+
+        # Extract training parameters from config
+        flip_probability = config.flip_probability
+        grad_stabilization = config.grad_stabilization
+        grad_target_std = config.grad_target_std
+        grad_subtract_mean = config.grad_subtract_mean
+        grad_epsilon = config.grad_epsilon
+        grouped_connections = config.grouped_connections
+        ensure_full_coverage = config.ensure_full_coverage
+
+        # Create LayerConfig from block config for LUTLayerMixin
+        layer_config = LayerConfig(
+            flip_probability=flip_probability,
+            grad_stabilization=grad_stabilization,
+            grad_target_std=grad_target_std,
+            grad_subtract_mean=grad_subtract_mean,
+            grad_epsilon=grad_epsilon,
         )
 
-        self.tree_depth = convolution_config.tree_depth
-        self.in_channels = convolution_config.in_channels
-        self.out_channels = convolution_config.out_channels
-        self.receptive_field = self._pair(convolution_config.receptive_field)
+        # Initialize LUTLayerMixin for bit flip and gradient stabilization
+        self._init_lut_layer_mixin(layer_config)
+
+        # Store block configuration
+        self.tree_depth = tree_depth
+        self.in_channels = config.in_channels
+        self.out_channels = config.out_channels
+        self.receptive_field = self._pair(receptive_field)
         self.input_size = self.in_channels * self.receptive_field[0] * self.receptive_field[1]
-        self.stride = self._pair(convolution_config.stride)
-        self.padding = self._pair(convolution_config.padding)
+        self.stride = self._pair(stride)
+        self.padding = self._pair(padding)
         self.node_type = node_type
         self.layer_type = layer_type
         self.n_inputs_per_node = n_inputs_per_node
-        self.seed = convolution_config.seed
-        self.patch_chunk_size = (
-            convolution_config.patch_chunk_size
-        )  # For memory-efficient processing
+        self.seed = config.seed
+        self.patch_chunk_size = config.patch_chunk_size
 
         # Build tree architecture: each layer reduces by factor of n_inputs_per_node
         # Example: tree_depth=2, n_inputs_per_node=6
@@ -134,6 +123,16 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
             self.n_inputs_per_node ** (self.tree_depth - i) for i in range(self.tree_depth + 1)
         ]
         self.hidden_layers = hidden_layers
+
+        # Create node configuration from block config
+        node_kwargs = (
+            NodeConfig(**config.node_kwargs)
+            if config.node_kwargs
+            else NodeConfig(
+                input_dim=n_inputs_per_node,
+                output_dim=1,
+            )
+        )
 
         # Create grouped input mapping if enabled (for channel-aware connections)
         if grouped_connections:
@@ -198,6 +197,44 @@ class ConvolutionalLayer(LUTLayerMixin, nn.Module):
         if isinstance(x, int):
             return (x, x)
         return x
+
+    def get_config_summary(self) -> dict:
+        """Get a summary of the block's configuration."""
+        return {
+            "block_type": self.config.block_type,
+            "seed": self.config.seed,
+            "in_channels": self.in_channels,
+            "out_channels": self.out_channels,
+            "receptive_field": self.receptive_field,
+            "stride": self.stride,
+            "padding": self.padding,
+            "tree_depth": self.tree_depth,
+            "n_inputs_per_node": self.n_inputs_per_node,
+        }
+
+    def get_output_shape(self, input_shape: torch.Size) -> Optional[torch.Size]:
+        """
+        Calculate output shape given input shape.
+
+        Args:
+            input_shape: Shape of input tensor (batch, channels, height, width)
+
+        Returns:
+            Output shape (batch, out_channels, out_height, out_width)
+        """
+        if len(input_shape) != 4:
+            return None
+
+        batch_size, in_channels, in_h, in_w = input_shape
+
+        if in_channels != self.in_channels:
+            return None
+
+        # Calculate output spatial dimensions
+        out_h = (in_h + 2 * self.padding[0] - self.receptive_field[0]) // self.stride[0] + 1
+        out_w = (in_w + 2 * self.padding[1] - self.receptive_field[1]) // self.stride[1] + 1
+
+        return torch.Size([batch_size, self.out_channels, out_h, out_w])
 
     def _process_patches_through_trees(self, patches):
         """

@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, Optional
 import torch
 import torch.nn as nn
 
-from ..blocks.convolutional import ConvolutionalLayer, ConvolutionConfig
+from ..blocks import BlockConfig, ConvolutionalLayer
 from ..layers.layer_config import LayerConfig
 from ..nodes.node_config import NodeConfig
 from ..registry import REGISTRY
@@ -193,6 +193,9 @@ class SimpleConvolutional(BaseLUTModel):
             # Update to actual channels from data (this is the real input dimensionality)
             self.in_channels = actual_channels
 
+        # Move encoder to same device as data
+        self.encoder = self.encoder.to(data.device)
+
         # Fit encoder
         print(f"Fitting encoder on {len(data_flat)} samples with shape {data_flat.shape}...")
         self.encoder.fit(data_flat)
@@ -203,29 +206,38 @@ class SimpleConvolutional(BaseLUTModel):
         print(f"Encoded input size: {self.encoded_input_size}")
 
         # Now build convolutional layers
-        self._build_conv_layers()
-
-        # Move layers to the same device as the input data
-        # This ensures GPU compatibility when model.cuda() is called before fit_encoder()
-        if data.is_cuda:
-            for layer in self.conv_layers:
-                layer.to(data.device)
+        # Pass the data device to _build_conv_layers to ensure layers are built on the right device
+        self._build_conv_layers(device=data.device)
 
         self.encoder_fitted = True
 
-    def _build_conv_layers(self):
+    def _build_conv_layers(self, device: Optional[torch.device] = None):
         """
         Build convolutional layers after encoder is fitted.
 
         Uses the registry to get layer and node classes, properly handles
         initialization and regularization.
+
+        Args:
+            device: Device to build layers on. If None, tries to infer from model.
         """
         config = self.config
         runtime = self.runtime
 
+        # Determine the device for building layers
+        if device is None:
+            # Try encoder parameters first, then any model parameter, otherwise CPU
+            try:
+                device = next(self.encoder.parameters()).device
+            except StopIteration:
+                # Encoder has no parameters, try to get device from any model parameter
+                try:
+                    device = next(self.parameters()).device
+                except StopIteration:
+                    # No parameters at all, default to CPU
+                    device = torch.device("cpu")
+
         # Set random seed to ensure reproducibility
-        # This is critical for CPU/GPU consistency since layers are built
-        # after model initialization (inside fit_encoder)
         if config.seed is not None:
             torch.manual_seed(config.seed)
 
@@ -281,34 +293,46 @@ class SimpleConvolutional(BaseLUTModel):
 
             node_kwargs = self._build_node_config(fan_in=fan_in, fan_out=fan_out)
 
-            # Create ConvolutionConfig
-            conv_config = ConvolutionConfig(
+            # Create BlockConfig for convolutional block
+            block_config = BlockConfig(
+                block_type="convolutional",
+                seed=config.seed + layer_idx,  # Different seed for each layer
                 tree_depth=tree_depth,
                 in_channels=in_channels,
                 out_channels=out_channels,
                 receptive_field=self.conv_kernel_size,
                 stride=self.conv_stride,
                 padding=self.conv_padding,
-                seed=config.seed + layer_idx,  # Different seed for each layer
                 patch_chunk_size=runtime.get(
                     "patch_chunk_size", 100
                 ),  # Default: 100 patches per chunk
-            )
-
-            # Create convolutional layer
-            conv_layer = ConvolutionalLayer(
-                convolution_config=conv_config,
-                node_type=node_class,
-                node_kwargs=node_kwargs,
-                layer_type=layer_class,
                 n_inputs_per_node=node_input_dim,
-                layer_config=layer_cfg,
+                node_kwargs=node_kwargs.to_dict(),
+                layer_config=layer_cfg.to_dict() if layer_cfg else {},
+                flip_probability=layer_cfg.flip_probability if layer_cfg else 0.0,
+                grad_stabilization=layer_cfg.grad_stabilization if layer_cfg else "none",
+                grad_target_std=layer_cfg.grad_target_std if layer_cfg else 1.0,
+                grad_subtract_mean=layer_cfg.grad_subtract_mean if layer_cfg else False,
+                grad_epsilon=layer_cfg.grad_epsilon if layer_cfg else 1e-8,
                 grouped_connections=runtime.get("grouped_connections", False),
                 ensure_full_coverage=runtime.get("ensure_full_coverage", False),
             )
 
+            # Create convolutional block
+            conv_layer = ConvolutionalLayer(
+                config=block_config,
+                node_type=node_class,
+                layer_type=layer_class,
+            )
+
+            # Move layer to same device as model
+            conv_layer = conv_layer.to(device)
+
             self.conv_layers.append(conv_layer)
             in_channels = out_channels
+
+        # Also move output_layer to same device
+        self.output_layer = self.output_layer.to(device)
 
         print(f"Built {len(self.conv_layers)} convolutional layers with widths {conv_layer_widths}")
 
@@ -443,9 +467,6 @@ class SimpleConvolutional(BaseLUTModel):
         height = x.shape[2]
         width = x.shape[3]
 
-        # Move encoder to same device as input
-        self.encoder.to(x.device)
-
         # Encode input: (N, C, H, W) -> (N, C*H*W) -> (N, encoded_size)
         x_flat = x.view(batch_size, -1)
         x_encoded = self.encoder.encode(x_flat)
@@ -492,13 +513,12 @@ class SimpleConvolutional(BaseLUTModel):
             x = x_encoded_padded.view(batch_size, self.in_channels, spatial_h, spatial_w)
         else:
             x = x_encoded.view(batch_size, self.in_channels, spatial_h, spatial_w)
-
         # Pass through convolutional layers
         for layer in self.conv_layers:
             x = layer(x)
 
         # Flatten output from convolutional layers to (N, features)
-        x = x.view(batch_size, -1)
+        x = x.reshape(batch_size, -1)
 
         # Final classification layer (GroupSum)
         x = self.output_layer(x)

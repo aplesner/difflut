@@ -125,7 +125,10 @@ class BaseEncoder(nn.Module, ABC):
         Returns:
             self for method chaining
         """
-        # Move all tensor attributes to device
+        # Call parent's to() method to move nn.Module parameters and buffers
+        super().to(device)
+
+        # Move any additional tensor attributes to device
         for attr_name in dir(self):
             if not attr_name.startswith("_"):
                 attr = getattr(self, attr_name)
