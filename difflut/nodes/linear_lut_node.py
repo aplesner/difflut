@@ -95,6 +95,9 @@ class LinearLUTNode(BaseNode):
         Parameters:
         - x: torch.Tensor, Input tensor of shape (batch_size, input_dim)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.weights.device)
+        
         batch_size, input_dim = x.shape
 
         # Matrix multiplication
@@ -113,6 +116,9 @@ class LinearLUTNode(BaseNode):
         Parameters:
         - x: torch.Tensor, Input tensor of shape (batch_size, input_dim)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.weights.device)
+        
         batch_size, input_dim = x.shape
 
         # Matrix multiplication

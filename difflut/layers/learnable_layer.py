@@ -7,7 +7,6 @@ import torch.nn.functional as F
 
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
-from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import warn_default_value
 from .base_layer import BaseLUTLayer
 from .layer_config import LayerConfig
@@ -238,11 +237,14 @@ class LearnableMappingModule(nn.Module):
         Training: softmax + matmul (PyTorch default, or optional CUDA kernel)
         Eval: CUDA kernel for direct lookup (faster than einsum)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.W.device)
+        
         if self.training:
             # Soft selection - training mode
             # Try CUDA kernel first if available based on tensor device
             # Device determines kernel selection, not config parameters
-            if should_use_cuda_from_tensor(x) and _LEARNABLE_MAPPING_CUDA_AVAILABLE:
+            if x.is_cuda and _LEARNABLE_MAPPING_CUDA_AVAILABLE:
                 output = learnable_mapping_soft_forward_cuda(x, self.W, self.tau)
                 if output is not None:
                     return output
@@ -259,7 +261,7 @@ class LearnableMappingModule(nn.Module):
 
             # Try CUDA kernel first based on tensor device (fastest)
             # Device determines kernel selection, not config parameters
-            if should_use_cuda_from_tensor(x) and _LEARNABLE_MAPPING_CUDA_AVAILABLE:
+            if x.is_cuda and _LEARNABLE_MAPPING_CUDA_AVAILABLE:
                 output = learnable_mapping_forward_cuda(
                     x, self._cached_hard_indices, self.input_size
                 )

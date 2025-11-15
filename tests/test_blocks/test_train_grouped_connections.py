@@ -235,47 +235,41 @@ def test_grouped_connections_learning(
         - Expected: <60% accuracy
     """
     from difflut import REGISTRY
-    from difflut.blocks import ConvolutionConfig
-    from difflut.layers import LayerConfig
+    from difflut.blocks import BlockConfig
+    from difflut.layers.layer_config import LayerConfig
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
 
     train_images, train_labels, test_images, test_labels = train_test_data
 
-    # Create layer config
-    layer_cfg = LayerConfig()
-
     in_channels = IN_CHANNELS
     out_channels = OUT_CHANNELS
 
-    # Create conv config
-    conv_config = ConvolutionConfig(
+    # Create block config
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=42,
         tree_depth=1,
         in_channels=in_channels,
         out_channels=out_channels,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=42,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        grouped_connections=use_grouped_connections,
+        ensure_full_coverage=True,
     )
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
     conv_layer_type = REGISTRY.get_block("convolutional")
 
-    # Create node config
-    node_config = NodeConfig(input_dim=6, output_dim=1)
-
     # Create convolutional layer
     conv_layer = conv_layer_type(
-        convolution_config=conv_config,
+        config=block_config,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
-        n_inputs_per_node=6,
-        layer_config=layer_cfg,
-        grouped_connections=use_grouped_connections,
-        ensure_full_coverage=True,
     )
 
     # Calculate output size after convolution
@@ -286,6 +280,7 @@ def test_grouped_connections_learning(
     )  # 32 channels, 6x6 spatial
 
     # Create feedforward layer
+    node_config = NodeConfig(input_dim=6, output_dim=1)
     feedforward_layer = layer_type(
         input_size=conv_output_size,
         output_size=50,

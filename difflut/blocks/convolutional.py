@@ -275,6 +275,10 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
         Parameters:
         - x: Input tensor of shape (batch, in_channels, height, width)
         """
+        # Ensure input is on the same device as block parameters
+        device = next(self.parameters()).device if list(self.parameters()) else "cpu"
+        x = x.to(device)
+        
         batch_size = x.shape[0]
         input_h, input_w = x.shape[2], x.shape[3]
 

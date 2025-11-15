@@ -6,7 +6,6 @@ import torch.nn as nn
 
 from ..nodes.node_config import NodeConfig
 from ..registry import register_layer
-from ..utils.cuda_utils import should_use_cuda_from_tensor
 from .base_layer import BaseLUTLayer
 from .layer_config import LayerConfig
 
@@ -265,9 +264,12 @@ class RandomLayer(BaseLUTLayer):
         Parameters:
         - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
+        # Ensure input is on the same device as mapping indices buffer
+        x = x.to(self._mapping_indices.device)
+        
         # Try CUDA kernel first based on tensor device (fastest, eliminates expand + gather overhead)
         # Device determines kernel selection, not config parameters
-        if should_use_cuda_from_tensor(x) and _MAPPING_CUDA_AVAILABLE:
+        if x.is_cuda and _MAPPING_CUDA_AVAILABLE:
             # Ensure indices are on the same device as input
             indices = self._mapping_indices.to(x.device)
             mapped_inputs = mapping_forward_cuda(x, indices, self.input_size)

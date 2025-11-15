@@ -159,6 +159,9 @@ class DiffLogicNode(BaseNode):
         Parameters:
         - x: torch.Tensor, Input tensor of shape (batch_size, input_dim) with values in [0, 1]
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.weights.device)
+        
         batch_size = x.shape[0]
 
         # Compute softmax over Boolean functions for each output
@@ -192,6 +195,9 @@ class DiffLogicNode(BaseNode):
         Parameters:
         - x: torch.Tensor, Input tensor of shape (batch_size, input_dim)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.weights.device)
+        
         if self.eval_mode == "expectation":
             return self.forward_train(x)
 

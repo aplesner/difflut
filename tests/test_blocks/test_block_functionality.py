@@ -19,8 +19,8 @@ from testing_utils import (
     is_cuda_available,
 )
 
-from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
-from difflut.layers import LayerConfig
+from difflut.blocks import ConvolutionalLayer, BlockConfig
+from difflut.layers.layer_config import LayerConfig
 from difflut.nodes.node_config import NodeConfig
 from difflut.registry import REGISTRY
 
@@ -33,26 +33,23 @@ _testable_blocks = REGISTRY.list_blocks()
 
 def instantiate_block(block_class, node_type, layer_type, seed=42):
     """Instantiate a block with default configuration."""
-    conv_config = ConvolutionConfig(
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=seed,
         tree_depth=1,
         in_channels=16,
         out_channels=8,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=seed,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
     )
 
-    layer_cfg = LayerConfig()
-    node_config = NodeConfig(input_dim=6, output_dim=1)
-
     return block_class(
-        convolution_config=conv_config,
+        config=block_config,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
-        n_inputs_per_node=6,
-        layer_config=layer_cfg,
     )
 
 
@@ -213,27 +210,24 @@ def test_block_different_sizes(block_name, device):
     ]
 
     for in_channels, out_channels in test_configs:
-        conv_config = ConvolutionConfig(
+        block_config = BlockConfig(
+            block_type="convolutional",
+            seed=42,
             tree_depth=1,
             in_channels=in_channels,
             out_channels=out_channels,
-            receptive_field=3,
-            stride=1,
-            padding=0,
-            seed=42,
+            receptive_field=(3, 3),
+            stride=(1, 1),
+            padding=(0, 0),
+            n_inputs_per_node=6,
+            node_kwargs={'input_dim': 6, 'output_dim': 1},
         )
-
-        layer_cfg = LayerConfig()
-        node_config = NodeConfig(input_dim=6, output_dim=1)
 
         with IgnoreWarnings():
             block = block_class(
-                convolution_config=conv_config,
+                config=block_config,
                 node_type=node_type,
-                node_kwargs=node_config,
                 layer_type=layer_type,
-                n_inputs_per_node=6,
-                layer_config=layer_cfg,
             ).to(device)
 
         input_tensor = generate_uniform_input((2, in_channels, 16, 16), seed=42, device=device)
@@ -255,29 +249,26 @@ def test_block_grouped_connections(block_name, device):
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
 
-    conv_config = ConvolutionConfig(
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=42,
         tree_depth=1,
         in_channels=32,
         out_channels=8,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=42,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        grouped_connections=True,
+        ensure_full_coverage=True,
     )
-
-    layer_cfg = LayerConfig()
-    node_config = NodeConfig(input_dim=6, output_dim=1)
 
     with IgnoreWarnings():
         block = block_class(
-            convolution_config=conv_config,
+            config=block_config,
             node_type=node_type,
-            node_kwargs=node_config,
             layer_type=layer_type,
-            n_inputs_per_node=6,
-            layer_config=layer_cfg,
-            grouped_connections=True,
-            ensure_full_coverage=True,
         ).to(device)
 
     input_tensor = generate_uniform_input((2, 32, 16, 16), seed=42, device=device)

@@ -203,6 +203,9 @@ class NeuralLUTNode(BaseNode):
         Returns:
             Output tensor (batch_size, num_outputs)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(next(self.parameters()).device)
+        
         batch_size, input_dim = x.shape
 
         # MLP forward + sigmoid
@@ -229,6 +232,9 @@ class NeuralLUTNode(BaseNode):
         Returns:
             Output tensor (batch_size, num_outputs)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(next(self.parameters()).device)
+        
         batch_size, input_dim = x.shape
 
         # Compute same as forward_train (MLP + sigmoid)

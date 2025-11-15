@@ -146,6 +146,9 @@ class PolyLUTNode(BaseNode):
         Returns:
             Output tensor (batch_size, num_outputs)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.weights.device)
+        
         batch_size, input_dim = x.shape
 
         # Compute all monomials: (batch_size, num_monomials)
@@ -169,6 +172,9 @@ class PolyLUTNode(BaseNode):
         Returns:
             Output tensor (batch_size, num_outputs)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.weights.device)
+        
         batch_size, input_dim = x.shape
 
         # Compute all monomials: (batch_size, num_monomials)

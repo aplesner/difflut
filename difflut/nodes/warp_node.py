@@ -171,6 +171,9 @@ class WARPNode(BaseNode):
         Returns:
             Output tensor of shape (batch_size, output_dim)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.coefficients.device)
+        
         # Transform to signed basis: (batch_size, input_dim)
         x_signed = self._signed_basis_transform(x)
 
@@ -203,6 +206,9 @@ class WARPNode(BaseNode):
         Returns:
             Output tensor of shape (batch_size, output_dim) in {0, 1}
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.coefficients.device)
+        
         # Transform to signed basis: (batch_size, input_dim)
         x_signed = self._signed_basis_transform(x)
 

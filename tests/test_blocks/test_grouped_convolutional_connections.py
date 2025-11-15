@@ -27,51 +27,57 @@ warnings.filterwarnings("ignore", category=CUDAWarning)
 def test_grouped_connections_coverage(seed):
     """Test that grouped connections ensure full channel coverage across multiple seeds."""
     from difflut import REGISTRY
-    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
-    from difflut.layers import LayerConfig
+    from difflut.blocks import ConvolutionalLayer, BlockConfig
+    from difflut.layers.layer_config import LayerConfig
     from difflut.nodes.node_config import NodeConfig
 
-    conv_config = ConvolutionConfig(
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=seed,
         tree_depth=1,
         in_channels=64,
         out_channels=16,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=seed,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        grouped_connections=True,
+        ensure_full_coverage=True,
     )
-
-    layer_cfg = LayerConfig()
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
     conv_layer_type = REGISTRY.get_block("convolutional")
 
-    # Create node config
-    node_config = NodeConfig(input_dim=6, output_dim=1)
-
     # Create convolutional layer with grouped connections
     conv_layer_grouped = conv_layer_type(
-        convolution_config=conv_config,
+        config=block_config,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
+    )
+
+    # Create block config without grouped connections for comparison
+    block_config_nongrouped = BlockConfig(
+        block_type="convolutional",
+        seed=seed,
+        tree_depth=1,
+        in_channels=64,
+        out_channels=16,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
         n_inputs_per_node=6,
-        layer_config=layer_cfg,
-        grouped_connections=True,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        grouped_connections=False,
         ensure_full_coverage=True,
     )
 
     # Create convolutional layer without grouped connections
     conv_layer_nongrouped = conv_layer_type(
-        convolution_config=conv_config,
+        config=block_config_nongrouped,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
-        n_inputs_per_node=6,
-        layer_config=layer_cfg,
-        grouped_connections=False,
-        ensure_full_coverage=True,
     )
 
     # Get mapping indices from first layer of all trees (not just first tree)
@@ -121,36 +127,34 @@ def test_grouped_connections_coverage(seed):
 def test_grouped_connections_forward_pass(seed):
     """Test that grouped convolutional layers can perform forward pass."""
     from difflut import REGISTRY
-    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
-    from difflut.layers import LayerConfig
+    from difflut.blocks import ConvolutionalLayer, BlockConfig
+    from difflut.layers.layer_config import LayerConfig
     from difflut.nodes.node_config import NodeConfig
 
-    conv_config = ConvolutionConfig(
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=seed,
         tree_depth=1,
         in_channels=64,
         out_channels=16,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=seed,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        grouped_connections=True,
+        ensure_full_coverage=True,
     )
 
-    layer_cfg = LayerConfig()
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
     conv_layer_type = REGISTRY.get_block("convolutional")
-    node_config = NodeConfig(input_dim=6, output_dim=1)
 
     # Create grouped convolutional layer
     conv_layer = conv_layer_type(
-        convolution_config=conv_config,
+        config=block_config,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
-        n_inputs_per_node=6,
-        layer_config=layer_cfg,
-        grouped_connections=True,
-        ensure_full_coverage=True,
     )
 
     # Create input tensor: (batch_size, in_channels, height, width)
@@ -176,36 +180,34 @@ def test_grouped_connections_forward_pass(seed):
 def test_grouped_connections_gradient_flow(seed):
     """Test that gradients flow through grouped convolutional layers."""
     from difflut import REGISTRY
-    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
-    from difflut.layers import LayerConfig
+    from difflut.blocks import ConvolutionalLayer, BlockConfig
+    from difflut.layers.layer_config import LayerConfig
     from difflut.nodes.node_config import NodeConfig
 
-    conv_config = ConvolutionConfig(
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=seed,
         tree_depth=1,
         in_channels=32,
         out_channels=8,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=seed,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        grouped_connections=True,
+        ensure_full_coverage=True,
     )
 
-    layer_cfg = LayerConfig()
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
     conv_layer_type = REGISTRY.get_block("convolutional")
-    node_config = NodeConfig(input_dim=6, output_dim=1)
 
     # Create grouped convolutional layer
     conv_layer = conv_layer_type(
-        convolution_config=conv_config,
+        config=block_config,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
-        n_inputs_per_node=6,
-        layer_config=layer_cfg,
-        grouped_connections=True,
-        ensure_full_coverage=True,
     )
 
     # Create input tensor with requires_grad=True

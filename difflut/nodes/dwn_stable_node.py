@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
-from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import CUDAWarning, warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
@@ -318,17 +317,16 @@ class DWNStableNode(BaseNode):
         Returns:
             Output tensor (batch_size, output_dim)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.raw_luts.device)
+        
         # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
 
         # Use CUDA if available based on tensor device
         # Device determines kernel selection, not config parameters
         # BOTH input and weights must be on CUDA for the CUDA kernel
-        if (
-            should_use_cuda_from_tensor(x)
-            and should_use_cuda_from_tensor(self.raw_luts)
-            and _CUDA_EXT_AVAILABLE
-        ):
+        if x.is_cuda and self.raw_luts.is_cuda and _CUDA_EXT_AVAILABLE:
             output = dwn_stable_forward(x, luts, self.gradient_scale.item())
         else:
             # CPU fallback

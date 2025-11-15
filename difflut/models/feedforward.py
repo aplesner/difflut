@@ -388,6 +388,10 @@ class SimpleFeedForward(BaseLUTModel):
                 "Encoder must be fitted before forward pass. Call fit_encoder() first."
             )
 
+        # Ensure input is on the same device as model parameters
+        device = next(self.parameters()).device if list(self.parameters()) else "cpu"
+        x = x.to(device)
+
         # Flatten input if needed
         batch_size = x.shape[0]
         if x.dim() > 2:

@@ -5,7 +5,6 @@ import torch
 import torch.nn as nn
 
 from ..registry import register_node
-from ..utils.cuda_utils import should_use_cuda_from_tensor
 from ..utils.warnings import warn_default_value
 from .base_node import BaseNode
 from .cuda import is_cuda_available
@@ -238,12 +237,15 @@ def hybrid_forward(
     Returns:
         output: (batch_size, output_dim) tensor
     """
+    # Ensure input is on the same device as parameters
+    input = input.to(luts.device)
+    
     # Use CUDA if available based on tensor device
     # Device determines kernel selection, not config parameters
     # BOTH input and luts must be on CUDA for the CUDA kernel
     if (
-        should_use_cuda_from_tensor(input)
-        and should_use_cuda_from_tensor(luts)
+        input.is_cuda
+        and luts.is_cuda
         and _HYBRID_CUDA_EXT_AVAILABLE
     ):
         return HybridFunction.apply(input, luts, binary_combinations)
@@ -334,6 +336,9 @@ class HybridNode(BaseNode):
         Returns:
             Output tensor (batch_size, output_dim)
         """
+        # Ensure input is on the same device as parameters
+        x = x.to(self.raw_luts.device)
+        
         # Get actual LUT weights via sigmoid: (output_dim, 2^input_dim)
         luts = self._get_luts()
 

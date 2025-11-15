@@ -510,6 +510,10 @@ class BaseLUTLayer(ABC, LUTLayerMixin, nn.Module):
         Parameters:
         - x: torch.Tensor, Input tensor of shape (batch_size, input_size)
         """
+        # Ensure input is on the same device as layer parameters
+        device = next(self.parameters()).device if list(self.parameters()) else "cpu"
+        x = x.to(device)
+        
         # Validate input dimensions
         self._validate_input_dims(x)
 

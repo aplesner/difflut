@@ -165,8 +165,8 @@ def train_test_data(device):
 def test_convolutional_learning_scenarios(scenario_name, layer_config, device, train_test_data):
     """Test ConvolutionalLayer learning with different configurations."""
     from difflut import REGISTRY
-    from difflut.blocks import ConvolutionalLayer, ConvolutionConfig
-    from difflut.layers import LayerConfig
+    from difflut.blocks import ConvolutionalLayer, BlockConfig
+    from difflut.layers.layer_config import LayerConfig
     from difflut.nodes.node_config import NodeConfig
     from difflut.utils.modules import GroupSum
 
@@ -176,41 +176,38 @@ def test_convolutional_learning_scenarios(scenario_name, layer_config, device, t
 
     train_images, train_labels, test_images, test_labels = train_test_data
 
-    # Create layer config
-    if layer_config is None:
-        layer_cfg = LayerConfig()
-    else:
-        layer_cfg = LayerConfig(**layer_config)
+    # Create layer config dict
+    layer_config_dict = layer_config if layer_config is not None else {}
 
-    # Create conv config
-    conv_config = ConvolutionConfig(
+    # Create block config
+    block_config = BlockConfig(
+        block_type="convolutional",
+        seed=42,
         tree_depth=1,
         in_channels=1,
         out_channels=16,
-        receptive_field=3,
-        stride=1,
-        padding=0,
-        seed=42,
+        receptive_field=(3, 3),
+        stride=(1, 1),
+        padding=(0, 0),
+        n_inputs_per_node=6,
+        node_kwargs={'input_dim': 6, 'output_dim': 1},
+        **layer_config_dict,
     )
 
     node_type = REGISTRY.get_node("probabilistic")
     layer_type = REGISTRY.get_layer("random")
     conv_layer_type = REGISTRY.get_block("convolutional")
 
-    # Create node config
-    node_config = NodeConfig(input_dim=6, output_dim=1)
-
+    # Create convolutional block
     # Create convolutional layer
     conv_layer = conv_layer_type(
-        convolution_config=conv_config,
+        config=block_config,
         node_type=node_type,
-        node_kwargs=node_config,
         layer_type=layer_type,
-        n_inputs_per_node=6,
-        layer_config=layer_cfg,
     )
 
     # Create feedforward layer
+    node_config = NodeConfig(input_dim=6, output_dim=1)
     feedforward_layer = layer_type(
         input_size=16 * 14 * 14,
         output_size=50,
