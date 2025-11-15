@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 
 from ..blocks import BlockConfig, ConvolutionalLayer
+from ..encoder import EncoderConfig
 from ..heads import GroupSum
 from ..layers.layer_config import LayerConfig
 from ..nodes.node_config import NodeConfig
@@ -110,12 +111,22 @@ class SimpleConvolutional(BaseLUTModel):
         super().__init__(config)
 
         # Setup encoder - get from params dict
-        encoder_config = config.params.get("encoder_config", DEFAULT_ENCODER_CONFIG)
-        if encoder_config == DEFAULT_ENCODER_CONFIG:
-            warn_default_value("encoder_config", encoder_config, stacklevel=2)
+        encoder_config_data = config.params.get("encoder_config", DEFAULT_ENCODER_CONFIG)
+        if encoder_config_data == DEFAULT_ENCODER_CONFIG:
+            warn_default_value("encoder_config", encoder_config_data, stacklevel=2)
 
-        encoder_name = encoder_config.get("name", "thermometer")
-        encoder_params = {k: v for k, v in encoder_config.items() if k != "name"}
+        # Convert to EncoderConfig if needed (support both dict and EncoderConfig)
+        if isinstance(encoder_config_data, dict):
+            encoder_config = EncoderConfig.from_dict(encoder_config_data)
+        else:
+            encoder_config = encoder_config_data
+
+        encoder_name = encoder_config.name
+        encoder_params = {
+            "num_bits": encoder_config.num_bits,
+            "flatten": encoder_config.flatten,
+        }
+        encoder_params.update(encoder_config.extra_params)
 
         encoder_class = REGISTRY.get_encoder(encoder_name)
         self.encoder = encoder_class(**encoder_params)
@@ -485,6 +496,9 @@ class SimpleConvolutional(BaseLUTModel):
         # Ensure input is on the same device as model parameters
         device = next(self.parameters()).device if list(self.parameters()) else "cpu"
         x = x.to(device)
+        
+        # Ensure encoder is on the same device as input
+        self.encoder = self.encoder.to(device)
 
         # Ensure input is 4D (batch, channels, height, width)
         if x.dim() != 4:

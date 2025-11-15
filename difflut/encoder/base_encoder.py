@@ -119,7 +119,7 @@ class BaseEncoder(nn.Module, ABC):
 
     def to(self, device: Union[str, torch.device]) -> "BaseEncoder":
         """
-        Move all tensor attributes to the specified device.
+        Move the encoder and all its tensor attributes to the specified device.
 
         Args:
             device: Target device
@@ -128,14 +128,8 @@ class BaseEncoder(nn.Module, ABC):
             self for method chaining
         """
         # Call parent's to() method to move nn.Module parameters and buffers
+        # This automatically handles registered buffers like encoder thresholds
         super().to(device)
-
-        # Move any additional tensor attributes to device
-        for attr_name in dir(self):
-            if not attr_name.startswith("_"):
-                attr = getattr(self, attr_name)
-                if isinstance(attr, torch.Tensor):
-                    setattr(self, attr_name, attr.to(device))
         return self
 
     def __repr__(self) -> str:

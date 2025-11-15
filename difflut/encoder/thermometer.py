@@ -84,7 +84,9 @@ class ThermometerEncoder(BaseEncoder):
                 stacklevel=2,
             )
 
-        self.thresholds = self._compute_thresholds(x)
+        thresholds = self._compute_thresholds(x)
+        # Register thresholds as a buffer so they move with the model via .to(device)
+        self.register_buffer("thresholds", thresholds)
         self._is_fitted = True
         return self
 

@@ -43,6 +43,12 @@ def convolutional_config():
             "input_width": 8,  # Reduced from 8
             # Reduced from default [32, 64, 64] - only 4 output channels
             "conv_layer_widths": [4],
+            # Node kwargs for proper initialization
+            "node_kwargs": {
+                "input_dim": 6,
+                "output_dim": 1,
+                "eval_mode": "expectation",
+            },
         },
     )
 
@@ -59,9 +65,8 @@ class TestSimpleConvolutionalBasics:
             assert hasattr(model, "conv_layers")
             assert hasattr(model, "output_layer")
 
-    def test_encoder_fitting(self, convolutional_config):
+    def test_encoder_fitting(self, convolutional_config, device):
         """Test that encoder fitting works with spatial inputs."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config).to(device)
             # Input: (batch, channels, height, width) - reduced to 1 channel, 8x8
@@ -73,9 +78,8 @@ class TestSimpleConvolutionalBasics:
             model.fit_encoder(data)
             assert model.encoder_fitted
 
-    def test_forward_pass_classification(self, convolutional_config):
+    def test_forward_pass_classification(self, convolutional_config, device):
         """Test forward pass produces correct output shape for classification."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config).to(device)
             data = generate_uniform_input((4, 1, 8, 8)).to(device)  # Match new config
@@ -92,9 +96,8 @@ class TestSimpleConvolutionalBasics:
             assert output.shape == (2, 10)  # Fixed: batch size is 2, not 4
             assert isinstance(output, torch.Tensor)
 
-    def test_gradients_computation(self, convolutional_config):
+    def test_gradients_computation(self, convolutional_config, device):
         """Test that gradients are computed correctly."""
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         with IgnoreWarnings():
             model = SimpleConvolutional(convolutional_config).to(device)
             data = generate_uniform_input((4, 1, 8, 8)).to(device)  # Match new config
@@ -114,7 +117,7 @@ class TestSimpleConvolutionalBasics:
             assert_gradients_exist(model)
 
     @pytest.mark.gpu
-    def test_cpu_gpu_consistency(self, convolutional_config):
+    def test_cpu_gpu_consistency(self, convolutional_config, device):
         """Test that CPU and GPU give same results."""
         with IgnoreWarnings():
             # Create models with same seed before moving to device
@@ -184,6 +187,12 @@ class TestSimpleConvolutionalInputSizes:
                 "input_channels": channels,
                 "input_height": image_size,
                 "input_width": image_size,
+                # Node kwargs for proper initialization
+                "node_kwargs": {
+                    "input_dim": 6,
+                    "output_dim": 1,
+                    "eval_mode": "expectation",
+                },
             },
         )
 
@@ -230,6 +239,12 @@ class TestSimpleConvolutionalNumClasses:
                 "input_channels": 1,  # Reduced from 3
                 "input_height": 8,  # Reduced from 16
                 "input_width": 8,  # Reduced from 16
+                # Node kwargs for proper initialization
+                "node_kwargs": {
+                    "input_dim": 6,
+                    "output_dim": 1,
+                    "eval_mode": "expectation",
+                },
             },
         )
 

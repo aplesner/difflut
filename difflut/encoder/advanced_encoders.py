@@ -81,8 +81,11 @@ class GrayEncoder(BaseEncoder):
         """
         x = self._to_tensor(x)
 
-        self.min_value = x.min(dim=0)[0]
-        self.max_value = x.max(dim=0)[0]
+        min_value = x.min(dim=0)[0]
+        max_value = x.max(dim=0)[0]
+        # Register as buffers so they move with the model via .to(device)
+        self.register_buffer("min_value", min_value)
+        self.register_buffer("max_value", max_value)
 
         self._is_fitted = True
         return self
@@ -163,7 +166,7 @@ class OneHotEncoder(BaseEncoder):
         max_val = x.max(dim=0)[0]
         # Create bin edges for each feature
         # Shape: (num_features, num_bits + 1)
-        self.bin_edges = torch.stack(
+        bin_edges = torch.stack(
             [
                 torch.linspace(
                     min_val[i], max_val[i], self.num_bits + 1, device=x.device
@@ -172,6 +175,8 @@ class OneHotEncoder(BaseEncoder):
             ],
             dim=0,
         )
+        # Register bin_edges as a buffer so it moves with the model via .to(device)
+        self.register_buffer("bin_edges", bin_edges)
 
         self._is_fitted = True
         return self
@@ -251,8 +256,11 @@ class BinaryEncoder(BaseEncoder):
         """
         x = self._to_tensor(x)
 
-        self.min_value = x.min(dim=0)[0]
-        self.max_value = x.max(dim=0)[0]
+        min_value = x.min(dim=0)[0]
+        max_value = x.max(dim=0)[0]
+        # Register as buffers so they move with the model via .to(device)
+        self.register_buffer("min_value", min_value)
+        self.register_buffer("max_value", max_value)
 
         self._is_fitted = True
         return self
@@ -338,7 +346,9 @@ class SignMagnitudeEncoder(BaseEncoder):
         """
         x = self._to_tensor(x)
 
-        self.max_abs_value = x.abs().max(dim=0)[0]
+        max_abs_value = x.abs().max(dim=0)[0]
+        # Register as buffer so it moves with the model via .to(device)
+        self.register_buffer("max_abs_value", max_abs_value)
 
         self._is_fitted = True
         return self
@@ -433,15 +443,20 @@ class LogarithmicEncoder(BaseEncoder):
 
         # Add offset to make all values positive (per-feature)
         min_val = x.min(dim=0)[0]
-        self.offset = torch.where(min_val < 0, -min_val + 1, torch.zeros_like(min_val))
+        offset = torch.where(min_val < 0, -min_val + 1, torch.zeros_like(min_val))
 
-        x_shifted = x + self.offset
+        x_shifted = x + offset
 
         # Compute log range
         x_log = torch.log(x_shifted + 1e-8) / torch.log(torch.tensor(self.base))
 
-        self.min_log = x_log.min(dim=0)[0]
-        self.max_log = x_log.max(dim=0)[0]
+        min_log = x_log.min(dim=0)[0]
+        max_log = x_log.max(dim=0)[0]
+
+        # Register as buffers so they move with the model via .to(device)
+        self.register_buffer("offset", offset)
+        self.register_buffer("min_log", min_log)
+        self.register_buffer("max_log", max_log)
 
         self._is_fitted = True
         return self

@@ -4,13 +4,12 @@ import sys
 from pathlib import Path
 
 import pytest
+import torch
 
 # Add tests directory to Python path so testing_utils can be imported
 tests_dir = Path(__file__).parent
 if str(tests_dir) not in sys.path:
     sys.path.insert(0, str(tests_dir))
-
-from testing_utils import get_device, is_cuda_available
 
 
 @pytest.fixture
@@ -39,9 +38,9 @@ def device(request):
 
     if gpu_marker:
         # Test requires GPU - skip if not available
-        if not is_cuda_available():
+        if not torch.cuda.is_available():
             pytest.skip("CUDA not available")
         return "cuda"
     else:
         # Test is device-agnostic - use best available device
-        return get_device()
+        return "cuda" if torch.cuda.is_available() else "cpu"

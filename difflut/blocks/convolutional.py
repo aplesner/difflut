@@ -132,14 +132,33 @@ class ConvolutionalLayer(BaseLUTBlock, LUTLayerMixin):
         self.hidden_layers = hidden_layers
 
         # Create node configuration from block config
-        node_kwargs = (
-            NodeConfig(**config.node_kwargs)
-            if config.node_kwargs
-            else NodeConfig(
+        if config.node_kwargs:
+            # Separate standard NodeConfig parameters from extra node-specific parameters
+            node_kwargs_dict = config.node_kwargs.copy()
+            
+            # Extract standard fields
+            input_dim = node_kwargs_dict.pop("input_dim", n_inputs_per_node)
+            output_dim = node_kwargs_dict.pop("output_dim", 1)
+            regularizers = node_kwargs_dict.pop("regularizers", None)
+            init_fn = node_kwargs_dict.pop("init_fn", None)
+            init_kwargs = node_kwargs_dict.pop("init_kwargs", None)
+            
+            # Everything else goes to extra_params
+            extra_params = node_kwargs_dict
+            
+            node_kwargs = NodeConfig(
+                input_dim=input_dim,
+                output_dim=output_dim,
+                regularizers=regularizers,
+                init_fn=init_fn,
+                init_kwargs=init_kwargs,
+                extra_params=extra_params,
+            )
+        else:
+            node_kwargs = NodeConfig(
                 input_dim=n_inputs_per_node,
                 output_dim=1,
             )
-        )
 
         # Create grouped input mapping if enabled (for channel-aware connections)
         if grouped_connections:

@@ -24,7 +24,6 @@ runtime:
   grad_target_std: 1.0
   grad_subtract_mean: false
   grad_epsilon: 1.0e-08
-  temperature: 1.0
   eval_mode: expectation
   init_fn: normal
   init_kwargs:
